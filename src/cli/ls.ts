@@ -45,7 +45,7 @@ export async function runLs(): Promise<void> {
     return;
   }
 
-  console.log("Active sessions:\n");
+  console.log("⛳ Active sessions:\n");
 
   if (daemonSessions && daemonSessions.length > 0) {
     for (const s of daemonSessions) {

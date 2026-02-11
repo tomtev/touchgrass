@@ -1,7 +1,7 @@
 import type { InboundMessage } from "../../channel/types";
 import type { RouterContext } from "../command-router";
 
-const HELP_TEXT = `<b>TouchGrass</b> — touchgrass.sh
+const HELP_TEXT = `⛳ <b>touchgrass.sh</b>
 
 <b>Sessions:</b>
 Any text you send goes to the connected session.

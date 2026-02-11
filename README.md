@@ -1,10 +1,25 @@
+<<<<<<< Updated upstream
 # ⛳️ touchgrass.sh
+=======
+# ⛳ touchgrass.sh
+>>>>>>> Stashed changes
 
 Go outside. Your agents have it covered.
 
-Manage your AI coding agents (Claude Code, Codex, PI) from your phone via Telegram. Start a session, walk away, get updates, send input — all from chat.
+Manage your AI coding agents (Claude Code, Codex, PI) from your phone via Telegram by simply adding `tg` in front of your CLI command. Start a session, walk away, get updates, send input — all from chat.
 
 More channels (Discord, Slack) coming soon.
+
+## Table of contents
+
+- [Install](#install)
+- [Setup](#setup)
+- [How it works](#how-it-works)
+- [CLI commands](#cli-commands)
+- [Telegram commands](#telegram-commands)
+- [Group chats](#group-chats)
+- [Multiple sessions](#multiple-sessions)
+- [Requirements](#requirements)
 
 ## Install
 
@@ -20,7 +35,7 @@ curl -fsSL https://raw.githubusercontent.com/tomtev/touchgrass/main/install.sh |
 2. Send `/newbot` and follow the prompts
 3. Copy the bot token
 
-### 2. Configure TouchGrass
+### 2. Configure touchgrass.sh
 
 ```bash
 tg init
@@ -39,10 +54,12 @@ Send `/pair <code>` to your bot in Telegram.
 ### 4. Run an agent
 
 ```bash
-tg claude          # Start Claude Code
-tg codex           # Start Codex
-tg pi              # Start PI
-tg claude --name my-project   # Custom session name
+tg claude                                # Start Claude Code
+tg claude --dangerously-skip-permissions # Start Claude Code in auto-accept mode
+tg codex                                              # Start Codex
+tg codex --dangerously-bypass-approvals-and-sandbox   # Start Codex in auto-accept mode
+tg pi                                    # Start PI
+tg claude --name my-project              # Custom session name
 ```
 
 That's it. You'll get agent responses in Telegram and can send input back from your phone.

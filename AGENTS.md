@@ -1,10 +1,10 @@
-# TouchGrass — touchgrass.sh
+# ⛳ touchgrass.sh
 
 ## What This Project Does
 
 Manage your AI agent CLIs (Claude Code, Codex, PI) from your phone via messaging platforms. Currently supports Telegram, designed for adding Discord/Slack/WhatsApp via the `Channel` interface.
 
-CLI command: `tg` (as in TouchGrass).
+CLI command: `tg` (as in touchgrass).
 
 **Runtime:** Bun (not Node.js). **Language:** TypeScript (strict mode). **No framework** — raw HTTP, raw Telegram Bot API.
 

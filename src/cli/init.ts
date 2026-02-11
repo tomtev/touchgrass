@@ -7,7 +7,7 @@ import { paths } from "../config/paths";
 export async function runInit(): Promise<void> {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
 
-  console.log("tg init - Set up TouchGrass (touchgrass.sh)\n");
+  console.log("⛳ touchgrass.sh — Setup\n");
 
   const config = await loadConfig();
   const existingToken = getTelegramBotToken(config);
@@ -56,7 +56,7 @@ export async function runInit(): Promise<void> {
   }
   config.channels.telegram.credentials.botToken = token;
   await saveConfig(config);
-  console.log(`\nConfig saved to ${paths.config}`);
+  console.log(`\n✅ Config saved to ${paths.config}`);
 
   console.log("\nNext steps:");
   console.log("  1. tg pair      Generate a pairing code");

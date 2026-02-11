@@ -12,7 +12,7 @@ interface Check {
 }
 
 export async function runDoctor(): Promise<void> {
-  console.log("tg doctor - System health check\n");
+  console.log("⛳ touchgrass.sh — Health Check\n");
   const checks: Check[] = [];
 
   // 1. Config file
@@ -97,8 +97,8 @@ export async function runDoctor(): Promise<void> {
   // Print results
   for (const check of checks) {
     const icon =
-      check.status === "ok" ? "+" : check.status === "warn" ? "!" : "x";
-    console.log(`  [${icon}] ${check.name}: ${check.detail}`);
+      check.status === "ok" ? "✅" : check.status === "warn" ? "⚠️" : "❌";
+    console.log(`  ${icon} ${check.name}: ${check.detail}`);
   }
 
   const failures = checks.filter((c) => c.status === "fail");
@@ -106,6 +106,6 @@ export async function runDoctor(): Promise<void> {
     console.log(`\n${failures.length} issue(s) found.`);
     process.exit(1);
   } else {
-    console.log("\nAll checks passed.");
+    console.log("\n⛳ All checks passed.");
   }
 }

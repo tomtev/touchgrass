@@ -61,8 +61,8 @@ async function main() {
 }
 
 function printHelp() {
-  console.log(`TouchGrass - manage your AI agents from your phone
-https://touchgrass.sh
+  console.log(`⛳ touchgrass.sh — manage your AI agents from your phone
+   https://touchgrass.sh
 
 Usage: tg <command>
 

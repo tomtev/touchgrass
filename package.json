@@ -1,7 +1,7 @@
 {
   "name": "touchgrass",
-  "version": "0.1.0",
-  "description": "TouchGrass - manage your AI agent CLIs from your phone. touchgrass.sh",
+  "version": "0.1.1",
+  "description": "touchgrass.sh — manage your AI agent CLIs from your phone",
   "type": "module",
   "scripts": {
     "dev": "bun run src/main.ts",

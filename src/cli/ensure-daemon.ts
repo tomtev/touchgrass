@@ -7,8 +7,12 @@ import { join, dirname } from "path";
 function getCodeMtime(): number {
   try {
     const script = process.argv[1];
-    if (!script) return 0;
-    // Walk src/ directory for newest mtime
+    // For compiled binaries, use the binary's own mtime
+    if (!script || !script.endsWith(".ts")) {
+      const binPath = process.argv[0] || process.execPath;
+      return statSync(binPath).mtimeMs;
+    }
+    // For dev mode, walk src/ directory for newest mtime
     const srcDir = join(dirname(script), "..");
     return newestMtime(join(srcDir, "src"));
   } catch {
@@ -44,8 +48,12 @@ async function shutdownDaemon(): Promise<void> {
 
 async function spawnDaemon(): Promise<void> {
   const execPath = process.execPath;
-  const args = process.argv[1]
-    ? [process.argv[1], "__daemon__"]
+  // For compiled binaries, process.argv[1] is the user command (e.g. "claude"),
+  // not a script path. Only include it if it looks like a script file.
+  const scriptArg = process.argv[1];
+  const isScript = scriptArg && (scriptArg.endsWith(".ts") || scriptArg.endsWith(".js"));
+  const args = isScript
+    ? [scriptArg, "__daemon__"]
     : ["__daemon__"];
 
   const proc = Bun.spawn([execPath, ...args], {
