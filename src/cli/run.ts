@@ -62,8 +62,13 @@ function terminalPicker(title: string, options: string[], hint?: string): Promis
         // Enter — select
         cleanup();
         resolve(cursor);
-      } else if (key === "\x1b" || key === "\x03") {
-        // Escape or Ctrl-C — cancel (select last option)
+      } else if (key === "\x03") {
+        // Ctrl-C — exit
+        cleanup();
+        process.stdout.write("\n");
+        process.exit(130);
+      } else if (key === "\x1b") {
+        // Escape — skip (select last option)
         cleanup();
         resolve(options.length - 1);
       }

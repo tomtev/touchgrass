@@ -390,10 +390,9 @@ export async function startDaemon(): Promise<void> {
         const tool = remote.command.split(" ")[0];
         const status = exitCode === 0 ? "exited" : `exited with code ${exitCode ?? "unknown"}`;
         const msg = `⛳️ <b>${escapeHtml(label)}</b> [${tool}] <i>(${remote.id})</i> ${status}`;
-        primaryChannel.send(remote.chatId, msg);
-        // Notify subscribed groups
-        for (const groupChatId of sessionManager.getSubscribedGroups(sessionId)) {
-          primaryChannel.send(groupChatId, msg);
+        const boundChat = sessionManager.getBoundChat(sessionId);
+        if (boundChat) {
+          primaryChannel.send(boundChat, msg);
         }
         sessionManager.removeRemote(sessionId);
       }
@@ -410,12 +409,11 @@ export async function startDaemon(): Promise<void> {
     handleToolCall(sessionId: string, name: string, input: Record<string, unknown>): void {
       const remote = sessionManager.getRemote(sessionId);
       if (!remote) return;
+      const targetChat = sessionManager.getBoundChat(sessionId);
+      if (!targetChat) return;
       const html = formatToolCall(name, input);
       if (!html) return;
-      primaryChannel.send(remote.chatId, html);
-      for (const groupChatId of sessionManager.getSubscribedGroups(sessionId)) {
-        primaryChannel.send(groupChatId, html);
-      }
+      primaryChannel.send(targetChat, html);
 
       // Send approval poll — any tool can trigger Claude Code's permission prompt
       {
@@ -425,11 +423,11 @@ export async function startDaemon(): Promise<void> {
           || (input.url as string) || (input.description as string) || "";
         const label = detail.length > 200 ? detail.slice(0, 200) + "..." : detail;
         const question = (label ? `${name}: ${label}` : name).slice(0, 300);
-        tgChannel.sendPoll(remote.chatId, question, ["Yes", "Yes, don't ask again", "No"], false).then(
+        tgChannel.sendPoll(targetChat, question, ["Yes", "Yes, don't ask again", "No"], false).then(
           ({ pollId, messageId }) => {
             sessionManager.registerPoll(pollId, {
               sessionId,
-              chatId: remote.chatId,
+              chatId: targetChat,
               messageId,
               questionIndex: 0,
               totalQuestions: 1,
@@ -445,26 +443,22 @@ export async function startDaemon(): Promise<void> {
     handleThinking(sessionId: string, text: string): void {
       const remote = sessionManager.getRemote(sessionId);
       if (!remote) return;
-      // Truncate long thinking text
+      const targetChat = sessionManager.getBoundChat(sessionId);
+      if (!targetChat) return;
       const truncated = text.length > 1000 ? text.slice(0, 1000) + "..." : text;
       const html = `<b>Thinking</b>\n<i>${escapeHtml(truncated)}</i>`;
-      primaryChannel.send(remote.chatId, html);
-      for (const groupChatId of sessionManager.getSubscribedGroups(sessionId)) {
-        primaryChannel.send(groupChatId, html);
-      }
+      primaryChannel.send(targetChat, html);
     },
     handleToolResult(sessionId: string, toolName: string, content: string): void {
       const remote = sessionManager.getRemote(sessionId);
       if (!remote) return;
-      // Truncate to keep Telegram messages reasonable
+      const targetChat = sessionManager.getBoundChat(sessionId);
+      if (!targetChat) return;
       const maxLen = 1500;
       const truncated = content.length > maxLen ? content.slice(0, maxLen) + "\n..." : content;
       const label = toolName === "Bash" ? "Output" : `${toolName} result`;
       const html = `<b>${escapeHtml(label)}</b>\n<pre>${escapeHtml(truncated)}</pre>`;
-      primaryChannel.send(remote.chatId, html);
-      for (const groupChatId of sessionManager.getSubscribedGroups(sessionId)) {
-        primaryChannel.send(groupChatId, html);
-      }
+      primaryChannel.send(targetChat, html);
     },
     handleQuestion(sessionId: string, questions: unknown[]): void {
       const remote = sessionManager.getRemote(sessionId);
@@ -482,7 +476,8 @@ export async function startDaemon(): Promise<void> {
           multiSelect: (raw.multiSelect as boolean) || false,
         };
       });
-      sessionManager.setPendingQuestions(sessionId, parsed, remote.chatId);
+      const targetChat = sessionManager.getBoundChat(sessionId) || remote.chatId;
+      sessionManager.setPendingQuestions(sessionId, parsed, targetChat);
       sendNextPoll(sessionId);
     },
   });
