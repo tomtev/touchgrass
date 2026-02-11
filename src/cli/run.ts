@@ -245,6 +245,7 @@ function extractAskUserQuestion(msg: Record<string, unknown>): unknown[] | null 
 // - Codex: {"type":"response_item","payload":{"type":"function_call","name":"...","arguments":"JSON string","call_id":"..."}}
 //   or {"type":"response_item","payload":{"type":"custom_tool_call","name":"...","input":"..."}}
 interface ToolCallInfo {
+  id: string; // tool_use_id for matching with results
   name: string;
   input: Record<string, unknown>;
 }
@@ -266,9 +267,11 @@ function extractToolCalls(msg: Record<string, unknown>): ToolCallInfo[] {
     const calls: ToolCallInfo[] = [];
     for (const block of content) {
       if (block.type === "tool_use" && typeof block.name === "string") {
-        if (block.id) toolUseIdToName.set(block.id as string, block.name);
+        const toolId = (block.id as string) || "";
+        if (toolId) toolUseIdToName.set(toolId, block.name);
         if (block.name === "AskUserQuestion") continue; // handled by polls
         calls.push({
+          id: toolId,
           name: block.name,
           input: (block.input as Record<string, unknown>) || {},
         });
@@ -286,8 +289,10 @@ function extractToolCalls(msg: Record<string, unknown>): ToolCallInfo[] {
     const calls: ToolCallInfo[] = [];
     for (const block of content) {
       if (block.type === "toolCall" && typeof block.name === "string") {
-        if (block.id) toolUseIdToName.set(block.id as string, block.name);
+        const toolId = (block.id as string) || "";
+        if (toolId) toolUseIdToName.set(toolId, block.name);
         calls.push({
+          id: toolId,
           name: block.name,
           input: (block.arguments as Record<string, unknown>) || {},
         });
@@ -303,25 +308,25 @@ function extractToolCalls(msg: Record<string, unknown>): ToolCallInfo[] {
     if (!payload) return [];
 
     if (payload.type === "function_call" && typeof payload.name === "string") {
-      const callId = payload.call_id as string;
+      const callId = (payload.call_id as string) || "";
       if (callId) toolUseIdToName.set(callId, payload.name);
       let input: Record<string, unknown> = {};
       if (typeof payload.arguments === "string") {
         try { input = JSON.parse(payload.arguments); } catch {}
       }
       capIdMap();
-      return [{ name: payload.name, input }];
+      return [{ id: callId, name: payload.name, input }];
     }
 
     if (payload.type === "custom_tool_call" && typeof payload.name === "string") {
-      const callId = payload.call_id as string;
+      const callId = (payload.call_id as string) || "";
       if (callId) toolUseIdToName.set(callId, payload.name);
       // custom_tool_call has "input" as a string (e.g. patch content)
       const input: Record<string, unknown> = typeof payload.input === "string"
         ? { content: payload.input }
         : {};
       capIdMap();
-      return [{ name: payload.name, input }];
+      return [{ id: callId, name: payload.name, input }];
     }
   }
 
@@ -397,6 +402,30 @@ function extractToolResults(msg: Record<string, unknown>): ToolResultInfo[] {
     }
   }
 
+  return [];
+}
+
+// Extract all completed tool_use_ids from tool_result blocks (no filtering)
+function extractCompletedToolIds(msg: Record<string, unknown>): string[] {
+  if (msg.type === "user") {
+    const m = msg.message as Record<string, unknown> | undefined;
+    if (!m?.content || !Array.isArray(m.content)) return [];
+    const ids: string[] = [];
+    for (const block of m.content as Array<Record<string, unknown>>) {
+      if (block.type === "tool_result" && block.tool_use_id) ids.push(block.tool_use_id as string);
+    }
+    return ids;
+  }
+  if (msg.type === "message") {
+    const m = msg.message as Record<string, unknown> | undefined;
+    if (m?.role === "toolResult" && m.toolCallId) return [m.toolCallId as string];
+  }
+  if (msg.type === "response_item") {
+    const p = msg.payload as Record<string, unknown> | undefined;
+    if (p && (p.type === "function_call_output" || p.type === "custom_tool_call_output") && p.call_id) {
+      return [p.call_id as string];
+    }
+  }
   return [];
 }
 
@@ -494,7 +523,8 @@ function watchSessionFile(
   onToolCall?: (calls: ToolCallInfo[]) => void,
   onThinking?: (text: string) => void,
   onToolResult?: (results: ToolResultInfo[]) => void,
-  startFromEnd?: boolean
+  startFromEnd?: boolean,
+  onToolDone?: (toolUseIds: string[]) => void,
 ): FSWatcher {
   // For resumed sessions, skip existing content — only watch new writes
   let byteOffset = 0;
@@ -563,6 +593,10 @@ function watchSessionFile(
           if (onThinking) {
             const thinking = extractThinking(msg);
             if (thinking) onThinking(thinking);
+          }
+          if (onToolDone) {
+            const doneIds = extractCompletedToolIds(msg);
+            if (doneIds.length > 0) onToolDone(doneIds);
           }
         } catch {}
       }
@@ -915,13 +949,42 @@ Edit these instructions to define what the agent should do periodically.
           }
         : undefined;
 
+      // Track pending tool calls — only notify daemon if tool is still waiting after delay
+      // (i.e. Claude is waiting for permission approval)
+      const pendingApprovals = new Map<string, ReturnType<typeof setTimeout>>();
+
       const onToolCall = tgRemoteId
         ? (calls: ToolCallInfo[]) => {
             for (const call of calls) {
+              // Send tool notification immediately (no poll)
               daemonRequest(`/remote/${tgRemoteId}/tool-call`, "POST", {
                 name: call.name,
                 input: call.input,
               }).catch(() => {});
+              // Start timer — if no tool_result within 4s, tool is waiting for approval
+              if (call.id) {
+                const timer = setTimeout(() => {
+                  pendingApprovals.delete(call.id);
+                  daemonRequest(`/remote/${tgRemoteId}/approval-needed`, "POST", {
+                    name: call.name,
+                    input: call.input,
+                  }).catch(() => {});
+                }, 4000);
+                pendingApprovals.set(call.id, timer);
+              }
+            }
+          }
+        : undefined;
+
+      // Cancel pending approval timers when tool results arrive
+      const onToolDone = tgRemoteId
+        ? (toolUseIds: string[]) => {
+            for (const id of toolUseIds) {
+              const timer = pendingApprovals.get(id);
+              if (timer) {
+                clearTimeout(timer);
+                pendingApprovals.delete(id);
+              }
             }
           }
         : undefined;
@@ -962,7 +1025,7 @@ Edit these instructions to define what the agent should do periodically.
             }
           }
         }
-      }, onQuestion, onToolCall, onThinking, onToolResult, skipExisting);
+      }, onQuestion, onToolCall, onThinking, onToolResult, skipExisting, onToolDone);
       // Close directory watcher — locked to this session file
       if (watcherRef.dir) {
         watcherRef.dir.close();

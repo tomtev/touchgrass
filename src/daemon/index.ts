@@ -98,9 +98,6 @@ export async function startDaemon(): Promise<void> {
     },
   });
 
-  // --- Pending approval poll timers (cancelled if tool result arrives before timeout) ---
-  const pendingApprovalTimers = new Map<string, ReturnType<typeof setTimeout>>();
-
   // --- Poll / AskUserQuestion support ---
 
   async function sendNextPoll(sessionId: string) {
@@ -416,34 +413,33 @@ export async function startDaemon(): Promise<void> {
       const html = formatToolCall(name, input);
       if (!html) return;
       primaryChannel.send(targetChat, html);
-
-      // Delay approval poll — only send if no tool result arrives within 2s
-      // (if permissions are bypassed, the result comes immediately and we skip the poll)
-      const callId = `${sessionId}:${Date.now()}`;
-      pendingApprovalTimers.set(callId, setTimeout(() => {
-        pendingApprovalTimers.delete(callId);
-        const tgChannel = primaryChannel as TelegramChannel;
-        const detail = (input.command as string) || (input.file_path as string)
-          || (input.pattern as string) || (input.query as string)
-          || (input.url as string) || (input.description as string) || "";
-        const label = detail.length > 200 ? detail.slice(0, 200) + "..." : detail;
-        const question = (label ? `${name}: ${label}` : name).slice(0, 300);
-        tgChannel.sendPoll(targetChat, question, ["Yes", "Yes, don't ask again", "No"], false).then(
-          ({ pollId, messageId }) => {
-            sessionManager.registerPoll(pollId, {
-              sessionId,
-              chatId: targetChat,
-              messageId,
-              questionIndex: 0,
-              totalQuestions: 1,
-              multiSelect: false,
-              optionCount: 3,
-            });
-          }
-        ).catch((e) => {
-          logger.error("Failed to send tool approval poll", { sessionId, error: (e as Error).message });
-        });
-      }, 2000));
+    },
+    handleApprovalNeeded(sessionId: string, name: string, input: Record<string, unknown>): void {
+      const remote = sessionManager.getRemote(sessionId);
+      if (!remote) return;
+      const targetChat = sessionManager.getBoundChat(sessionId);
+      if (!targetChat) return;
+      const tgChannel = primaryChannel as TelegramChannel;
+      const detail = (input.command as string) || (input.file_path as string)
+        || (input.pattern as string) || (input.query as string)
+        || (input.url as string) || (input.description as string) || "";
+      const label = detail.length > 200 ? detail.slice(0, 200) + "..." : detail;
+      const question = (label ? `${name}: ${label}` : name).slice(0, 300);
+      tgChannel.sendPoll(targetChat, question, ["Yes", "Yes, don't ask again", "No"], false).then(
+        ({ pollId, messageId }) => {
+          sessionManager.registerPoll(pollId, {
+            sessionId,
+            chatId: targetChat,
+            messageId,
+            questionIndex: 0,
+            totalQuestions: 1,
+            multiSelect: false,
+            optionCount: 3,
+          });
+        }
+      ).catch((e) => {
+        logger.error("Failed to send tool approval poll", { sessionId, error: (e as Error).message });
+      });
     },
     handleThinking(sessionId: string, text: string): void {
       const remote = sessionManager.getRemote(sessionId);
@@ -459,16 +455,6 @@ export async function startDaemon(): Promise<void> {
       if (!remote) return;
       const targetChat = sessionManager.getBoundChat(sessionId);
       if (!targetChat) return;
-
-      // Tool result arrived — cancel any pending approval poll timer for this session
-      // (tool was auto-accepted, no need for a permission poll)
-      for (const [callId, timer] of pendingApprovalTimers) {
-        if (callId.startsWith(`${sessionId}:`)) {
-          clearTimeout(timer);
-          pendingApprovalTimers.delete(callId);
-        }
-      }
-
       const maxLen = 1500;
       const truncated = content.length > maxLen ? content.slice(0, maxLen) + "\n..." : content;
       const label = toolName === "Bash" ? "Output" : `${toolName} result`;

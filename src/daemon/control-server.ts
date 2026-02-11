@@ -16,6 +16,7 @@ export interface DaemonContext {
   getBoundChat: (sessionId: string) => string | null;
   handleQuestion: (sessionId: string, questions: unknown[]) => void;
   handleToolCall: (sessionId: string, name: string, input: Record<string, unknown>) => void;
+  handleApprovalNeeded: (sessionId: string, name: string, input: Record<string, unknown>) => void;
   handleThinking: (sessionId: string, text: string) => void;
   handleToolResult: (sessionId: string, toolName: string, content: string) => void;
 }
@@ -81,7 +82,7 @@ export async function startControlServer(ctx: DaemonContext): Promise<void> {
       }
 
       // Match /remote/:id/* actions
-      const remoteMatch = path.match(/^\/remote\/(r-[a-f0-9]+)\/(input|exit|subscribed-groups|question|tool-call|thinking|tool-result)$/);
+      const remoteMatch = path.match(/^\/remote\/(r-[a-f0-9]+)\/(input|exit|subscribed-groups|question|tool-call|thinking|tool-result|approval-needed)$/);
       if (remoteMatch) {
         const [, sessionId, action] = remoteMatch;
         if (action === "tool-result" && req.method === "POST") {
@@ -111,6 +112,16 @@ export async function startControlServer(ctx: DaemonContext): Promise<void> {
             return Response.json({ ok: false, error: "Missing name" }, { status: 400 });
           }
           ctx.handleToolCall(sessionId, name, input);
+          return Response.json({ ok: true });
+        }
+        if (action === "approval-needed" && req.method === "POST") {
+          const body = await readJsonBody(req);
+          const name = body.name as string;
+          const input = (body.input as Record<string, unknown>) || {};
+          if (!name) {
+            return Response.json({ ok: false, error: "Missing name" }, { status: 400 });
+          }
+          ctx.handleApprovalNeeded(sessionId, name, input);
           return Response.json({ ok: true });
         }
         if (action === "question" && req.method === "POST") {
