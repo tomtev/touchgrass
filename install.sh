@@ -16,7 +16,7 @@ success() { echo -e "  ${GREEN}$1${NC}"; }
 error() { echo -e "  ❌ ${BOLD}$1${NC}" >&2; exit 1; }
 
 EXISTING_INSTALL=false
-if command -v tg &>/dev/null; then
+if [ -x "${INSTALL_DIR}/${BINARY_NAME}" ] || command -v tg &>/dev/null; then
   EXISTING_INSTALL=true
 fi
 
