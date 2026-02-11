@@ -358,10 +358,15 @@ export async function startDaemon(): Promise<void> {
       const existingBound = sessionManager.getAttachedRemote(chatId);
       const dmBusy = !!existingBound && existingBound.id !== remote.id;
 
-      const groups = getAllLinkedGroups(config).map((g) => ({
-        chatId: g.chatId,
-        title: g.title,
-      }));
+      const groups = getAllLinkedGroups(config)
+        .filter((g) => {
+          const bound = sessionManager.getAttachedRemote(g.chatId);
+          return !bound || bound.id === remote.id;
+        })
+        .map((g) => ({
+          chatId: g.chatId,
+          title: g.title,
+        }));
 
       return { sessionId: remote.id, dmBusy, linkedGroups: groups };
     },
