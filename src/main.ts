@@ -72,9 +72,9 @@ Commands:
   pi       Run PI with chat bridge
 
 Options (for claude/codex/pi):
-  --name <name>          Custom session name
-  --heartbeat            Send periodic heartbeat to agent
-  --interval <minutes>   Heartbeat interval (default: 60)
+  --tg-name <name>       Custom session name
+  --tg-heartbeat         Send periodic heartbeat to agent
+  --tg-interval <min>    Heartbeat interval (default: 60)
   ls       List active sessions
   init     Set up bot token
   pair     Generate a pairing code

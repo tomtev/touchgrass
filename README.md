@@ -61,7 +61,7 @@ tg claude --dangerously-skip-permissions # Start Claude Code in auto-accept mode
 tg codex                                              # Start Codex
 tg codex --dangerously-bypass-approvals-and-sandbox   # Start Codex in auto-accept mode
 tg pi                                    # Start PI
-tg claude --name my-project              # Custom session name
+tg claude --tg-name my-project           # Custom session name
 ```
 
 That's it. You'll get agent responses in Telegram and can send input back from your phone.
@@ -124,10 +124,10 @@ Run multiple agents at once:
 
 ```bash
 # Terminal 1
-tg claude --name frontend
+tg claude --tg-name frontend
 
 # Terminal 2
-tg codex --name backend
+tg codex --tg-name backend
 ```
 
 In Telegram:
@@ -141,8 +141,8 @@ In Telegram:
 Automatically send a periodic message to the agent, prompting it to check a `HEARTBEAT.md` file for instructions. Great for long-running autonomous workflows.
 
 ```bash
-tg claude --heartbeat                    # Default: every 60 minutes
-tg claude --heartbeat --interval 30      # Every 30 minutes
+tg claude --tg-heartbeat                       # Default: every 60 minutes
+tg claude --tg-heartbeat --tg-interval 30      # Every 30 minutes
 ```
 
 Every interval, touchgrass.sh submits this to the agent's terminal:

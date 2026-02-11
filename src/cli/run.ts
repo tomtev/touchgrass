@@ -189,25 +189,24 @@ export async function runRun(): Promise<void> {
     process.exit(1);
   }
 
-  // Extract --name flag (consumed by tg, not passed to the tool)
+  // Extract --tg-* flags (consumed by tg, not passed to the tool)
   let sessionName: string | null = null;
-  const nameIdx = cmdArgs.indexOf("--name");
+  const nameIdx = cmdArgs.indexOf("--tg-name");
   if (nameIdx !== -1 && nameIdx + 1 < cmdArgs.length) {
     sessionName = cmdArgs[nameIdx + 1];
     cmdArgs = [...cmdArgs.slice(0, nameIdx), ...cmdArgs.slice(nameIdx + 2)];
   }
 
-  // Extract --heartbeat and --interval flags (consumed by tg)
   let heartbeatEnabled = false;
   let heartbeatInterval = 60; // minutes
 
-  const heartbeatIdx = cmdArgs.indexOf("--heartbeat");
+  const heartbeatIdx = cmdArgs.indexOf("--tg-heartbeat");
   if (heartbeatIdx !== -1) {
     heartbeatEnabled = true;
     cmdArgs = [...cmdArgs.slice(0, heartbeatIdx), ...cmdArgs.slice(heartbeatIdx + 1)];
   }
 
-  const intervalIdx = cmdArgs.indexOf("--interval");
+  const intervalIdx = cmdArgs.indexOf("--tg-interval");
   if (intervalIdx !== -1 && intervalIdx + 1 < cmdArgs.length) {
     heartbeatInterval = parseFloat(cmdArgs[intervalIdx + 1]) || 60;
     cmdArgs = [...cmdArgs.slice(0, intervalIdx), ...cmdArgs.slice(intervalIdx + 2)];
@@ -239,7 +238,7 @@ Edit these instructions to define what the agent should do periodically.
         await writeFile(heartbeatFile, template, "utf-8");
         console.log("Created HEARTBEAT.md — edit it with your instructions.");
       } else {
-        console.error("Cannot use --heartbeat without a HEARTBEAT.md file.");
+        console.error("Cannot use --tg-heartbeat without a HEARTBEAT.md file.");
         process.exit(1);
       }
     }
