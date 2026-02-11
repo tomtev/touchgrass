@@ -351,24 +351,23 @@ export async function startDaemon(): Promise<void> {
     generatePairingCode() {
       return generatePairingCode();
     },
-    registerRemote(command: string, chatId: ChannelChatId, cwd: string, name: string): { sessionId: string; dmBusy: boolean; linkedGroups: Array<{ chatId: string; title?: string }> } {
+    registerRemote(command: string, chatId: ChannelChatId, cwd: string, name: string): { sessionId: string; dmBusy: boolean; linkedGroups: Array<{ chatId: string; title?: string }>; allLinkedGroups: Array<{ chatId: string; title?: string }> } {
       cancelAutoStop();
       const remote = sessionManager.registerRemote(command, chatId, cwd, name);
 
       const existingBound = sessionManager.getAttachedRemote(chatId);
       const dmBusy = !!existingBound && existingBound.id !== remote.id;
 
-      const groups = getAllLinkedGroups(config)
-        .filter((g) => {
-          const bound = sessionManager.getAttachedRemote(g.chatId);
-          return !bound || bound.id === remote.id;
-        })
-        .map((g) => ({
-          chatId: g.chatId,
-          title: g.title,
-        }));
+      const allLinkedGroups = getAllLinkedGroups(config).map((g) => ({
+        chatId: g.chatId,
+        title: g.title,
+      }));
+      const linkedGroups = allLinkedGroups.filter((g) => {
+        const bound = sessionManager.getAttachedRemote(g.chatId);
+        return !bound || bound.id === remote.id;
+      });
 
-      return { sessionId: remote.id, dmBusy, linkedGroups: groups };
+      return { sessionId: remote.id, dmBusy, linkedGroups, allLinkedGroups };
     },
     bindChat(sessionId: string, chatId: ChannelChatId): boolean {
       const remote = sessionManager.getRemote(sessionId);
@@ -377,7 +376,7 @@ export async function startDaemon(): Promise<void> {
       sessionManager.subscribeGroup(sessionId, chatId);
       const label = remote.name || remote.cwd.split("/").pop() || remote.cwd;
       const tool = remote.command.split(" ")[0];
-      primaryChannel.send(chatId, `⛳️ <b>${escapeHtml(label)}</b> [${tool}] <i>(${remote.id})</i> started`);
+      primaryChannel.send(chatId, `⛳️ <b>${escapeHtml(label)}</b> [${tool}] started`);
       return true;
     },
     drainRemoteInput(sessionId: string): string[] {
@@ -389,7 +388,7 @@ export async function startDaemon(): Promise<void> {
         const label = remote.name || remote.cwd.split("/").pop() || remote.cwd;
         const tool = remote.command.split(" ")[0];
         const status = exitCode === 0 ? "exited" : `exited with code ${exitCode ?? "unknown"}`;
-        const msg = `⛳️ <b>${escapeHtml(label)}</b> [${tool}] <i>(${remote.id})</i> ${status}`;
+        const msg = `⛳️ <b>${escapeHtml(label)}</b> [${tool}] ${status}`;
         const boundChat = sessionManager.getBoundChat(sessionId);
         if (boundChat) {
           primaryChannel.send(boundChat, msg);

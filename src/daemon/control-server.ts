@@ -8,7 +8,7 @@ export interface DaemonContext {
   getStatus: () => Record<string, unknown>;
   shutdown: () => Promise<void>;
   generatePairingCode: () => string;
-  registerRemote: (command: string, chatId: ChannelChatId, cwd: string, name: string) => { sessionId: string; dmBusy: boolean; linkedGroups: Array<{ chatId: string; title?: string }> };
+  registerRemote: (command: string, chatId: ChannelChatId, cwd: string, name: string) => { sessionId: string; dmBusy: boolean; linkedGroups: Array<{ chatId: string; title?: string }>; allLinkedGroups: Array<{ chatId: string; title?: string }> };
   bindChat: (sessionId: string, chatId: ChannelChatId) => boolean;
   drainRemoteInput: (sessionId: string) => string[];
   endRemote: (sessionId: string, exitCode: number | null) => void;
@@ -66,7 +66,7 @@ export async function startControlServer(ctx: DaemonContext): Promise<void> {
           return Response.json({ ok: false, error: "Missing command or chatId" }, { status: 400 });
         }
         const result = ctx.registerRemote(command, chatId, cwd, name);
-        return Response.json({ ok: true, sessionId: result.sessionId, dmBusy: result.dmBusy, linkedGroups: result.linkedGroups });
+        return Response.json({ ok: true, sessionId: result.sessionId, dmBusy: result.dmBusy, linkedGroups: result.linkedGroups, allLinkedGroups: result.allLinkedGroups });
       }
 
       if (path === "/remote/bind-chat" && req.method === "POST") {

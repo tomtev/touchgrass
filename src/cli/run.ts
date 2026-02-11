@@ -12,19 +12,24 @@ import { homedir } from "os";
 import { join } from "path";
 
 // Arrow-key picker for terminal selection
-function terminalPicker(title: string, options: string[], hint?: string): Promise<number> {
+function terminalPicker(title: string, options: string[], hint?: string, disabled?: Set<number>): Promise<number> {
   return new Promise((resolve) => {
+    const dis = disabled || new Set<number>();
+    // Start cursor on first non-disabled option
     let cursor = 0;
+    while (dis.has(cursor) && cursor < options.length) cursor++;
+    if (cursor >= options.length) cursor = 0;
+
     const HIDE_CURSOR = "\x1b[?25l";
     const SHOW_CURSOR = "\x1b[?25h";
     const DIM = "\x1b[2m";
+    const STRIKETHROUGH = "\x1b[9m";
     const RESET = "\x1b[0m";
     const CYAN = "\x1b[36m";
     const BOLD = "\x1b[1m";
     const totalLines = options.length + 2 + (hint ? 2 : 0);
 
     function render() {
-      // Move to start and clear lines
       process.stdout.write(`\x1b[${totalLines}A\x1b[J`);
       draw();
     }
@@ -32,7 +37,9 @@ function terminalPicker(title: string, options: string[], hint?: string): Promis
     function draw() {
       process.stdout.write(`\n  ${BOLD}${title}${RESET}\n`);
       for (let i = 0; i < options.length; i++) {
-        if (i === cursor) {
+        if (dis.has(i)) {
+          process.stdout.write(`  ${DIM}${STRIKETHROUGH}  ${options[i]}${RESET}\n`);
+        } else if (i === cursor) {
           process.stdout.write(`  ${CYAN}❯ ${options[i]}${RESET}\n`);
         } else {
           process.stdout.write(`  ${DIM}  ${options[i]}${RESET}\n`);
@@ -40,6 +47,20 @@ function terminalPicker(title: string, options: string[], hint?: string): Promis
       }
       if (hint) {
         process.stdout.write(`\n  ${DIM}${hint}${RESET}\n`);
+      }
+    }
+
+    function moveUp() {
+      for (let i = 0; i < options.length; i++) {
+        cursor = (cursor - 1 + options.length) % options.length;
+        if (!dis.has(cursor)) return;
+      }
+    }
+
+    function moveDown() {
+      for (let i = 0; i < options.length; i++) {
+        cursor = (cursor + 1) % options.length;
+        if (!dis.has(cursor)) return;
       }
     }
 
@@ -51,26 +72,23 @@ function terminalPicker(title: string, options: string[], hint?: string): Promis
     function onData(data: Buffer) {
       const key = data.toString();
       if (key === "\x1b[A" || key === "k") {
-        // Up
-        cursor = (cursor - 1 + options.length) % options.length;
+        moveUp();
         render();
       } else if (key === "\x1b[B" || key === "j") {
-        // Down
-        cursor = (cursor + 1) % options.length;
+        moveDown();
         render();
       } else if (key === "\r" || key === "\n") {
-        // Enter — select
-        cleanup();
-        resolve(cursor);
+        if (!dis.has(cursor)) {
+          cleanup();
+          resolve(cursor);
+        }
       } else if (key === "\x03") {
-        // Ctrl-C — exit
         cleanup();
         process.stdout.write("\n");
         process.exit(130);
       } else if (key === "\x1b") {
-        // Escape — skip (select last option)
         cleanup();
-        resolve(options.length - 1);
+        resolve(-1);
       }
     }
 
@@ -665,34 +683,38 @@ Edit these instructions to define what the agent should do periodically.
           const dmBusy = res.dmBusy as boolean;
           const groups = (res.linkedGroups as Array<{ chatId: string; title?: string }>) || [];
 
-          if (groups.length > 0) {
-            // Build options: DM first, then linked groups
-            const labels = ["DM", ...groups.map((g) => g.title || g.chatId)];
+          // Build all options: DM + all linked groups (including busy from full list)
+          const allGroups = (res.allLinkedGroups as Array<{ chatId: string; title?: string }>) || groups;
+          const options: Array<{ label: string; chatId: string; busy: boolean }> = [];
+          options.push({ label: "DM", chatId: chatId!, busy: dmBusy });
+          for (const g of allGroups) {
+            const isBusy = !groups.some((av) => av.chatId === g.chatId);
+            options.push({ label: g.title || g.chatId, chatId: g.chatId, busy: isBusy });
+          }
+
+          if (options.length === 1 && !dmBusy) {
+            // Only DM, no groups — auto-bind silently
+            await daemonRequest("/remote/bind-chat", "POST", {
+              sessionId: remoteId,
+              chatId,
+            });
+          } else {
+            const labels = options.map((o) => o.busy ? `${o.label} (busy)` : o.label);
+            const disabled = new Set(options.map((o, i) => o.busy ? i : -1).filter((i) => i >= 0));
             const choice = await terminalPicker(
               "Select a chat for this session:",
               labels,
-              "Add bot to a Telegram group and send /link to add more chats"
+              "Add bot to a Telegram group and send /link to add more chats",
+              disabled
             );
-            if (choice === 0) {
-              // DM selected
-              await daemonRequest("/remote/bind-chat", "POST", {
-                sessionId: remoteId,
-                chatId,
-              });
-            } else if (choice >= 1 && choice <= groups.length) {
-              const chosen = groups[choice - 1];
+            if (choice >= 0 && choice < options.length && !options[choice].busy) {
+              const chosen = options[choice];
               chatId = chosen.chatId as ChannelChatId;
               await daemonRequest("/remote/bind-chat", "POST", {
                 sessionId: remoteId,
                 chatId: chosen.chatId,
               });
             }
-          } else {
-            // No linked groups — auto-bind to DM
-            await daemonRequest("/remote/bind-chat", "POST", {
-              sessionId: remoteId,
-              chatId,
-            });
           }
         }
       } catch {
