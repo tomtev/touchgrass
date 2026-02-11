@@ -81,6 +81,18 @@ export function getAllLinkedGroups(config: TgConfig): LinkedGroup[] {
   return groups;
 }
 
+// Update a linked group's title if it changed. Returns true if updated.
+export function updateLinkedGroupTitle(config: TgConfig, chatId: string, title: string): boolean {
+  for (const ch of Object.values(config.channels)) {
+    const group = ch.linkedGroups?.find((g) => g.chatId === chatId);
+    if (group && group.title !== title) {
+      group.title = title;
+      return true;
+    }
+  }
+  return false;
+}
+
 // Add a linked group to the first channel that matches the type
 export function addLinkedGroup(config: TgConfig, chatId: string, title?: string): boolean {
   // Determine channel type from chatId prefix

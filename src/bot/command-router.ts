@@ -3,7 +3,7 @@ import type { TgConfig } from "../config/schema";
 import type { SessionManager } from "../session/manager";
 import { isUserPaired } from "../security/allowlist";
 import { escapeHtml } from "../channels/telegram/formatter";
-import { addLinkedGroup } from "../config/schema";
+import { addLinkedGroup, updateLinkedGroupTitle } from "../config/schema";
 import { saveConfig } from "../config/store";
 import { handlePair } from "./handlers/pair";
 import { handleHelp } from "./handlers/help";
@@ -50,6 +50,13 @@ export async function routeMessage(
       "You are not paired. Use /pair &lt;code&gt; to pair."
     );
     return;
+  }
+
+  // Auto-update group title if it changed
+  if (msg.isGroup && msg.chatTitle) {
+    if (updateLinkedGroupTitle(ctx.config, chatId, msg.chatTitle)) {
+      await saveConfig(ctx.config);
+    }
   }
 
   // /sessions — list active sessions

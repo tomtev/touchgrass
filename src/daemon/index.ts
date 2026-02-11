@@ -98,6 +98,9 @@ export async function startDaemon(): Promise<void> {
     },
   });
 
+  // --- Pending approval poll timers (cancelled if tool result arrives before timeout) ---
+  const pendingApprovalTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
   // --- Poll / AskUserQuestion support ---
 
   async function sendNextPoll(sessionId: string) {
@@ -414,8 +417,11 @@ export async function startDaemon(): Promise<void> {
       if (!html) return;
       primaryChannel.send(targetChat, html);
 
-      // Send approval poll — any tool can trigger Claude Code's permission prompt
-      {
+      // Delay approval poll — only send if no tool result arrives within 2s
+      // (if permissions are bypassed, the result comes immediately and we skip the poll)
+      const callId = `${sessionId}:${Date.now()}`;
+      pendingApprovalTimers.set(callId, setTimeout(() => {
+        pendingApprovalTimers.delete(callId);
         const tgChannel = primaryChannel as TelegramChannel;
         const detail = (input.command as string) || (input.file_path as string)
           || (input.pattern as string) || (input.query as string)
@@ -437,7 +443,7 @@ export async function startDaemon(): Promise<void> {
         ).catch((e) => {
           logger.error("Failed to send tool approval poll", { sessionId, error: (e as Error).message });
         });
-      }
+      }, 2000));
     },
     handleThinking(sessionId: string, text: string): void {
       const remote = sessionManager.getRemote(sessionId);
@@ -453,6 +459,16 @@ export async function startDaemon(): Promise<void> {
       if (!remote) return;
       const targetChat = sessionManager.getBoundChat(sessionId);
       if (!targetChat) return;
+
+      // Tool result arrived — cancel any pending approval poll timer for this session
+      // (tool was auto-accepted, no need for a permission poll)
+      for (const [callId, timer] of pendingApprovalTimers) {
+        if (callId.startsWith(`${sessionId}:`)) {
+          clearTimeout(timer);
+          pendingApprovalTimers.delete(callId);
+        }
+      }
+
       const maxLen = 1500;
       const truncated = content.length > maxLen ? content.slice(0, maxLen) + "\n..." : content;
       const label = toolName === "Bash" ? "Output" : `${toolName} result`;
