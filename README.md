@@ -25,7 +25,6 @@ More channels (Discord, Slack) coming soon.
 
 ## Table of contents
 
-- [Install](#install)
 - [Setup](#setup)
 - [How it works](#how-it-works)
 - [CLI commands](#cli-commands)
@@ -35,28 +34,28 @@ More channels (Discord, Slack) coming soon.
 - [Heartbeat mode](#heartbeat-mode)
 - [Requirements](#requirements)
 
-## Install
+## Setup
+
+### 1. Install
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/tomtev/touchgrass/main/install.sh | bash
 ```
 
-## Setup
-
-### 1. Create a Telegram bot
+### 2. Create a Telegram bot
 
 1. Open Telegram and talk to [@BotFather](https://t.me/BotFather)
 2. Send `/newbot` and follow the prompts
 3. Copy the bot token
 
-### 2. Configure touchgrass.sh
+### 3. Configure touchgrass.sh
 
 ```bash
 tg init
 # Paste your bot token when prompted
 ```
 
-### 3. Pair your Telegram account
+### 4. Pair your Telegram account
 
 ```bash
 tg pair
@@ -65,7 +64,7 @@ tg pair
 
 Send `/pair <code>` to your bot in Telegram.
 
-### 4. Run an agent
+### 5. Run an agent
 
 ```bash
 tg claude                                # Start Claude Code
