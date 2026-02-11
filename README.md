@@ -1,6 +1,6 @@
 # ⛳️ touchgrass.sh
 
-Manage Claude Code, Codex, and more from your phone.
+Manage Claude Code, Codex, and more on the go.
 
 ### Quick install
 
