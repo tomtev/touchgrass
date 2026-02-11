@@ -2,6 +2,12 @@
 
 Manage Claude Code, Codex, and more from your phone.
 
+### Quick install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/tomtev/touchgrass/main/install.sh | bash
+```
+
 Add `tg` in front of any agent CLI command to bridge it to Telegram. See responses, send input, and manage sessions — all from chat. Works with Claude Code, Codex, PI, and any terminal tool.
 
 ```bash
@@ -13,10 +19,6 @@ Set up autonomous workflows with **heartbeat mode** — your agent checks a `HEA
 
 ```bash
 tg claude --tg-heartbeat --tg-interval 30    # check in every 30 minutes
-```
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/tomtev/touchgrass/main/install.sh | bash
 ```
 
 More channels (Discord, Slack) coming soon.
