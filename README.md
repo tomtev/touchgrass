@@ -15,6 +15,10 @@ Set up autonomous workflows with **heartbeat mode** — your agent checks a `HEA
 tg claude --tg-heartbeat --tg-interval 30    # check in every 30 minutes
 ```
 
+```bash
+curl -fsSL https://raw.githubusercontent.com/tomtev/touchgrass/main/install.sh | bash
+```
+
 More channels (Discord, Slack) coming soon.
 
 ## Table of contents
