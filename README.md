@@ -98,11 +98,18 @@ Two processes cooperate:
 
 ## CLI commands
 
+### Agent commands
+
 | Command | Description |
 |---------|-------------|
 | `tg claude [args]` | Run Claude Code with chat bridge |
 | `tg codex [args]` | Run Codex with chat bridge |
 | `tg pi [args]` | Run PI with chat bridge |
+
+### Tool commands
+
+| Command | Description |
+|---------|-------------|
 | `tg ls` | List active sessions |
 | `tg init` | Set up bot token |
 | `tg pair` | Generate a pairing code |
