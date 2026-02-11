@@ -63,23 +63,22 @@ export async function handleStdinInput(
     return;
   }
 
-  // 5. Single session auto-route: if exactly 1 remote, send there
+  // 5. Single session auto-route: if exactly 1 remote, send there (DMs only)
   const remotes = ctx.sessionManager.listRemotes();
-  if (remotes.length === 1) {
+  if (remotes.length === 1 && !msg.isGroup) {
     remotes[0].inputQueue.push(text);
-    maybeSubscribeGroup(remotes[0].id);
     return;
   }
 
-  // 6. Multiple sessions — ask user to set a main or reply
-  if (remotes.length > 1) {
+  // 6. Multiple sessions or group without connection — show session list
+  if (remotes.length > 0) {
     const list = remotes.map((r) => {
       const label = r.name || r.cwd.split("/").pop() || r.id;
       return `  <code>${r.id}</code> — ${label}`;
     }).join("\n");
     await ctx.channel.send(
       chatId,
-      `Multiple sessions active. Reply to a message, or set a default:\n\n${list}\n\nUse <code>/main ${remotes[0].id}</code> to set default.`
+      `${msg.isGroup ? "Use /connect to attach this group to a session" : "Multiple sessions active"}. Reply to a message, or prefix with session ID:\n\n${list}\n\nUse <code>/connect ${remotes[0].id}</code> to set default.`
     );
     return;
   }
