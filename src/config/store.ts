@@ -27,6 +27,7 @@ function migrateConfig(old: OldConfig): TgConfig {
         username: u.username,
         pairedAt: u.pairedAt,
       })),
+      linkedGroups: [],
     };
   }
 
@@ -55,6 +56,10 @@ export async function loadConfig(): Promise<TgConfig> {
     }
     // Merge with defaults in case new settings were added
     parsed.settings = { ...defaultSettings, ...parsed.settings };
+    // Ensure linkedGroups exists on all channels
+    for (const ch of Object.values(parsed.channels)) {
+      if (!ch.linkedGroups) ch.linkedGroups = [];
+    }
     cached = parsed;
     return parsed;
   } catch (e: unknown) {

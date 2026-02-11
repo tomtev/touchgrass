@@ -89,7 +89,7 @@ Your terminal                        Telegram
     |                                   |
   Daemon (auto-started)  <--------> Message router
     |                                   |
-  Session manager  <---  Input routing (reply-to, prefix, connect)
+  Session manager  <---  Input routing
 ```
 
 Two processes cooperate:
@@ -123,37 +123,55 @@ Two processes cooperate:
 | Command | Description |
 |---------|-------------|
 | `/sessions` | List active sessions |
-| `/connect <id>` | Connect chat to a session |
-| `/disconnect` | Disconnect from current session |
-| `/send <id> <text>` | Send to a specific session |
+| `/bind <id>` | Bind this chat to a session |
+| `/unbind` | Unbind from current session |
+| `/link` | Register this group with the bot |
 | `/help` | Show help |
 | `/pair <code>` | Pair with a pairing code |
 
-Any plain text you send goes to the connected session. Reply to a bot message to send input to that specific session.
+Any plain text you send goes to the bound session.
 
 ## Group chats
 
-Add the bot to a Telegram group, then use `/connect <session-id>` to subscribe the group to a session's output. All group members can see responses, but only paired users can send input.
+Use groups to run multiple sessions at once — one chat per session.
+
+1. Add the bot to a Telegram group
+2. Send `/link` to register the group with the bot
+3. When you start a new session (`tg claude`), linked groups appear in the terminal picker
+
+```
+  Select a chat for this session:
+  ❯ DM
+    My Dev Group
+    Backend Team
+
+  Add bot to a Telegram group and send /link to add more chats
+```
+
+You can also manually bind from Telegram: `/bind <session-id>` in any linked group.
+
+All group members can see responses, but only paired users can send input.
 
 **Note:** Disable "Group Privacy" in BotFather (`/setprivacy` -> Disable) so the bot can see non-command messages in groups.
 
 ## Multiple sessions
 
-Run multiple agents at once:
+Run multiple agents at once. Each session binds to a separate chat (DM or group).
 
 ```bash
-# Terminal 1
+# Terminal 1 — binds to DM
 tg claude --tg-name frontend
 
-# Terminal 2
+# Terminal 2 — picker shows DM + linked groups
 tg codex --tg-name backend
 ```
 
+When you start a second session, a terminal picker lets you choose which chat to bind it to. Link groups beforehand with `/link` to have them available as options.
+
 In Telegram:
 - `/sessions` — see all running sessions
-- `/connect r-abc123` — switch which session receives your messages
-- Reply to any bot message to send to that specific session
-- `/send r-abc123 do something` — send to a session without switching
+- `/bind <id>` — bind this chat to a session
+- `/unbind` — unbind from current session
 
 ## Heartbeat mode
 
@@ -182,6 +200,18 @@ Create a `HEARTBEAT.md` in your project directory with whatever instructions you
 ```
 
 Update `HEARTBEAT.md` any time (even from your phone via git push) and the agent picks up new instructions on the next heartbeat.
+
+## Resuming sessions
+
+To resume an existing agent session with Telegram bridging:
+
+```bash
+tg claude --resume <session-id>
+tg codex resume <session-id>
+tg pi --continue
+```
+
+**Note:** If you use `/resume` inside Claude Code (after starting with `tg claude`), the Telegram bridge stays connected to the original session. To bridge the new session, restart with `tg claude --resume <id>`.
 
 ## Requirements
 

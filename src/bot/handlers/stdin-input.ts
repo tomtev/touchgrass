@@ -1,5 +1,25 @@
 import type { InboundMessage } from "../../channel/types";
 import type { RouterContext } from "../command-router";
+import type { TelegramChannel } from "../../channels/telegram/channel";
+import type { RemoteSession } from "../../session/manager";
+
+// If a session has a pending poll, close it and push the text as a free-form "Other" answer
+function handleTextWhilePoll(remote: RemoteSession, text: string, ctx: RouterContext): boolean {
+  const activePoll = ctx.sessionManager.getActivePollForSession(remote.id);
+  if (!activePoll) return false;
+
+  // Close the active Telegram poll
+  if (ctx.channel.type === "telegram") {
+    (ctx.channel as TelegramChannel).closePoll(activePoll.poll.chatId, activePoll.poll.messageId).catch(() => {});
+  }
+  ctx.sessionManager.removePoll(activePoll.pollId);
+
+  // Push "Other" marker then the text
+  remote.inputQueue.push("\x1b[POLL_OTHER]");
+  remote.inputQueue.push(text);
+  ctx.sessionManager.clearPendingQuestions(remote.id);
+  return true;
+}
 
 export async function handleStdinInput(
   msg: InboundMessage,
@@ -16,61 +36,35 @@ export async function handleStdinInput(
     }
   };
 
-  // 1. Reply-to routing: if replying to a bot message, find which session sent it
-  if (msg.replyToRef) {
-    let sessionId = ctx.sessionManager.getSessionByMessage(msg.replyToRef);
-    if (sessionId) {
-      const remote = ctx.sessionManager.getRemote(sessionId);
-      if (remote) {
-        remote.inputQueue.push(text);
-        maybeSubscribeGroup(sessionId);
-        return;
-      }
-      const session = ctx.sessionManager.get(sessionId);
-      if (session && session.state === "running") {
-        session.writeStdin(text);
-        maybeSubscribeGroup(sessionId);
-        return;
-      }
-    }
-  }
-
-  // 2. Session prefix: "r-abc123 some text"
-  const prefixMatch = text.match(/^(r-[a-f0-9]+)\s+(.+)$/s);
-  if (prefixMatch) {
-    const [, sessionId, input] = prefixMatch;
-    const remote = ctx.sessionManager.getRemote(sessionId);
-    if (remote) {
-      remote.inputQueue.push(input);
-      maybeSubscribeGroup(sessionId);
-      return;
-    }
-  }
-
-  // 3. Check regular attached sessions
+  // 1. Check regular attached sessions
   const session = ctx.sessionManager.getAttached(chatId);
   if (session) {
+    ctx.channel.setTyping(chatId, true);
     session.writeStdin(text);
     maybeSubscribeGroup(session.id);
     return;
   }
 
-  // 4. Check attached remote sessions
+  // 2. Check attached remote sessions
   const remote = ctx.sessionManager.getAttachedRemote(chatId);
   if (remote) {
-    remote.inputQueue.push(text);
+    if (!handleTextWhilePoll(remote, text, ctx)) {
+      remote.inputQueue.push(text);
+    }
     maybeSubscribeGroup(remote.id);
     return;
   }
 
-  // 5. Single session auto-route: if exactly 1 remote, send there (DMs only)
+  // 3. Single session auto-route: if exactly 1 remote, send there (DMs only)
   const remotes = ctx.sessionManager.listRemotes();
   if (remotes.length === 1 && !msg.isGroup) {
-    remotes[0].inputQueue.push(text);
+    if (!handleTextWhilePoll(remotes[0], text, ctx)) {
+      remotes[0].inputQueue.push(text);
+    }
     return;
   }
 
-  // 6. Multiple sessions or group without connection — show session list
+  // 4. Multiple sessions or group without connection — show session list
   if (remotes.length > 0) {
     const list = remotes.map((r) => {
       const label = r.name || r.cwd.split("/").pop() || r.id;
@@ -78,7 +72,7 @@ export async function handleStdinInput(
     }).join("\n");
     await ctx.channel.send(
       chatId,
-      `${msg.isGroup ? "Use /connect to attach this group to a session" : "Multiple sessions active"}. Reply to a message, or prefix with session ID:\n\n${list}\n\nUse <code>/connect ${remotes[0].id}</code> to set default.`
+      `${msg.isGroup ? "Use /bind to attach this group to a session" : "Multiple sessions active"}. Reply to a message, or prefix with session ID:\n\n${list}\n\nUse <code>/bind ${remotes[0].id}</code> to set default.`
     );
     return;
   }

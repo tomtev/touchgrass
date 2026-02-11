@@ -69,9 +69,9 @@ User terminal                         Telegram
 | File | Purpose |
 |------|---------|
 | `src/daemon/index.ts` | Entry point — creates channels from config, wires SessionManager + router, auto-stop timer |
-| `src/daemon/control-server.ts` | Unix socket HTTP server (`~/.tg/daemon.sock`) — register/input/exit/track-message/subscribed-groups endpoints |
+| `src/daemon/control-server.ts` | Unix socket HTTP server (`~/.touchgrass/daemon.sock`) — register/input/exit/track-message/subscribed-groups endpoints |
 | `src/daemon/lifecycle.ts` | PID file, signal handlers, shutdown callbacks |
-| `src/daemon/logger.ts` | JSON logger → `~/.tg/logs/daemon.log` |
+| `src/daemon/logger.ts` | JSON logger → `~/.touchgrass/logs/daemon.log` |
 
 ### CLI
 | File | Purpose |
@@ -92,7 +92,7 @@ User terminal                         Telegram
 |------|---------|
 | `src/config/schema.ts` | `TgConfig`, `ChannelConfig`, `PairedUser`, `TgSettings`, helpers |
 | `src/config/store.ts` | Load/save config with auto-migration from old format |
-| `src/config/paths.ts` | All paths under `~/.tg/` |
+| `src/config/paths.ts` | All paths under `~/.touchgrass/` |
 | `src/security/allowlist.ts` | `isUserPaired()`, `addPairedUser()`, `removePairedUser()` — searches across all channels |
 | `src/security/rate-limiter.ts` | Brute-force protection for pairing (5 attempts/min) |
 | `src/security/pairing.ts` | SHA256-hashed single-use pairing codes (10 min expiry) |
@@ -136,13 +136,14 @@ No explicit start/stop. `ensureDaemon()` checks PID + health, forks if needed. D
 2. Session prefix: `r-abc123 some text`
 3. Connected session (regular)
 4. Connected remote session
-5. Single remote auto-route
-6. Multiple sessions: show disambiguation list
+5. Single remote auto-route (DMs only — groups always require explicit `/bind`)
+6. No connection: show session list with `/bind` instructions
 
 ### Bot Commands
 - `/sessions` — List active sessions
-- `/connect <id>` — Connect this chat/group to a session
-- `/disconnect` — Disconnect from current session
+- `/bind <id>` — Bind this chat/group to a session
+- `/unbind` — Unbind from current session
+- `/link` — Register this group with the bot (stores in config)
 - `/send <id> <text>` — Send to a specific session
 - `/help` — Show help
 - `/pair <code>` — Pair with a pairing code
@@ -180,6 +181,30 @@ Old format (`botToken` at top level, `pairedUsers[].telegramId: number`) auto-mi
 | POST | `/remote/:id/exit` | Mark remote session done (body: exitCode) |
 | POST | `/remote/:id/track-message` | Track message ref for reply routing (body: msgRef) |
 | GET | `/remote/:id/subscribed-groups` | Get group chatIds subscribed to session output |
+
+## Releasing
+
+Releases include prebuilt binaries for 4 targets. The install script (`install.sh`) downloads these from GitHub releases.
+
+### Steps
+
+1. Bump version tag: `git tag v0.X.Y`
+2. Push with tags: `git push origin main --tags`
+3. Build all 4 binaries:
+   ```bash
+   bun build src/main.ts --compile --target=bun-darwin-arm64 --outfile tg-darwin-arm64
+   bun build src/main.ts --compile --target=bun-darwin-x64 --outfile tg-darwin-x64
+   bun build src/main.ts --compile --target=bun-linux-arm64 --outfile tg-linux-arm64
+   bun build src/main.ts --compile --target=bun-linux-x64 --outfile tg-linux-x64
+   ```
+4. Create release and upload binaries:
+   ```bash
+   gh release create v0.X.Y --title "v0.X.Y" --notes "Release notes here"
+   gh release upload v0.X.Y tg-darwin-arm64 tg-darwin-x64 tg-linux-arm64 tg-linux-x64
+   ```
+5. Clean up: `rm tg-darwin-arm64 tg-darwin-x64 tg-linux-arm64 tg-linux-x64`
+
+**Important:** The release **must** have all 4 binary assets or `install.sh` will fail. Always upload binaries — don't create tag-only releases.
 
 ## Common Pitfalls
 

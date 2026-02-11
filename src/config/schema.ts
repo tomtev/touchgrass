@@ -2,12 +2,19 @@ export interface ChannelConfig {
   type: string;
   credentials: Record<string, unknown>;
   pairedUsers: PairedUser[];
+  linkedGroups: LinkedGroup[];
 }
 
 export interface PairedUser {
   userId: string; // e.g. "telegram:123456"
   username?: string;
   pairedAt: string;
+}
+
+export interface LinkedGroup {
+  chatId: string; // e.g. "telegram:-123456"
+  title?: string;
+  linkedAt: string;
 }
 
 export interface TgConfig {
@@ -63,4 +70,29 @@ export function getAllPairedUsers(config: TgConfig): PairedUser[] {
     users.push(...ch.pairedUsers);
   }
   return users;
+}
+
+// Helper to get all linked groups across all channels
+export function getAllLinkedGroups(config: TgConfig): LinkedGroup[] {
+  const groups: LinkedGroup[] = [];
+  for (const ch of Object.values(config.channels)) {
+    groups.push(...(ch.linkedGroups || []));
+  }
+  return groups;
+}
+
+// Add a linked group to the first channel that matches the type
+export function addLinkedGroup(config: TgConfig, chatId: string, title?: string): boolean {
+  // Determine channel type from chatId prefix
+  const channelType = chatId.split(":")[0]; // "telegram"
+  for (const ch of Object.values(config.channels)) {
+    if (ch.type === channelType) {
+      if (!ch.linkedGroups) ch.linkedGroups = [];
+      // Don't add duplicates
+      if (ch.linkedGroups.some((g) => g.chatId === chatId)) return false;
+      ch.linkedGroups.push({ chatId, title, linkedAt: new Date().toISOString() });
+      return true;
+    }
+  }
+  return false;
 }

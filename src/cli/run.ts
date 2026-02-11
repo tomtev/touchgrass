@@ -6,10 +6,78 @@ import { daemonRequest } from "./client";
 import { ensureDaemon } from "./ensure-daemon";
 import { markdownToHtml } from "../utils/ansi";
 import { paths, ensureDirs } from "../config/paths";
-import { watch, readdirSync, statSync, readFileSync, type FSWatcher } from "fs";
+import { watch, readdirSync, statSync, readFileSync, existsSync, type FSWatcher } from "fs";
 import { open, writeFile, unlink } from "fs/promises";
 import { homedir } from "os";
 import { join } from "path";
+
+// Arrow-key picker for terminal selection
+function terminalPicker(title: string, options: string[], hint?: string): Promise<number> {
+  return new Promise((resolve) => {
+    let cursor = 0;
+    const HIDE_CURSOR = "\x1b[?25l";
+    const SHOW_CURSOR = "\x1b[?25h";
+    const DIM = "\x1b[2m";
+    const RESET = "\x1b[0m";
+    const CYAN = "\x1b[36m";
+    const BOLD = "\x1b[1m";
+    const totalLines = options.length + 2 + (hint ? 2 : 0);
+
+    function render() {
+      // Move to start and clear lines
+      process.stdout.write(`\x1b[${totalLines}A\x1b[J`);
+      draw();
+    }
+
+    function draw() {
+      process.stdout.write(`\n  ${BOLD}${title}${RESET}\n`);
+      for (let i = 0; i < options.length; i++) {
+        if (i === cursor) {
+          process.stdout.write(`  ${CYAN}❯ ${options[i]}${RESET}\n`);
+        } else {
+          process.stdout.write(`  ${DIM}  ${options[i]}${RESET}\n`);
+        }
+      }
+      if (hint) {
+        process.stdout.write(`\n  ${DIM}${hint}${RESET}\n`);
+      }
+    }
+
+    const wasRaw = process.stdin.isRaw;
+    if (process.stdin.isTTY) process.stdin.setRawMode(true);
+    process.stdout.write(HIDE_CURSOR);
+    draw();
+
+    function onData(data: Buffer) {
+      const key = data.toString();
+      if (key === "\x1b[A" || key === "k") {
+        // Up
+        cursor = (cursor - 1 + options.length) % options.length;
+        render();
+      } else if (key === "\x1b[B" || key === "j") {
+        // Down
+        cursor = (cursor + 1) % options.length;
+        render();
+      } else if (key === "\r" || key === "\n") {
+        // Enter — select
+        cleanup();
+        resolve(cursor);
+      } else if (key === "\x1b" || key === "\x03") {
+        // Escape or Ctrl-C — cancel (select last option)
+        cleanup();
+        resolve(options.length - 1);
+      }
+    }
+
+    function cleanup() {
+      process.stdin.removeListener("data", onData);
+      if (process.stdin.isTTY) process.stdin.setRawMode(wasRaw ?? false);
+      process.stdout.write(SHOW_CURSOR);
+    }
+
+    process.stdin.on("data", onData);
+  });
+}
 
 interface SessionManifest {
   id: string;
@@ -62,7 +130,8 @@ function getSessionDir(command: string): string {
 // Extract assistant text from a JSONL line across different formats:
 // - Claude: {"type":"assistant", "message":{"content":[{"type":"text","text":"..."}]}}
 // - PI:     {"type":"message", "message":{"role":"assistant","content":[{"type":"text","text":"..."}]}}
-// - Codex:  {"type":"response_item", "payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"..."}]}}
+// - Codex:  {"type":"event_msg", "payload":{"type":"agent_message","message":"..."}}
+//   or      {"type":"response_item", "payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"..."}]}}
 function extractAssistantText(msg: Record<string, unknown>): string | null {
   // Claude format
   if (msg.type === "assistant") {
@@ -86,20 +155,310 @@ function extractAssistantText(msg: Record<string, unknown>): string | null {
     return text || null;
   }
 
-  // Codex format
-  if (msg.type === "response_item") {
+  // Codex event_msg format (primary — this is what Codex uses for display)
+  if (msg.type === "event_msg") {
     const payload = msg.payload as Record<string, unknown> | undefined;
-    if (payload?.type !== "message" || payload?.role !== "assistant") return null;
-    const content = payload.content as Array<{ type: string; text?: string }> | undefined;
-    if (!content) return null;
+    if (payload?.type === "agent_message" && typeof payload.message === "string") {
+      const text = (payload.message as string).trim();
+      return text || null;
+    }
+    return null;
+  }
+
+  return null;
+}
+
+// Extract thinking text from JSONL messages
+// - Claude: content block {"type":"thinking","thinking":"..."}
+// - PI: same format inside {"type":"message","message":{"role":"assistant",...}}
+// - Codex: {"type":"event_msg","payload":{"type":"agent_reasoning","text":"..."}}
+//   or {"type":"response_item","payload":{"type":"reasoning","summary":[{"text":"..."}]}}
+function extractThinking(msg: Record<string, unknown>): string | null {
+  // Claude & PI: assistant message with thinking content blocks
+  if (msg.type === "assistant" || msg.type === "message") {
+    const m = msg.message as Record<string, unknown> | undefined;
+    if (!m?.content || !Array.isArray(m.content)) return null;
+    if (msg.type === "message" && m.role !== "assistant") return null;
+    const content = m.content as Array<{ type: string; thinking?: string }>;
     const texts = content
-      .filter((b) => b.type === "output_text" || b.type === "text")
-      .map((b) => b.text ?? "");
+      .filter((b) => b.type === "thinking")
+      .map((b) => b.thinking ?? "");
     const text = texts.join("\n").trim();
     return text || null;
   }
 
+  // Codex: event_msg with agent_reasoning
+  if (msg.type === "event_msg") {
+    const payload = msg.payload as Record<string, unknown> | undefined;
+    if (payload?.type === "agent_reasoning" && typeof payload.text === "string") {
+      return (payload.text as string).trim() || null;
+    }
+    return null;
+  }
+
   return null;
+}
+
+// Extract AskUserQuestion tool_use from a JSONL message (Claude format)
+function extractAskUserQuestion(msg: Record<string, unknown>): unknown[] | null {
+  if (msg.type !== "assistant") return null;
+  const m = msg.message as Record<string, unknown> | undefined;
+  if (!m?.content) return null;
+  const content = m.content as Array<Record<string, unknown>>;
+  for (const block of content) {
+    if (block.type === "tool_use" && block.name === "AskUserQuestion") {
+      const input = block.input as Record<string, unknown> | undefined;
+      if (input?.questions && Array.isArray(input.questions)) {
+        return input.questions as unknown[];
+      }
+    }
+  }
+  return null;
+}
+
+// Extract tool calls from JSONL messages across all formats
+// - Claude: content block {"type":"tool_use","name":"...","input":{...},"id":"..."}
+// - PI: content block {"type":"toolCall","name":"...","arguments":{...},"id":"..."}
+// - Codex: {"type":"response_item","payload":{"type":"function_call","name":"...","arguments":"JSON string","call_id":"..."}}
+//   or {"type":"response_item","payload":{"type":"custom_tool_call","name":"...","input":"..."}}
+interface ToolCallInfo {
+  name: string;
+  input: Record<string, unknown>;
+}
+
+interface ToolResultInfo {
+  toolName: string;
+  content: string;
+}
+
+// Map tool_use_id/call_id → tool name so we can label tool_results
+const toolUseIdToName = new Map<string, string>();
+
+function extractToolCalls(msg: Record<string, unknown>): ToolCallInfo[] {
+  // Claude format: top-level type "assistant"
+  if (msg.type === "assistant") {
+    const m = msg.message as Record<string, unknown> | undefined;
+    if (!m?.content || !Array.isArray(m.content)) return [];
+    const content = m.content as Array<Record<string, unknown>>;
+    const calls: ToolCallInfo[] = [];
+    for (const block of content) {
+      if (block.type === "tool_use" && typeof block.name === "string") {
+        if (block.id) toolUseIdToName.set(block.id as string, block.name);
+        if (block.name === "AskUserQuestion") continue; // handled by polls
+        calls.push({
+          name: block.name,
+          input: (block.input as Record<string, unknown>) || {},
+        });
+      }
+    }
+    capIdMap();
+    return calls;
+  }
+
+  // PI format: top-level type "message", role "assistant", content block type "toolCall"
+  if (msg.type === "message") {
+    const m = msg.message as Record<string, unknown> | undefined;
+    if (m?.role !== "assistant" || !m?.content || !Array.isArray(m.content)) return [];
+    const content = m.content as Array<Record<string, unknown>>;
+    const calls: ToolCallInfo[] = [];
+    for (const block of content) {
+      if (block.type === "toolCall" && typeof block.name === "string") {
+        if (block.id) toolUseIdToName.set(block.id as string, block.name);
+        calls.push({
+          name: block.name,
+          input: (block.arguments as Record<string, unknown>) || {},
+        });
+      }
+    }
+    capIdMap();
+    return calls;
+  }
+
+  // Codex format: response_item with function_call or custom_tool_call payload
+  if (msg.type === "response_item") {
+    const payload = msg.payload as Record<string, unknown> | undefined;
+    if (!payload) return [];
+
+    if (payload.type === "function_call" && typeof payload.name === "string") {
+      const callId = payload.call_id as string;
+      if (callId) toolUseIdToName.set(callId, payload.name);
+      let input: Record<string, unknown> = {};
+      if (typeof payload.arguments === "string") {
+        try { input = JSON.parse(payload.arguments); } catch {}
+      }
+      capIdMap();
+      return [{ name: payload.name, input }];
+    }
+
+    if (payload.type === "custom_tool_call" && typeof payload.name === "string") {
+      const callId = payload.call_id as string;
+      if (callId) toolUseIdToName.set(callId, payload.name);
+      // custom_tool_call has "input" as a string (e.g. patch content)
+      const input: Record<string, unknown> = typeof payload.input === "string"
+        ? { content: payload.input }
+        : {};
+      capIdMap();
+      return [{ name: payload.name, input }];
+    }
+  }
+
+  return [];
+}
+
+function capIdMap() {
+  if (toolUseIdToName.size > 200) {
+    const first = toolUseIdToName.keys().next().value!;
+    toolUseIdToName.delete(first);
+  }
+}
+
+// Only forward results for tools where the output is useful to see on Telegram
+const FORWARD_RESULT_TOOLS = new Set([
+  "WebFetch", "WebSearch", "Bash",   // Claude
+  "bash",                             // PI
+  "exec_command",                     // Codex
+]);
+
+function extractToolResults(msg: Record<string, unknown>): ToolResultInfo[] {
+  // Claude format: top-level "user" with tool_result content blocks
+  if (msg.type === "user") {
+    const m = msg.message as Record<string, unknown> | undefined;
+    if (!m?.content || !Array.isArray(m.content)) return [];
+    const content = m.content as Array<Record<string, unknown>>;
+    const results: ToolResultInfo[] = [];
+    for (const block of content) {
+      if (block.type !== "tool_result") continue;
+      const toolName = toolUseIdToName.get(block.tool_use_id as string) ?? "";
+      if (!FORWARD_RESULT_TOOLS.has(toolName)) continue;
+      let text = "";
+      const c = block.content;
+      if (typeof c === "string") {
+        text = c;
+      } else if (Array.isArray(c)) {
+        text = (c as Array<{ type: string; text?: string }>)
+          .filter((s) => s.type === "text")
+          .map((s) => s.text ?? "")
+          .join("\n");
+      }
+      if (text.trim()) results.push({ toolName, content: text.trim() });
+    }
+    return results;
+  }
+
+  // PI format: top-level "message" with role "toolResult"
+  if (msg.type === "message") {
+    const m = msg.message as Record<string, unknown> | undefined;
+    if (m?.role !== "toolResult") return [];
+    const toolName = (m.toolName as string) || toolUseIdToName.get(m.toolCallId as string) || "";
+    if (!FORWARD_RESULT_TOOLS.has(toolName)) return [];
+    const content = m.content as Array<{ type: string; text?: string }> | undefined;
+    if (!content || !Array.isArray(content)) return [];
+    const text = content
+      .filter((s) => s.type === "text")
+      .map((s) => s.text ?? "")
+      .join("\n")
+      .trim();
+    return text ? [{ toolName, content: text }] : [];
+  }
+
+  // Codex format: response_item with function_call_output or custom_tool_call_output
+  if (msg.type === "response_item") {
+    const payload = msg.payload as Record<string, unknown> | undefined;
+    if (!payload) return [];
+    if (payload.type === "function_call_output" || payload.type === "custom_tool_call_output") {
+      const callId = payload.call_id as string;
+      const toolName = toolUseIdToName.get(callId) ?? "";
+      if (!FORWARD_RESULT_TOOLS.has(toolName)) return [];
+      const output = (payload.output as string) ?? "";
+      return output.trim() ? [{ toolName, content: output.trim() }] : [];
+    }
+  }
+
+  return [];
+}
+
+// Detect absolute file paths in assistant text that exist on disk and are within the project directory
+const MAX_ATTACHMENT_SIZE = 50 * 1024 * 1024; // 50 MB (Telegram limit)
+const SENSITIVE_FILES = new Set([
+  ".env", ".env.local", ".env.production", ".env.development", ".env.staging", ".env.test",
+  ".npmrc", ".pypirc", ".netrc", ".pgpass", ".my.cnf",
+  "credentials.json", "service-account.json", "keyfile.json",
+  "id_rsa", "id_ed25519", "id_ecdsa", "id_dsa",
+]);
+const SENSITIVE_EXTENSIONS = new Set([
+  ".pem", ".key", ".p12", ".pfx", ".jks", ".keystore",
+]);
+
+function isSensitiveFile(filePath: string): boolean {
+  const name = filePath.split("/").pop() || "";
+  if (SENSITIVE_FILES.has(name)) return true;
+  if (name.startsWith(".env")) return true;
+  for (const ext of SENSITIVE_EXTENSIONS) {
+    if (name.endsWith(ext)) return true;
+  }
+  return false;
+}
+
+function extractFilePaths(text: string, cwd: string): string[] {
+  // Match absolute file paths with extensions — allow backticks, parens, etc. before the path
+  const regex = /(?:^|[\s`"'(])(\/[^\s<>"'`)\]]+\.[a-zA-Z0-9]+)/gm;
+  const paths: string[] = [];
+  const seen = new Set<string>();
+  let match;
+  while ((match = regex.exec(text)) !== null) {
+    const p = match[1];
+    if (seen.has(p)) continue;
+    seen.add(p);
+    // Must be under project directory
+    if (!p.startsWith(cwd + "/")) continue;
+    // Never send sensitive files
+    if (isSensitiveFile(p)) continue;
+    try {
+      const s = statSync(p);
+      if (s.isFile() && s.size > 0 && s.size < MAX_ATTACHMENT_SIZE) {
+        paths.push(p);
+      }
+    } catch {}
+  }
+  return paths;
+}
+
+// Write poll keypresses to the terminal to simulate user selection
+async function writePollKeypresses(
+  term: { write(data: Buffer): void },
+  optionIds: number[],
+  multiSelect: boolean
+): Promise<void> {
+  const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+  const DOWN = Buffer.from("\x1b[B");
+  const SPACE = Buffer.from(" ");
+  const ENTER = Buffer.from("\r");
+
+  if (!multiSelect) {
+    // Single select: move down to the selected option, then Enter
+    const idx = optionIds[0] ?? 0;
+    for (let i = 0; i < idx; i++) {
+      term.write(DOWN);
+      await delay(50);
+    }
+    term.write(ENTER);
+  } else {
+    // Multi-select: navigate to each option and press Enter to toggle
+    // (Claude Code's AskUserQuestion UI uses Enter to select, not Space)
+    // Do NOT press Enter at the end — POLL_SUBMIT handles Tab+Enter for submission
+    const sorted = [...optionIds].sort((a, b) => a - b);
+    let currentPos = 0;
+    for (const idx of sorted) {
+      const moves = idx - currentPos;
+      for (let i = 0; i < moves; i++) {
+        term.write(DOWN);
+        await delay(50);
+      }
+      term.write(ENTER);
+      await delay(100);
+      currentPos = idx;
+    }
+  }
 }
 
 // Watch a JSONL file for new assistant messages using incremental reads.
@@ -107,9 +466,20 @@ function extractAssistantText(msg: Record<string, unknown>): string | null {
 // events, and handles partial lines at chunk boundaries.
 function watchSessionFile(
   filePath: string,
-  onAssistant: (text: string) => void
+  onAssistant: (text: string) => void,
+  onQuestion?: (questions: unknown[]) => void,
+  onToolCall?: (calls: ToolCallInfo[]) => void,
+  onThinking?: (text: string) => void,
+  onToolResult?: (results: ToolResultInfo[]) => void,
+  startFromEnd?: boolean
 ): FSWatcher {
+  // For resumed sessions, skip existing content — only watch new writes
   let byteOffset = 0;
+  if (startFromEnd) {
+    try {
+      byteOffset = statSync(filePath).size;
+    } catch {}
+  }
   let partial = ""; // Buffer for incomplete trailing line
   let processing = false;
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -156,6 +526,21 @@ function watchSessionFile(
           const msg = JSON.parse(line);
           const assistantText = extractAssistantText(msg);
           if (assistantText) onAssistant(assistantText);
+          if (onQuestion) {
+            const questions = extractAskUserQuestion(msg);
+            if (questions) onQuestion(questions);
+          }
+          // Always run extractToolCalls to populate toolUseIdToName map
+          const calls = extractToolCalls(msg);
+          if (onToolCall && calls.length > 0) onToolCall(calls);
+          if (onToolResult) {
+            const results = extractToolResults(msg);
+            if (results.length > 0) onToolResult(results);
+          }
+          if (onThinking) {
+            const thinking = extractThinking(msg);
+            if (thinking) onThinking(thinking);
+          }
         } catch {}
       }
     } catch {}
@@ -272,6 +657,38 @@ Edit these instructions to define what the agent should do periodically.
         });
         if (res.ok && res.sessionId) {
           remoteId = res.sessionId as string;
+          const dmBusy = res.dmBusy as boolean;
+          const groups = (res.linkedGroups as Array<{ chatId: string; title?: string }>) || [];
+
+          if (groups.length > 0) {
+            // Build options: DM first, then linked groups
+            const labels = ["DM", ...groups.map((g) => g.title || g.chatId)];
+            const choice = await terminalPicker(
+              "Select a chat for this session:",
+              labels,
+              "Add bot to a Telegram group and send /link to add more chats"
+            );
+            if (choice === 0) {
+              // DM selected
+              await daemonRequest("/remote/bind-chat", "POST", {
+                sessionId: remoteId,
+                chatId,
+              });
+            } else if (choice >= 1 && choice <= groups.length) {
+              const chosen = groups[choice - 1];
+              chatId = chosen.chatId as ChannelChatId;
+              await daemonRequest("/remote/bind-chat", "POST", {
+                sessionId: remoteId,
+                chatId: chosen.chatId,
+              });
+            }
+          } else {
+            // No linked groups — auto-bind to DM
+            await daemonRequest("/remote/bind-chat", "POST", {
+              sessionId: remoteId,
+              chatId,
+            });
+          }
         }
       } catch {
         // Daemon failed to start — local-only mode
@@ -280,13 +697,6 @@ Edit these instructions to define what the agent should do periodically.
       // Set up channel for JSONL watching
       channel = new TelegramChannel(botToken);
 
-      // Wire message tracking: report sent message refs to daemon for reply-to routing
-      if (remoteId) {
-        const trackRemoteId = remoteId;
-        channel.onMessageSent = (msgRef: string) => {
-          daemonRequest(`/remote/${trackRemoteId}/track-message`, "POST", { msgRef }).catch(() => {});
-        };
-      }
     }
   } catch {
     // Config load failed — local-only mode
@@ -307,6 +717,12 @@ Edit these instructions to define what the agent should do periodically.
     await writeManifest(manifest);
   }
 
+  // Detect resume flags to find existing session JSONL file
+  // - Claude: --resume <session-id>
+  // - Codex: resume <session-id>
+  // - PI: --continue/-c (latest session), --session <path>
+  let resumeSessionFile: string | null = null;
+
   // Snapshot existing JSONL files BEFORE spawning so the tool's new file is detected
   const projectDir = channel && chatId ? getSessionDir(cmdName) : "";
   const existingFiles = new Set<string>();
@@ -316,6 +732,68 @@ Edit these instructions to define what the agent should do periodically.
         if (f.endsWith(".jsonl")) existingFiles.add(f);
       }
     } catch {}
+
+    // Check for resume session ID in args
+    let resumeId: string | null = null;
+    const resumeIdx = cmdArgs.indexOf("--resume");
+    if (resumeIdx !== -1 && resumeIdx + 1 < cmdArgs.length) {
+      resumeId = cmdArgs[resumeIdx + 1];
+    }
+    if (!resumeId && cmdArgs[0] === "resume" && cmdArgs.length > 1) {
+      resumeId = cmdArgs[1]; // codex resume <id>
+    }
+
+    if (resumeId) {
+      // Search for JSONL file matching the session ID
+      try {
+        // Claude/PI: <id>.jsonl in project dir, or filename contains ID
+        if (existingFiles.has(`${resumeId}.jsonl`)) {
+          resumeSessionFile = join(projectDir, `${resumeId}.jsonl`);
+        } else {
+          for (const f of existingFiles) {
+            if (f.includes(resumeId)) {
+              resumeSessionFile = join(projectDir, f);
+              break;
+            }
+          }
+        }
+
+        // Codex: session may be in a different date directory — search recursively
+        if (!resumeSessionFile && cmdName === "codex") {
+          const codexRoot = join(homedir(), ".codex", "sessions");
+          const searchDir = (dir: string): string | null => {
+            try {
+              for (const entry of readdirSync(dir, { withFileTypes: true })) {
+                if (entry.isDirectory()) {
+                  const found = searchDir(join(dir, entry.name));
+                  if (found) return found;
+                } else if (entry.name.endsWith(".jsonl") && entry.name.includes(resumeId!)) {
+                  return join(dir, entry.name);
+                }
+              }
+            } catch {}
+            return null;
+          };
+          resumeSessionFile = searchDir(codexRoot);
+        }
+      } catch {}
+    }
+
+    // PI --continue/-c: use the most recent JSONL file
+    if (!resumeSessionFile && (cmdArgs.includes("--continue") || cmdArgs.includes("-c"))) {
+      try {
+        let newest = "";
+        let newestMtime = 0;
+        for (const f of existingFiles) {
+          const s = statSync(join(projectDir, f));
+          if (s.mtimeMs > newestMtime) {
+            newestMtime = s.mtimeMs;
+            newest = f;
+          }
+        }
+        if (newest) resumeSessionFile = join(projectDir, newest);
+      } catch {}
+    }
   }
 
   // Use raw mode if stdin is a TTY so keypresses are forwarded immediately
@@ -351,6 +829,8 @@ Edit these instructions to define what the agent should do periodically.
 
   // Track group chats subscribed to this session's output
   const subscribedGroups = new Set<ChannelChatId>();
+  // Track which chat this session is bound to (may differ from chatId if bound to a group)
+  let boundChat: ChannelChatId | null = null;
   let groupPollTimer: ReturnType<typeof setInterval> | null = null;
   if (remoteId) {
     const pollRemoteId = remoteId;
@@ -360,6 +840,9 @@ Edit these instructions to define what the agent should do periodically.
         const chatIds = res.chatIds as string[] | undefined;
         if (chatIds) {
           for (const id of chatIds) subscribedGroups.add(id);
+        }
+        if (res.boundChat) {
+          boundChat = res.boundChat as ChannelChatId;
         }
       } catch {}
     }, 2000);
@@ -392,29 +875,78 @@ Edit these instructions to define what the agent should do periodically.
     const tgChannel = channel;
     const tgRemoteId = remoteId;
 
-    const startFileWatch = (sessionFile: string) => {
-      if (watcherRef.current) return; // already watching
+    const startFileWatch = (sessionFile: string, skipExisting = false) => {
+      if (watcherRef.current) return; // already locked to a session
       // Update manifest with discovered JSONL file
       if (manifest) {
         manifest.jsonlFile = sessionFile;
         writeManifest(manifest).catch(() => {});
       }
+      const onQuestion = tgRemoteId
+        ? (questions: unknown[]) => {
+            daemonRequest(`/remote/${tgRemoteId}/question`, "POST", { questions }).catch(() => {});
+          }
+        : undefined;
+
+      const onToolCall = tgRemoteId
+        ? (calls: ToolCallInfo[]) => {
+            for (const call of calls) {
+              daemonRequest(`/remote/${tgRemoteId}/tool-call`, "POST", {
+                name: call.name,
+                input: call.input,
+              }).catch(() => {});
+            }
+          }
+        : undefined;
+
+      // Thinking is disabled by default — enable via future config option
+      const onThinking = undefined;
+
+      const onToolResult = tgRemoteId
+        ? (results: ToolResultInfo[]) => {
+            for (const result of results) {
+              daemonRequest(`/remote/${tgRemoteId}/tool-result`, "POST", {
+                toolName: result.toolName,
+                content: result.content,
+              }).catch(() => {});
+            }
+          }
+        : undefined;
+
       watcherRef.current = watchSessionFile(sessionFile, (text) => {
-        const tag = tgRemoteId
-          ? `<b>${displayName}</b> [${executable}] <i>(${tgRemoteId})</i>\n`
-          : "";
-        const html = `${tag}${markdownToHtml(text)}`;
-        tgChannel.send(tgChatId, html, tgRemoteId ?? undefined);
-        // Also send to subscribed group chats
-        for (const groupChatId of subscribedGroups) {
-          tgChannel.send(groupChatId, html, tgRemoteId ?? undefined);
+        // Determine target chats: bound chat + subscribed groups (skip unbound DM)
+        const targetChat = boundChat || tgChatId;
+        const targets = new Set<ChannelChatId>([targetChat]);
+        for (const gid of subscribedGroups) targets.add(gid);
+
+        for (const cid of targets) tgChannel.setTyping(cid, false);
+
+        const html = markdownToHtml(text);
+        for (const cid of targets) {
+          tgChannel.send(cid, html);
         }
-      });
+        // Detect file paths in the text and send as attachments
+        if (tgChannel.sendDocument) {
+          const files = extractFilePaths(text, process.cwd());
+          for (const fp of files) {
+            const fileName = fp.split("/").pop() || "file";
+            for (const cid of targets) {
+              tgChannel.sendDocument!(cid, fp, fileName);
+            }
+          }
+        }
+      }, onQuestion, onToolCall, onThinking, onToolResult, skipExisting);
+      // Close directory watcher — locked to this session file
       if (watcherRef.dir) {
         watcherRef.dir.close();
         watcherRef.dir = null;
       }
     };
+
+    // If resuming, watch the existing session file — skip old content
+    if (resumeSessionFile) {
+      startFileWatch(resumeSessionFile, true);
+    }
 
     // Check for files that appeared between snapshot and now (e.g. PI creates file at startup)
     const checkForNewFiles = () => {
@@ -452,27 +984,77 @@ Edit these instructions to define what the agent should do periodically.
 
   // Poll daemon for remote input if registered
   let pollTimer: ReturnType<typeof setInterval> | null = null;
+  let processingInput = false;
   if (remoteId) {
     pollTimer = setInterval(async () => {
+      if (processingInput) return;
       try {
         const res = await daemonRequest(`/remote/${remoteId}/input`);
         const lines = res.lines as string[] | undefined;
         if (lines && lines.length > 0) {
-          for (let i = 0; i < lines.length; i++) {
-            const baseDelay = i * 150;
-            setTimeout(() => {
-              // Write the text first
-              terminal.write(Buffer.from(lines[i]));
-              // Then send Enter separately after app processes the text
-              setTimeout(() => {
-                terminal.write(Buffer.from("\r"));
-              }, 100);
-            }, baseDelay);
+          processingInput = true;
+          const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+          for (const line of lines) {
+            // Poll next/submit: navigate Down to "Next"/"Submit" button, then Enter
+            // Format: \x1b[POLL_NEXT:lastPos:optionCount]
+            // UI items: options[0..N-1], "Type something"[N], then "Next"[N+1]
+            const nextMatch = line.match(/^\x1b\[POLL_NEXT:(\d+):(\d+)\]$/);
+            if (nextMatch || line === "\x1b[POLL_SUBMIT]") {
+              if (nextMatch) {
+                const lastPos = parseInt(nextMatch[1]);
+                const optionCount = parseInt(nextMatch[2]);
+                // "Next" is 2 positions after last real option: options + "Type something" + Next
+                const nextPos = optionCount + 1;
+                const downs = nextPos - lastPos;
+                const DOWN = Buffer.from("\x1b[B");
+                for (let i = 0; i < downs; i++) {
+                  terminal.write(DOWN);
+                  await delay(50);
+                }
+              }
+              // POLL_SUBMIT: cursor is already on "Submit answers" — just press Enter
+              terminal.write(Buffer.from("\r"));
+              await delay(300);
+              continue;
+            }
+
+            // Poll "Other" selected: navigate to "Other" option and press Enter
+            // Next text line will fill in the custom text
+            if (line === "\x1b[POLL_OTHER]") {
+              // "Other" is handled by the AskUserQuestion UI as a free-text input
+              // Just wait for the next text message to be typed
+              continue;
+            }
+
+            // Poll answer: \x1b[POLL:optionIds:multiSelect]
+            const pollMatch = line.match(/^\x1b\[POLL:([0-9,]+):([01])\]$/);
+            if (pollMatch) {
+              const optionIds = pollMatch[1].split(",").map(Number);
+              const multiSelect = pollMatch[2] === "1";
+              await writePollKeypresses(terminal, optionIds, multiSelect);
+              await delay(100);
+              continue;
+            }
+
+            // Regular text input — start typing indicator
+            if (channel && chatId) {
+              channel.setTyping(chatId, true);
+              for (const gid of subscribedGroups) channel.setTyping(gid, true);
+            }
+            terminal.write(Buffer.from(line));
+            // File paths need extra time for the agent to load/process the attachment
+            const hasFilePath = line.includes("/.touchgrass/uploads/");
+            await delay(hasFilePath ? 1500 : 100);
+            terminal.write(Buffer.from("\r"));
+            await delay(100);
           }
+          processingInput = false;
         }
       } catch {
         if (pollTimer) clearInterval(pollTimer);
         pollTimer = null;
+        processingInput = false;
       }
     }, 200);
   }

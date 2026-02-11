@@ -8,6 +8,7 @@ export interface TelegramUser {
 export interface TelegramChat {
   id: number;
   type: string;
+  title?: string;
 }
 
 export interface TelegramPhotoSize {
@@ -25,6 +26,14 @@ export interface TelegramFile {
   file_path?: string;
 }
 
+export interface TelegramDocument {
+  file_id: string;
+  file_unique_id: string;
+  file_name?: string;
+  mime_type?: string;
+  file_size?: number;
+}
+
 export interface TelegramMessage {
   message_id: number;
   from?: TelegramUser;
@@ -33,12 +42,27 @@ export interface TelegramMessage {
   text?: string;
   caption?: string;
   photo?: TelegramPhotoSize[];
+  document?: TelegramDocument;
   reply_to_message?: TelegramMessage;
+}
+
+export interface TelegramPoll {
+  id: string;
+  question: string;
+  options: Array<{ text: string; voter_count: number }>;
+  is_closed: boolean;
+}
+
+export interface TelegramPollAnswer {
+  poll_id: string;
+  user: TelegramUser;
+  option_ids: number[];
 }
 
 export interface TelegramUpdate {
   update_id: number;
   message?: TelegramMessage;
+  poll_answer?: TelegramPollAnswer;
 }
 
 interface ApiResponse<T> {
@@ -90,7 +114,7 @@ export class TelegramApi {
     return this.call<TelegramUpdate[]>("getUpdates", {
       offset,
       timeout,
-      allowed_updates: ["message"],
+      allowed_updates: ["message", "poll_answer"],
     });
   }
 
@@ -120,6 +144,10 @@ export class TelegramApi {
     return `https://api.telegram.org/file/bot${this.token}/${filePath}`;
   }
 
+  async sendChatAction(chatId: number, action: string): Promise<boolean> {
+    return this.call<boolean>("sendChatAction", { chat_id: chatId, action });
+  }
+
   async editMessageText(
     chatId: number,
     messageId: number,
@@ -131,6 +159,60 @@ export class TelegramApi {
       message_id: messageId,
       text,
       ...(parseMode ? { parse_mode: parseMode } : {}),
+    });
+  }
+
+  async sendPoll(
+    chatId: number,
+    question: string,
+    options: string[],
+    allowsMultipleAnswers = false,
+    isAnonymous = false
+  ): Promise<TelegramMessage> {
+    return this.call<TelegramMessage>("sendPoll", {
+      chat_id: chatId,
+      question,
+      options: options.map((text) => ({ text })),
+      allows_multiple_answers: allowsMultipleAnswers,
+      is_anonymous: isAnonymous,
+    });
+  }
+
+  async sendDocument(
+    chatId: number,
+    filePath: string,
+    caption?: string
+  ): Promise<TelegramMessage> {
+    const file = Bun.file(filePath);
+    const formData = new FormData();
+    formData.append("chat_id", String(chatId));
+    formData.append("document", file, filePath.split("/").pop() || "file");
+    if (caption) formData.append("caption", caption);
+
+    const url = `${this.baseUrl}/sendDocument`;
+    const res = await fetch(url, { method: "POST", body: formData });
+
+    if (res.status === 429) {
+      const body = (await res.json()) as ApiResponse<TelegramMessage>;
+      const retryAfter = body.parameters?.retry_after ?? 5;
+      await Bun.sleep(retryAfter * 1000);
+      return this.sendDocument(chatId, filePath, caption);
+    }
+
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(`Telegram API sendDocument failed (${res.status}): ${body}`);
+    }
+
+    const body = (await res.json()) as ApiResponse<TelegramMessage>;
+    if (!body.ok) throw new Error(`Telegram API sendDocument: ${body.description}`);
+    return body.result;
+  }
+
+  async stopPoll(chatId: number, messageId: number): Promise<TelegramPoll> {
+    return this.call<TelegramPoll>("stopPoll", {
+      chat_id: chatId,
+      message_id: messageId,
     });
   }
 }

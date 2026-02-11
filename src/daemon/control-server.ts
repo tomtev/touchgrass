@@ -8,11 +8,16 @@ export interface DaemonContext {
   getStatus: () => Record<string, unknown>;
   shutdown: () => Promise<void>;
   generatePairingCode: () => string;
-  registerRemote: (command: string, chatId: ChannelChatId, cwd: string, name: string) => string;
+  registerRemote: (command: string, chatId: ChannelChatId, cwd: string, name: string) => { sessionId: string; dmBusy: boolean; linkedGroups: Array<{ chatId: string; title?: string }> };
+  bindChat: (sessionId: string, chatId: ChannelChatId) => boolean;
   drainRemoteInput: (sessionId: string) => string[];
   endRemote: (sessionId: string, exitCode: number | null) => void;
-  trackMessage: (sessionId: string, msgRef: string) => void;
   getSubscribedGroups: (sessionId: string) => string[];
+  getBoundChat: (sessionId: string) => string | null;
+  handleQuestion: (sessionId: string, questions: unknown[]) => void;
+  handleToolCall: (sessionId: string, name: string, input: Record<string, unknown>) => void;
+  handleThinking: (sessionId: string, text: string) => void;
+  handleToolResult: (sessionId: string, toolName: string, content: string) => void;
 }
 
 async function readJsonBody(req: Request): Promise<Record<string, unknown>> {
@@ -60,14 +65,63 @@ export async function startControlServer(ctx: DaemonContext): Promise<void> {
         if (!command || !chatId) {
           return Response.json({ ok: false, error: "Missing command or chatId" }, { status: 400 });
         }
-        const sessionId = ctx.registerRemote(command, chatId, cwd, name);
-        return Response.json({ ok: true, sessionId });
+        const result = ctx.registerRemote(command, chatId, cwd, name);
+        return Response.json({ ok: true, sessionId: result.sessionId, dmBusy: result.dmBusy, linkedGroups: result.linkedGroups });
       }
 
-      // Match /remote/:id/input, /remote/:id/exit, /remote/:id/track-message, /remote/:id/subscribed-groups
-      const remoteMatch = path.match(/^\/remote\/(r-[a-f0-9]+)\/(input|exit|track-message|subscribed-groups)$/);
+      if (path === "/remote/bind-chat" && req.method === "POST") {
+        const body = await readJsonBody(req);
+        const sessionId = body.sessionId as string;
+        const targetChatId = body.chatId as string;
+        if (!sessionId || !targetChatId) {
+          return Response.json({ ok: false, error: "Missing sessionId or chatId" }, { status: 400 });
+        }
+        const success = ctx.bindChat(sessionId, targetChatId);
+        return Response.json({ ok: success });
+      }
+
+      // Match /remote/:id/* actions
+      const remoteMatch = path.match(/^\/remote\/(r-[a-f0-9]+)\/(input|exit|subscribed-groups|question|tool-call|thinking|tool-result)$/);
       if (remoteMatch) {
         const [, sessionId, action] = remoteMatch;
+        if (action === "tool-result" && req.method === "POST") {
+          const body = await readJsonBody(req);
+          const toolName = body.toolName as string;
+          const content = body.content as string;
+          if (!toolName || !content) {
+            return Response.json({ ok: false, error: "Missing toolName or content" }, { status: 400 });
+          }
+          ctx.handleToolResult(sessionId, toolName, content);
+          return Response.json({ ok: true });
+        }
+        if (action === "thinking" && req.method === "POST") {
+          const body = await readJsonBody(req);
+          const text = body.text as string;
+          if (!text) {
+            return Response.json({ ok: false, error: "Missing text" }, { status: 400 });
+          }
+          ctx.handleThinking(sessionId, text);
+          return Response.json({ ok: true });
+        }
+        if (action === "tool-call" && req.method === "POST") {
+          const body = await readJsonBody(req);
+          const name = body.name as string;
+          const input = (body.input as Record<string, unknown>) || {};
+          if (!name) {
+            return Response.json({ ok: false, error: "Missing name" }, { status: 400 });
+          }
+          ctx.handleToolCall(sessionId, name, input);
+          return Response.json({ ok: true });
+        }
+        if (action === "question" && req.method === "POST") {
+          const body = await readJsonBody(req);
+          const questions = body.questions as unknown[];
+          if (!questions || !Array.isArray(questions)) {
+            return Response.json({ ok: false, error: "Missing questions" }, { status: 400 });
+          }
+          ctx.handleQuestion(sessionId, questions);
+          return Response.json({ ok: true });
+        }
         if (action === "input" && req.method === "GET") {
           const lines = ctx.drainRemoteInput(sessionId);
           return Response.json({ ok: true, lines });
@@ -78,15 +132,10 @@ export async function startControlServer(ctx: DaemonContext): Promise<void> {
           ctx.endRemote(sessionId, exitCode);
           return Response.json({ ok: true });
         }
-        if (action === "track-message" && req.method === "POST") {
-          const body = await readJsonBody(req);
-          const msgRef = body.msgRef as string;
-          if (msgRef) ctx.trackMessage(sessionId, msgRef);
-          return Response.json({ ok: true });
-        }
         if (action === "subscribed-groups" && req.method === "GET") {
           const chatIds = ctx.getSubscribedGroups(sessionId);
-          return Response.json({ ok: true, chatIds });
+          const boundChat = ctx.getBoundChat(sessionId);
+          return Response.json({ ok: true, chatIds, boundChat });
         }
       }
 

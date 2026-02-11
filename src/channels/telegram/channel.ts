@@ -1,8 +1,10 @@
-import { TelegramApi, type TelegramUpdate } from "./api";
+import { TelegramApi, type TelegramUpdate, type TelegramPollAnswer } from "./api";
 import type { Channel, ChannelChatId, InboundMessage } from "../../channel/types";
 import { escapeHtml, chunkText } from "./formatter";
 import { stripAnsi } from "../../utils/ansi";
 import { logger } from "../../daemon/logger";
+import { paths, ensureDirs } from "../../config/paths";
+import { join } from "path";
 
 function toChatId(num: number): ChannelChatId {
   return `telegram:${num}`;
@@ -19,26 +21,49 @@ export class TelegramChannel implements Channel {
   private botUsername: string | null = null;
   // Track last message per chat for in-place editing
   private lastMessage: Map<string, { messageId: number; text: string }> = new Map();
-  onMessageSent: ((messageRef: string, sessionId: string) => void) | null = null;
+  private typingTimers: Map<ChannelChatId, { interval: ReturnType<typeof setInterval>; timeout: ReturnType<typeof setTimeout> }> = new Map();
+  onPollAnswer: ((answer: TelegramPollAnswer) => void) | null = null;
 
   constructor(botToken: string) {
     this.api = new TelegramApi(botToken);
   }
 
-  async send(chatId: ChannelChatId, html: string, sessionId?: string): Promise<void> {
+  setTyping(chatId: ChannelChatId, active: boolean): void {
+    if (active) {
+      // Already typing for this chat
+      if (this.typingTimers.has(chatId)) return;
+      const numChatId = fromChatId(chatId);
+      // Send immediately, then repeat every 4.5s (Telegram expires after 5s)
+      this.api.sendChatAction(numChatId, "typing").catch(() => {});
+      const interval = setInterval(() => {
+        this.api.sendChatAction(numChatId, "typing").catch(() => {});
+      }, 4500);
+      // Auto-clear after 2 minutes to prevent stuck typing indicators
+      const timeout = setTimeout(() => this.setTyping(chatId, false), 120_000);
+      this.typingTimers.set(chatId, { interval, timeout });
+    } else {
+      const entry = this.typingTimers.get(chatId);
+      if (entry) {
+        clearInterval(entry.interval);
+        clearTimeout(entry.timeout);
+        this.typingTimers.delete(chatId);
+      }
+    }
+  }
+
+  async send(chatId: ChannelChatId, html: string): Promise<void> {
+    this.setTyping(chatId, false);
     const numChatId = fromChatId(chatId);
     try {
-      const sent = await this.api.sendMessage(numChatId, html);
+      await this.api.sendMessage(numChatId, html);
       this.lastMessage.delete(chatId);
-      if (sessionId && this.onMessageSent) {
-        this.onMessageSent(`telegram:${sent.message_id}`, sessionId);
-      }
     } catch (e) {
       await logger.error("Failed to send message", { chatId, error: (e as Error).message });
     }
   }
 
-  async sendOutput(chatId: ChannelChatId, rawOutput: string, sessionId?: string): Promise<void> {
+  async sendOutput(chatId: ChannelChatId, rawOutput: string): Promise<void> {
+    this.setTyping(chatId, false);
     const numChatId = fromChatId(chatId);
     const clean = stripAnsi(rawOutput);
     if (!clean.trim()) return;
@@ -77,12 +102,18 @@ export class TelegramChannel implements Channel {
           messageId: sent.message_id,
           text: chunk,
         });
-        if (sessionId && this.onMessageSent) {
-          this.onMessageSent(`telegram:${sent.message_id}`, sessionId);
-        }
       } catch (e) {
         await logger.error("Failed to send output", { chatId, error: (e as Error).message });
       }
+    }
+  }
+
+  async sendDocument(chatId: ChannelChatId, filePath: string, caption?: string): Promise<void> {
+    const numChatId = fromChatId(chatId);
+    try {
+      await this.api.sendDocument(numChatId, filePath, caption);
+    } catch (e) {
+      await logger.error("Failed to send document", { chatId, filePath, error: (e as Error).message });
     }
   }
 
@@ -94,6 +125,28 @@ export class TelegramChannel implements Channel {
 
   clearLastMessage(chatId: ChannelChatId): void {
     this.lastMessage.delete(chatId);
+  }
+
+  async sendPoll(
+    chatId: ChannelChatId,
+    question: string,
+    options: string[],
+    multiSelect: boolean
+  ): Promise<{ pollId: string; messageId: number }> {
+    const numChatId = fromChatId(chatId);
+    const sent = await this.api.sendPoll(numChatId, question, options, multiSelect);
+    // Telegram includes poll info in the sent message
+    const poll = (sent as unknown as { poll?: { id: string } }).poll;
+    return { pollId: poll?.id ?? "", messageId: sent.message_id };
+  }
+
+  async closePoll(chatId: ChannelChatId, messageId: number): Promise<void> {
+    const numChatId = fromChatId(chatId);
+    try {
+      await this.api.stopPoll(numChatId, messageId);
+    } catch {
+      // Poll may already be closed
+    }
   }
 
   // Strip @BotUsername from text (Telegram adds this in groups)
@@ -116,9 +169,9 @@ export class TelegramChannel implements Channel {
       await logger.info("Bot connected", { username: me.username, id: me.id });
       await this.api.setMyCommands([
         { command: "sessions", description: "List active sessions" },
-        { command: "connect", description: "Connect to session: /connect <id>" },
-        { command: "disconnect", description: "Disconnect from session" },
-        { command: "send", description: "Message a session: /send <id> <text>" },
+        { command: "bind", description: "Bind to session: /bind <id>" },
+        { command: "unbind", description: "Unbind from session" },
+        { command: "link", description: "Register this group with the bot" },
         { command: "help", description: "Show help" },
         { command: "pair", description: "Pair with code: /pair <code>" },
       ]);
@@ -136,26 +189,61 @@ export class TelegramChannel implements Channel {
 
         for (const update of updates) {
           offset = update.update_id + 1;
+
+          if (update.poll_answer && this.onPollAnswer) {
+            try {
+              this.onPollAnswer(update.poll_answer);
+            } catch (e) {
+              await logger.error("Error handling poll answer", { error: (e as Error).message });
+            }
+          }
+
           if (update.message) {
             try {
               const msg = update.message;
               const isGroup = msg.chat.type !== "private";
 
-              // Resolve photos to URLs
+              // Download photos/documents to local disk and use file paths
               let text = msg.text?.trim() || "";
               const fileUrls: string[] = [];
+
+              // Determine file_id to download: photos or documents (files sent uncompressed)
+              let downloadFileId: string | null = null;
+              let downloadFileExt = "jpg";
               if (msg.photo && msg.photo.length > 0) {
+                const largest = msg.photo[msg.photo.length - 1];
+                downloadFileId = largest.file_id;
+              } else if (msg.document) {
+                downloadFileId = msg.document.file_id;
+                const name = msg.document.file_name || "";
+                const dotIdx = name.lastIndexOf(".");
+                if (dotIdx > 0) downloadFileExt = name.slice(dotIdx + 1);
+              }
+
+              if (downloadFileId) {
                 try {
-                  const largest = msg.photo[msg.photo.length - 1];
-                  const file = await this.api.getFile(largest.file_id);
+                  const file = await this.api.getFile(downloadFileId);
                   if (file.file_path) {
                     const url = this.api.getFileUrl(file.file_path);
-                    fileUrls.push(url);
-                    const caption = msg.caption?.trim() || "";
-                    text = caption ? `${caption} ${url}` : url;
+                    const ext = file.file_path.split(".").pop() || downloadFileExt;
+                    const fileName = `${Date.now()}-${file.file_unique_id}.${ext}`;
+                    await ensureDirs();
+                    const localPath = join(paths.uploadsDir, fileName);
+                    const res = await fetch(url);
+                    if (res.ok) {
+                      const buffer = await res.arrayBuffer();
+                      await Bun.write(localPath, buffer);
+                      fileUrls.push(localPath);
+                      const caption = msg.caption?.trim() || "";
+                      text = caption
+                        ? `${caption} ${localPath}`
+                        : localPath;
+                    } else {
+                      await logger.error("Failed to download file", { status: res.status });
+                    }
                   }
                 } catch (e) {
-                  await logger.error("Failed to resolve photo", { error: (e as Error).message });
+                  await logger.error("Failed to resolve file", { error: (e as Error).message });
                 }
               }
 
@@ -165,20 +253,14 @@ export class TelegramChannel implements Channel {
               text = this.stripBotMention(text);
               if (!text) continue;
 
-              // Build reply-to ref
-              let replyToRef: string | undefined;
-              if (msg.reply_to_message) {
-                replyToRef = `telegram:${msg.reply_to_message.message_id}`;
-              }
-
               const inbound: InboundMessage = {
                 userId: `telegram:${msg.from.id}`,
                 chatId: toChatId(msg.chat.id),
                 username: msg.from.username,
                 text,
-                replyToRef,
                 fileUrls: fileUrls.length > 0 ? fileUrls : undefined,
                 isGroup,
+                chatTitle: isGroup ? msg.chat.title : undefined,
               };
 
               await onMessage(inbound);

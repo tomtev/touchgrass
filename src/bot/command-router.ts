@@ -3,6 +3,8 @@ import type { TgConfig } from "../config/schema";
 import type { SessionManager } from "../session/manager";
 import { isUserPaired } from "../security/allowlist";
 import { escapeHtml } from "../channels/telegram/formatter";
+import { addLinkedGroup } from "../config/schema";
+import { saveConfig } from "../config/store";
 import { handlePair } from "./handlers/pair";
 import { handleHelp } from "./handlers/help";
 import { handleSpawn } from "./handlers/spawn";
@@ -63,18 +65,34 @@ export async function routeMessage(
     const lines = sessions.map((s) => {
       const label = s.id;
       const isMain = label === mainId;
-      const marker = isMain ? " (connected)" : "";
+      const marker = isMain ? " (bound)" : "";
       return `<code>${label}</code> ${escapeHtml(s.command)}${marker}`;
     });
     await ctx.channel.send(chatId, lines.join("\n"));
     return;
   }
 
-  // /connect <id> — connect this chat to a session
-  if (text.startsWith("/connect")) {
-    const sessionId = text.slice(8).trim();
+  // /link — register this group with the bot
+  if (text === "/link") {
+    if (!msg.isGroup) {
+      await ctx.channel.send(chatId, "Use /link in a group to register it with the bot.");
+      return;
+    }
+    const added = addLinkedGroup(ctx.config, chatId, msg.chatTitle);
+    if (added) {
+      await saveConfig(ctx.config);
+      await ctx.channel.send(chatId, `Group linked. Sessions can now be bound to this group.`);
+    } else {
+      await ctx.channel.send(chatId, `This group is already linked.`);
+    }
+    return;
+  }
+
+  // /bind <id> — bind this chat to a session
+  if (text.startsWith("/bind")) {
+    const sessionId = text.slice(5).trim();
     if (!sessionId) {
-      await ctx.channel.send(chatId, "Usage: /connect &lt;session-id&gt;\nExample: <code>/connect r-abc123</code>");
+      await ctx.channel.send(chatId, "Usage: /bind &lt;session-id&gt;\nExample: <code>/bind r-abc123</code>");
       return;
     }
     if (ctx.sessionManager.attach(chatId, sessionId)) {
@@ -84,7 +102,7 @@ export async function routeMessage(
       }
       const remote = ctx.sessionManager.getRemote(sessionId);
       const label = remote?.name || remote?.cwd.split("/").pop() || sessionId;
-      let reply = `Connected to <b>${escapeHtml(label)}</b> <i>(${sessionId})</i>`;
+      let reply = `Bound to <b>${escapeHtml(label)}</b> <i>(${sessionId})</i>`;
       if (msg.isGroup) {
         reply += `\n\n⚠️ For plain text messages to work in groups, disable <b>Group Privacy</b> in @BotFather (<code>/setprivacy</code> → Disable).`;
       }
@@ -95,8 +113,8 @@ export async function routeMessage(
     return;
   }
 
-  // /disconnect — disconnect this chat from its session
-  if (text === "/disconnect") {
+  // /unbind — unbind this chat from its session
+  if (text === "/unbind") {
     const attached = ctx.sessionManager.getAttached(chatId);
     const attachedRemote = ctx.sessionManager.getAttachedRemote(chatId);
     const sessionId = attached?.id || attachedRemote?.id;
@@ -105,35 +123,13 @@ export async function routeMessage(
       if (msg.isGroup) {
         ctx.sessionManager.unsubscribeGroup(sessionId, chatId);
       }
-      await ctx.channel.send(chatId, `Disconnected from <i>(${sessionId})</i>`);
+      await ctx.channel.send(chatId, `Unbound from <i>(${sessionId})</i>`);
     } else {
-      await ctx.channel.send(chatId, "Not connected to any session.");
+      await ctx.channel.send(chatId, "Not bound to any session.");
     }
     return;
   }
 
-  // /send <id> <text> — send message to a specific session
-  if (text.startsWith("/send ")) {
-    const rest = text.slice(6).trim();
-    const match = rest.match(/^(r-[a-f0-9]+)\s+(.+)$/s);
-    if (!match) {
-      await ctx.channel.send(chatId, "Usage: <code>/send &lt;session-id&gt; &lt;text&gt;</code>");
-      return;
-    }
-    const [, sessionId, input] = match;
-    const remote = ctx.sessionManager.getRemote(sessionId);
-    if (remote) {
-      remote.inputQueue.push(input);
-      return;
-    }
-    const session = ctx.sessionManager.get(sessionId);
-    if (session && session.state === "running") {
-      session.writeStdin(input);
-      return;
-    }
-    await ctx.channel.send(chatId, `Session <code>${sessionId}</code> not found.`);
-    return;
-  }
 
   // tg <command> - session management and spawning
   if (text.startsWith("tg ")) {

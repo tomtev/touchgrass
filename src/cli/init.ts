@@ -52,6 +52,7 @@ export async function runInit(): Promise<void> {
       type: "telegram",
       credentials: {},
       pairedUsers: [],
+      linkedGroups: [],
     };
   }
   config.channels.telegram.credentials.botToken = token;

@@ -69,6 +69,13 @@ mkdir -p "$INSTALL_DIR"
 mv "$TMPFILE" "${INSTALL_DIR}/${BINARY_NAME}"
 chmod +x "${INSTALL_DIR}/${BINARY_NAME}"
 
+# Restart daemon if running so next command uses the new binary
+if [ -f "$HOME/.touchgrass/daemon.pid" ]; then
+  kill "$(cat "$HOME/.touchgrass/daemon.pid")" 2>/dev/null
+  rm -f "$HOME/.touchgrass/daemon.pid"
+  info "Restarted daemon (will auto-start on next command)"
+fi
+
 echo ""
 if [ "$EXISTING_INSTALL" = true ]; then
   success "✅ touchgrass.sh updated to ${LATEST}"

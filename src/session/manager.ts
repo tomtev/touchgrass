@@ -14,15 +14,40 @@ export interface RemoteSession {
   inputQueue: string[];
 }
 
+export interface PendingPoll {
+  sessionId: string;
+  chatId: ChannelChatId;
+  messageId: number;
+  questionIndex: number;
+  totalQuestions: number;
+  multiSelect: boolean;
+  optionCount: number; // number of real options (excluding "Other")
+}
+
+export interface AskQuestion {
+  question: string;
+  options: Array<{ label: string; description?: string }>;
+  multiSelect: boolean;
+}
+
+export interface PendingQuestionSet {
+  questions: AskQuestion[];
+  currentIndex: number;
+  chatId: ChannelChatId;
+  answers: number[][]; // collected option_ids per question
+}
+
 export class SessionManager {
   private sessions: Map<string, Session> = new Map();
   private remotes: Map<string, RemoteSession> = new Map();
   // Map: channelChatId → sessionId (attached session)
   private attachments: Map<ChannelChatId, string> = new Map();
-  // Map: message ref → sessionId (for reply-to routing)
-  private messageToSession: Map<string, string> = new Map();
   // Map: sessionId → set of group chatIds subscribed to output
   private groupSubscriptions: Map<string, Set<ChannelChatId>> = new Map();
+  // Map: pollId → poll metadata (for routing poll answers)
+  private pendingPolls: Map<string, PendingPoll> = new Map();
+  // Map: sessionId → pending question set (for multi-question flows)
+  private pendingQuestions: Map<string, PendingQuestionSet> = new Map();
   private settings: TgSettings;
   private eventHandlers: SessionEvents | null = null;
 
@@ -130,6 +155,14 @@ export class SessionManager {
     return this.attachments.delete(chatId);
   }
 
+  // Reverse lookup: find which chat a session is bound to
+  getBoundChat(sessionId: string): ChannelChatId | null {
+    for (const [chatId, id] of this.attachments) {
+      if (id === sessionId) return chatId;
+    }
+    return null;
+  }
+
   stopSession(id: string): boolean {
     const session = this.sessions.get(id);
     if (!session || session.state !== "running") return false;
@@ -184,6 +217,7 @@ export class SessionManager {
       }
       this.remotes.delete(id);
       this.groupSubscriptions.delete(id);
+      this.clearPendingQuestions(id);
     }
   }
 
@@ -225,16 +259,39 @@ export class SessionManager {
     }
   }
 
-  trackMessage(msgRef: string, sessionId: string): void {
-    this.messageToSession.set(msgRef, sessionId);
-    // Cap at 1000 entries — evict oldest
-    if (this.messageToSession.size > 1000) {
-      const firstKey = this.messageToSession.keys().next().value!;
-      this.messageToSession.delete(firstKey);
-    }
+  setPendingQuestions(sessionId: string, questions: AskQuestion[], chatId: ChannelChatId): void {
+    this.pendingQuestions.set(sessionId, { questions, currentIndex: 0, chatId, answers: [] });
   }
 
-  getSessionByMessage(msgRef: string): string | undefined {
-    return this.messageToSession.get(msgRef);
+  getPendingQuestions(sessionId: string): PendingQuestionSet | undefined {
+    return this.pendingQuestions.get(sessionId);
   }
+
+  clearPendingQuestions(sessionId: string): void {
+    // Also remove any associated polls
+    for (const [pollId, poll] of this.pendingPolls) {
+      if (poll.sessionId === sessionId) this.pendingPolls.delete(pollId);
+    }
+    this.pendingQuestions.delete(sessionId);
+  }
+
+  registerPoll(pollId: string, poll: PendingPoll): void {
+    this.pendingPolls.set(pollId, poll);
+  }
+
+  getPollByPollId(pollId: string): PendingPoll | undefined {
+    return this.pendingPolls.get(pollId);
+  }
+
+  removePoll(pollId: string): void {
+    this.pendingPolls.delete(pollId);
+  }
+
+  getActivePollForSession(sessionId: string): { pollId: string; poll: PendingPoll } | undefined {
+    for (const [pollId, poll] of this.pendingPolls) {
+      if (poll.sessionId === sessionId) return { pollId, poll };
+    }
+    return undefined;
+  }
+
 }
