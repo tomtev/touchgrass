@@ -20,6 +20,7 @@ More channels (Discord, Slack) coming soon.
 - [Telegram commands](#telegram-commands)
 - [Group chats](#group-chats)
 - [Multiple sessions](#multiple-sessions)
+- [Heartbeat mode](#heartbeat-mode)
 - [Requirements](#requirements)
 
 ## Install
@@ -134,6 +135,34 @@ In Telegram:
 - `/connect r-abc123` — switch which session receives your messages
 - Reply to any bot message to send to that specific session
 - `/send r-abc123 do something` — send to a session without switching
+
+## Heartbeat mode
+
+Automatically send a periodic message to the agent, prompting it to check a `HEARTBEAT.md` file for instructions. Great for long-running autonomous workflows.
+
+```bash
+tg claude --heartbeat                    # Default: every 60 minutes
+tg claude --heartbeat --interval 30      # Every 30 minutes
+```
+
+Every interval, touchgrass.sh submits this to the agent's terminal:
+
+```
+[2025-06-15 14:30] Go check @HEARTBEAT.md file and follow instructions
+```
+
+Create a `HEARTBEAT.md` in your project directory with whatever instructions you want:
+
+```markdown
+# Heartbeat Instructions
+
+1. Run the test suite: `bun test`
+2. If any tests fail, fix them
+3. Run `bun run typecheck` and fix any type errors
+4. Commit any changes with a descriptive message
+```
+
+Update `HEARTBEAT.md` any time (even from your phone via git push) and the agent picks up new instructions on the next heartbeat.
 
 ## Requirements
 

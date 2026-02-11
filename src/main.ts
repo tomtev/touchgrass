@@ -70,6 +70,11 @@ Commands:
   claude   Run Claude Code with chat bridge
   codex    Run Codex with chat bridge
   pi       Run PI with chat bridge
+
+Options (for claude/codex/pi):
+  --name <name>          Custom session name
+  --heartbeat            Send periodic heartbeat to agent
+  --interval <minutes>   Heartbeat interval (default: 60)
   ls       List active sessions
   init     Set up bot token
   pair     Generate a pairing code

@@ -6,7 +6,7 @@ import { daemonRequest } from "./client";
 import { ensureDaemon } from "./ensure-daemon";
 import { markdownToHtml } from "../utils/ansi";
 import { paths, ensureDirs } from "../config/paths";
-import { watch, readdirSync, statSync, type FSWatcher } from "fs";
+import { watch, readdirSync, statSync, readFileSync, type FSWatcher } from "fs";
 import { open, writeFile, unlink } from "fs/promises";
 import { homedir } from "os";
 import { join } from "path";
@@ -197,6 +197,54 @@ export async function runRun(): Promise<void> {
     cmdArgs = [...cmdArgs.slice(0, nameIdx), ...cmdArgs.slice(nameIdx + 2)];
   }
 
+  // Extract --heartbeat and --interval flags (consumed by tg)
+  let heartbeatEnabled = false;
+  let heartbeatInterval = 60; // minutes
+
+  const heartbeatIdx = cmdArgs.indexOf("--heartbeat");
+  if (heartbeatIdx !== -1) {
+    heartbeatEnabled = true;
+    cmdArgs = [...cmdArgs.slice(0, heartbeatIdx), ...cmdArgs.slice(heartbeatIdx + 1)];
+  }
+
+  const intervalIdx = cmdArgs.indexOf("--interval");
+  if (intervalIdx !== -1 && intervalIdx + 1 < cmdArgs.length) {
+    heartbeatInterval = parseFloat(cmdArgs[intervalIdx + 1]) || 60;
+    cmdArgs = [...cmdArgs.slice(0, intervalIdx), ...cmdArgs.slice(intervalIdx + 2)];
+  }
+
+  if (heartbeatEnabled) {
+    const heartbeatFile = join(process.cwd(), "HEARTBEAT.md");
+    try {
+      statSync(heartbeatFile);
+    } catch {
+      console.log("No HEARTBEAT.md found in current directory.");
+      process.stdout.write("Create a default one? (y/n) ");
+      const response = await new Promise<string>((resolve) => {
+        process.stdin.once("data", (data: Buffer) => resolve(data.toString().trim().toLowerCase()));
+      });
+      if (response === "y" || response === "yes") {
+        const template = `# Heartbeat Instructions
+
+## What is this?
+This file is read by your agent on every heartbeat interval.
+Edit these instructions to define what the agent should do periodically.
+
+## Instructions
+
+1. Run the test suite and fix any failing tests
+2. Check for type errors and fix them
+3. Commit any changes with a descriptive message
+`;
+        await writeFile(heartbeatFile, template, "utf-8");
+        console.log("Created HEARTBEAT.md — edit it with your instructions.");
+      } else {
+        console.error("Cannot use --heartbeat without a HEARTBEAT.md file.");
+        process.exit(1);
+      }
+    }
+  }
+
   const executable = SUPPORTED_COMMANDS[cmdName][0];
   const fullCommand = [executable, ...cmdArgs].join(" ");
   const displayName = sessionName || process.cwd().split("/").pop() || "";
@@ -318,6 +366,26 @@ export async function runRun(): Promise<void> {
     }, 2000);
   }
 
+  // Heartbeat: periodically send a message to the agent's terminal
+  let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  if (heartbeatEnabled) {
+    const intervalMs = heartbeatInterval * 60 * 1000;
+    heartbeatTimer = setInterval(() => {
+      const heartbeatFile = join(process.cwd(), "HEARTBEAT.md");
+      let content: string;
+      try {
+        content = readFileSync(heartbeatFile, "utf-8").trim();
+      } catch {
+        content = "No HEARTBEAT.md found in project directory.";
+      }
+      const now = new Date();
+      const ts = now.toISOString().replace("T", " ").slice(0, 16);
+      const msg = `❤ This is a scheduled heartbeat message for workflows and cron jobs. The current time and date is: ${ts}. Follow these instructions now if time and date is relevant:\n\n${content}\n\n❤`;
+      terminal.write(Buffer.from(msg));
+      setTimeout(() => terminal.write(Buffer.from("\r")), 100);
+    }, intervalMs);
+  }
+
   // Watch session JSONL for assistant responses.
   const watcherRef: { current: FSWatcher | null; dir: FSWatcher | null } = { current: null, dir: null };
   if (channel && chatId && projectDir) {
@@ -415,6 +483,7 @@ export async function runRun(): Promise<void> {
   // Cleanup
   if (pollTimer) clearInterval(pollTimer);
   if (groupPollTimer) clearInterval(groupPollTimer);
+  if (heartbeatTimer) clearInterval(heartbeatTimer);
   if (watcherRef.current) watcherRef.current.close();
   if (watcherRef.dir) watcherRef.dir.close();
 
