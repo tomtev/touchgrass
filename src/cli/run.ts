@@ -6,8 +6,8 @@ import { daemonRequest } from "./client";
 import { ensureDaemon } from "./ensure-daemon";
 import { markdownToHtml } from "../utils/ansi";
 import { paths, ensureDirs } from "../config/paths";
-import { watch, readdirSync, type FSWatcher } from "fs";
-import { readFile, writeFile, unlink } from "fs/promises";
+import { watch, readdirSync, statSync, type FSWatcher } from "fs";
+import { open, writeFile, unlink } from "fs/promises";
 import { homedir } from "os";
 import { join } from "path";
 
@@ -102,35 +102,80 @@ function extractAssistantText(msg: Record<string, unknown>): string | null {
   return null;
 }
 
-// Watch a JSONL file for new assistant messages.
-// File is always newly created (caller verifies via existingFiles check),
-// so all content belongs to our session — process from line 0.
+// Watch a JSONL file for new assistant messages using incremental reads.
+// Only reads new bytes from the file on each change, debounces rapid fs.watch
+// events, and handles partial lines at chunk boundaries.
 function watchSessionFile(
   filePath: string,
   onAssistant: (text: string) => void
 ): FSWatcher {
-  let processedLines = 0;
+  let byteOffset = 0;
+  let partial = ""; // Buffer for incomplete trailing line
+  let processing = false;
+  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
-  async function processFile() {
+  async function processNewContent() {
+    if (processing) return;
+    processing = true;
     try {
-      const content = await readFile(filePath, "utf-8");
-      const lines = content.split("\n").filter(Boolean);
+      // Get current file size to know how much to read
+      const stat = statSync(filePath);
+      const fileSize = stat.size;
 
-      for (let i = processedLines; i < lines.length; i++) {
+      // File truncated or unchanged — reset
+      if (fileSize < byteOffset) {
+        byteOffset = 0;
+        partial = "";
+      }
+      if (fileSize <= byteOffset) {
+        processing = false;
+        return;
+      }
+
+      // Read only the new bytes from our last position
+      const bytesToRead = fileSize - byteOffset;
+      const buffer = Buffer.alloc(bytesToRead);
+      const fd = await open(filePath, "r");
+      try {
+        await fd.read(buffer, 0, bytesToRead, byteOffset);
+      } finally {
+        await fd.close();
+      }
+      byteOffset = fileSize;
+
+      // Split into lines, prepending any partial line from last read
+      const chunk = partial + buffer.toString("utf-8");
+      const lines = chunk.split("\n");
+
+      // Last element is either empty (chunk ended with \n) or a partial line
+      partial = lines.pop() ?? "";
+
+      for (const line of lines) {
+        if (!line) continue;
         try {
-          const msg = JSON.parse(lines[i]);
+          const msg = JSON.parse(line);
           const assistantText = extractAssistantText(msg);
           if (assistantText) onAssistant(assistantText);
         } catch {}
       }
-      processedLines = lines.length;
     } catch {}
+    processing = false;
+  }
+
+  function scheduleProcess() {
+    // Debounce: fs.watch fires multiple times per write on macOS.
+    // Coalesce into a single read after 50ms of quiet.
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => {
+      debounceTimer = null;
+      processNewContent();
+    }, 50);
   }
 
   // Process any content already in the file (e.g. PI writes response before we find the file)
-  processFile();
+  processNewContent();
 
-  const watcher = watch(filePath, () => processFile());
+  const watcher = watch(filePath, scheduleProcess);
   return watcher;
 }
 
