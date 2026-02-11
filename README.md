@@ -9,6 +9,12 @@ tg claude    # instead of just "claude"
 tg codex     # instead of just "codex"
 ```
 
+Set up autonomous workflows with **heartbeat mode** — your agent checks a `HEARTBEAT.md` file on a schedule and follows the instructions inside. Update the file from anywhere (even your phone) and the agent picks it up on the next beat.
+
+```bash
+tg claude --tg-heartbeat --tg-interval 30    # check in every 30 minutes
+```
+
 More channels (Discord, Slack) coming soon.
 
 ## Table of contents
