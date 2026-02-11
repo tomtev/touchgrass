@@ -1,0 +1,81 @@
+import type { InboundMessage } from "../../channel/types";
+import type { RouterContext } from "../command-router";
+import { escapeHtml } from "../../channels/telegram/formatter";
+
+export async function handleSessionMgmt(
+  msg: InboundMessage,
+  args: string,
+  ctx: RouterContext
+): Promise<void> {
+  const chatId = msg.chatId;
+  const parts = args.split(/\s+/);
+  const subCmd = parts[0];
+  const sessionId = parts[1];
+
+  switch (subCmd) {
+    case "ls": {
+      const sessions = ctx.sessionManager.list();
+      if (sessions.length === 0) {
+        await ctx.channel.send(chatId, "No active sessions.");
+        return;
+      }
+      const attached = ctx.sessionManager.getAttached(chatId);
+      const attachedRemote = ctx.sessionManager.getAttachedRemote(chatId);
+      const lines = sessions.map((s) => {
+        const isAttached = attached?.id === s.id || attachedRemote?.id === s.id;
+        const marker = isAttached ? " (attached)" : "";
+        return `<code>${s.id}</code> [${s.state}] ${escapeHtml(s.command)}${marker}`;
+      });
+      await ctx.channel.send(chatId, lines.join("\n"));
+      return;
+    }
+
+    case "attach": {
+      if (!sessionId) {
+        await ctx.channel.send(chatId, "Usage: <code>tg attach &lt;id&gt;</code>");
+        return;
+      }
+      if (ctx.sessionManager.attach(chatId, sessionId)) {
+        await ctx.channel.send(chatId, `Attached to session <code>${sessionId}</code>.`);
+      } else {
+        await ctx.channel.send(chatId, `Session <code>${sessionId}</code> not found or exited.`);
+      }
+      return;
+    }
+
+    case "detach": {
+      if (ctx.sessionManager.detach(chatId)) {
+        await ctx.channel.send(chatId, "Detached.");
+      } else {
+        await ctx.channel.send(chatId, "Not attached to any session.");
+      }
+      return;
+    }
+
+    case "stop": {
+      if (!sessionId) {
+        await ctx.channel.send(chatId, "Usage: <code>tg stop &lt;id&gt;</code>");
+        return;
+      }
+      if (ctx.sessionManager.stopSession(sessionId)) {
+        await ctx.channel.send(chatId, `Sent SIGTERM to session <code>${sessionId}</code>.`);
+      } else {
+        await ctx.channel.send(chatId, `Session <code>${sessionId}</code> not found or already exited.`);
+      }
+      return;
+    }
+
+    case "kill": {
+      if (!sessionId) {
+        await ctx.channel.send(chatId, "Usage: <code>tg kill &lt;id&gt;</code>");
+        return;
+      }
+      if (ctx.sessionManager.killSession(sessionId)) {
+        await ctx.channel.send(chatId, `Sent SIGKILL to session <code>${sessionId}</code>.`);
+      } else {
+        await ctx.channel.send(chatId, `Session <code>${sessionId}</code> not found or already exited.`);
+      }
+      return;
+    }
+  }
+}

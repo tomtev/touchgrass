@@ -1,0 +1,76 @@
+#!/bin/bash
+set -euo pipefail
+
+REPO="tomtev/touchgrass"
+INSTALL_DIR="${TG_INSTALL_DIR:-$HOME/.local/bin}"
+BINARY_NAME="tg"
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+BOLD='\033[1m'
+NC='\033[0m'
+
+info() { echo -e "${BOLD}$1${NC}"; }
+success() { echo -e "${GREEN}$1${NC}"; }
+error() { echo -e "${RED}Error: $1${NC}" >&2; exit 1; }
+
+# Detect OS
+OS="$(uname -s)"
+case "$OS" in
+  Darwin) OS="darwin" ;;
+  Linux)  OS="linux" ;;
+  *)      error "Unsupported OS: $OS" ;;
+esac
+
+# Detect architecture
+ARCH="$(uname -m)"
+case "$ARCH" in
+  x86_64|amd64)  ARCH="x64" ;;
+  arm64|aarch64) ARCH="arm64" ;;
+  *)             error "Unsupported architecture: $ARCH" ;;
+esac
+
+TARGET="${OS}-${ARCH}"
+info "Detected platform: ${TARGET}"
+
+# Get latest release tag
+info "Fetching latest release..."
+LATEST=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')
+if [ -z "$LATEST" ]; then
+  error "Could not determine latest release. Check https://github.com/${REPO}/releases"
+fi
+info "Latest version: ${LATEST}"
+
+# Download binary
+DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${LATEST}/tg-${TARGET}"
+info "Downloading ${DOWNLOAD_URL}..."
+
+TMPFILE=$(mktemp)
+trap 'rm -f "$TMPFILE"' EXIT
+
+HTTP_CODE=$(curl -fsSL -w "%{http_code}" -o "$TMPFILE" "$DOWNLOAD_URL" 2>/dev/null || true)
+if [ "$HTTP_CODE" != "200" ] || [ ! -s "$TMPFILE" ]; then
+  error "Failed to download binary for ${TARGET}. Check that a release exists for your platform."
+fi
+
+# Install
+mkdir -p "$INSTALL_DIR"
+mv "$TMPFILE" "${INSTALL_DIR}/${BINARY_NAME}"
+chmod +x "${INSTALL_DIR}/${BINARY_NAME}"
+
+success "Installed ${BINARY_NAME} to ${INSTALL_DIR}/${BINARY_NAME}"
+
+# Check if INSTALL_DIR is in PATH
+if ! echo "$PATH" | tr ':' '\n' | grep -qx "$INSTALL_DIR"; then
+  echo ""
+  echo "Add this to your shell profile (~/.bashrc, ~/.zshrc, etc.):"
+  echo ""
+  echo "  export PATH=\"${INSTALL_DIR}:\$PATH\""
+  echo ""
+fi
+
+# Verify
+if command -v tg &>/dev/null; then
+  success "Run 'tg init' to get started."
+fi

@@ -1,0 +1,5 @@
+node_modules/
+dist/
+tg
+*.log
+.DS_Store
