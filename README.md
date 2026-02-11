@@ -11,8 +11,9 @@ curl -fsSL https://raw.githubusercontent.com/tomtev/touchgrass/main/install.sh |
 Add `tg` in front of any agent CLI command to bridge it to Telegram. See responses, send input, and manage sessions — all from chat. Works with Claude Code, Codex, PI, and any terminal tool.
 
 ```bash
-tg claude    # instead of just "claude"
-tg codex     # instead of just "codex"
+tg init      # To setup telegram etc.
+tg claude    # To start a Claude Code. All --props allowed.
+tg codex     # To start Codex. All --props allowed.
 ```
 
 Set up autonomous workflows with **heartbeat mode** — your agent checks a `HEARTBEAT.md` file on a schedule and follows the instructions inside. Update the file from anywhere (even your phone) and the agent picks it up on the next beat.
