@@ -1,4 +1,4 @@
-# TouchGrass
+# ⛳️ touchgrass.sh
 
 Go outside. Your agents have it covered.
 
