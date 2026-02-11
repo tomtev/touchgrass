@@ -372,6 +372,10 @@ export async function startDaemon(): Promise<void> {
     bindChat(sessionId: string, chatId: ChannelChatId): boolean {
       const remote = sessionManager.getRemote(sessionId);
       if (!remote) return false;
+      // Remove auto-attached DM if binding to a different chat
+      if (remote.chatId !== chatId) {
+        sessionManager.detach(remote.chatId);
+      }
       sessionManager.attach(chatId, sessionId);
       sessionManager.subscribeGroup(sessionId, chatId);
       const label = remote.name || remote.cwd.split("/").pop() || remote.cwd;
