@@ -1,8 +1,13 @@
 # ⛳️ touchgrass.sh
 
-Go outside. Your agents have it covered.
+Manage Claude Code, Codex, and more from your phone.
 
-Manage your AI coding agents (Claude Code, Codex, PI) from your phone via Telegram by simply adding `tg` in front of your CLI command. Start a session, walk away, get updates, send input — all from chat.
+Add `tg` in front of any agent CLI command to bridge it to Telegram. See responses, send input, and manage sessions — all from chat. Works with Claude Code, Codex, PI, and any terminal tool.
+
+```bash
+tg claude    # instead of just "claude"
+tg codex     # instead of just "codex"
+```
 
 More channels (Discord, Slack) coming soon.
 

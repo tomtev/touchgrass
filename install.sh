@@ -15,9 +15,14 @@ info() { echo -e "  ${DIM}$1${NC}"; }
 success() { echo -e "  ${GREEN}$1${NC}"; }
 error() { echo -e "  ❌ ${BOLD}$1${NC}" >&2; exit 1; }
 
+EXISTING_INSTALL=false
+if command -v tg &>/dev/null; then
+  EXISTING_INSTALL=true
+fi
+
 echo ""
 echo -e "  ${BOLD}⛳️ touchgrass.sh${NC}"
-echo -e "  ${DIM}Go outside. Your agents have it covered.${NC}"
+echo -e "  ${DIM}Manage Claude Code, Codex, and more from your phone.${NC}"
 echo ""
 
 # Detect OS
@@ -65,16 +70,20 @@ mv "$TMPFILE" "${INSTALL_DIR}/${BINARY_NAME}"
 chmod +x "${INSTALL_DIR}/${BINARY_NAME}"
 
 echo ""
-success "✅ Installed tg to ${INSTALL_DIR}/${BINARY_NAME}"
+if [ "$EXISTING_INSTALL" = true ]; then
+  success "✅ touchgrass.sh updated to ${LATEST}"
+else
+  success "✅ Installed tg to ${INSTALL_DIR}/${BINARY_NAME}"
 
-# Check if INSTALL_DIR is in PATH
-if ! echo "$PATH" | tr ':' '\n' | grep -qx "$INSTALL_DIR"; then
+  # Check if INSTALL_DIR is in PATH
+  if ! echo "$PATH" | tr ':' '\n' | grep -qx "$INSTALL_DIR"; then
+    echo ""
+    info "Add this to your shell profile:"
+    echo ""
+    echo "    export PATH=\"${INSTALL_DIR}:\$PATH\""
+  fi
+
   echo ""
-  info "Add this to your shell profile:"
-  echo ""
-  echo "    export PATH=\"${INSTALL_DIR}:\$PATH\""
+  success "Run 'tg init' to get started."
 fi
-
-echo ""
-success "Run 'tg init' to get started."
 echo ""
