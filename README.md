@@ -12,16 +12,6 @@ More channels (Discord, Slack) coming soon.
 curl -fsSL https://raw.githubusercontent.com/tomtev/touchgrass/main/install.sh | bash
 ```
 
-Or build from source:
-
-```bash
-git clone https://github.com/tomtev/touchgrass.git
-cd touchgrass
-bun install
-bun run build
-# Move the `tg` binary to your PATH
-```
-
 ## Setup
 
 ### 1. Create a Telegram bot
