@@ -1,8 +1,4 @@
-<<<<<<< Updated upstream
 # ⛳️ touchgrass.sh
-=======
-# ⛳ touchgrass.sh
->>>>>>> Stashed changes
 
 Go outside. Your agents have it covered.
 
@@ -136,8 +132,7 @@ In Telegram:
 
 ## Requirements
 
-- [Bun](https://bun.sh) (for building from source)
-- macOS or Linux
+- macOS or Linux (arm64 or x64)
 - A Telegram account and bot token
 
 ## License

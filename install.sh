@@ -6,14 +6,19 @@ INSTALL_DIR="${TG_INSTALL_DIR:-$HOME/.local/bin}"
 BINARY_NAME="tg"
 
 # Colors
-RED='\033[0;31m'
+DIM='\033[2m'
 GREEN='\033[0;32m'
 BOLD='\033[1m'
 NC='\033[0m'
 
-info() { echo -e "${BOLD}$1${NC}"; }
-success() { echo -e "${GREEN}$1${NC}"; }
-error() { echo -e "${RED}Error: $1${NC}" >&2; exit 1; }
+info() { echo -e "  ${DIM}$1${NC}"; }
+success() { echo -e "  ${GREEN}$1${NC}"; }
+error() { echo -e "  ❌ ${BOLD}$1${NC}" >&2; exit 1; }
+
+echo ""
+echo -e "  ${BOLD}⛳️ touchgrass.sh${NC}"
+echo -e "  ${DIM}Go outside. Your agents have it covered.${NC}"
+echo ""
 
 # Detect OS
 OS="$(uname -s)"
@@ -32,7 +37,7 @@ case "$ARCH" in
 esac
 
 TARGET="${OS}-${ARCH}"
-info "Detected platform: ${TARGET}"
+info "Platform: ${TARGET}"
 
 # Get latest release tag
 info "Fetching latest release..."
@@ -40,18 +45,18 @@ LATEST=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" | gre
 if [ -z "$LATEST" ]; then
   error "Could not determine latest release. Check https://github.com/${REPO}/releases"
 fi
-info "Latest version: ${LATEST}"
+info "Version: ${LATEST}"
 
 # Download binary
 DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${LATEST}/tg-${TARGET}"
-info "Downloading ${DOWNLOAD_URL}..."
+info "Downloading..."
 
 TMPFILE=$(mktemp)
 trap 'rm -f "$TMPFILE"' EXIT
 
 HTTP_CODE=$(curl -fsSL -w "%{http_code}" -o "$TMPFILE" "$DOWNLOAD_URL" 2>/dev/null || true)
 if [ "$HTTP_CODE" != "200" ] || [ ! -s "$TMPFILE" ]; then
-  error "Failed to download binary for ${TARGET}. Check that a release exists for your platform."
+  error "Failed to download binary for ${TARGET}."
 fi
 
 # Install
@@ -59,18 +64,17 @@ mkdir -p "$INSTALL_DIR"
 mv "$TMPFILE" "${INSTALL_DIR}/${BINARY_NAME}"
 chmod +x "${INSTALL_DIR}/${BINARY_NAME}"
 
-success "Installed ${BINARY_NAME} to ${INSTALL_DIR}/${BINARY_NAME}"
+echo ""
+success "✅ Installed tg to ${INSTALL_DIR}/${BINARY_NAME}"
 
 # Check if INSTALL_DIR is in PATH
 if ! echo "$PATH" | tr ':' '\n' | grep -qx "$INSTALL_DIR"; then
   echo ""
-  echo "Add this to your shell profile (~/.bashrc, ~/.zshrc, etc.):"
+  info "Add this to your shell profile:"
   echo ""
-  echo "  export PATH=\"${INSTALL_DIR}:\$PATH\""
-  echo ""
+  echo "    export PATH=\"${INSTALL_DIR}:\$PATH\""
 fi
 
-# Verify
-if command -v tg &>/dev/null; then
-  success "Run 'tg init' to get started."
-fi
+echo ""
+success "Run 'tg init' to get started."
+echo ""
