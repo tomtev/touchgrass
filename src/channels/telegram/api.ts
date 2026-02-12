@@ -148,6 +148,10 @@ export class TelegramApi {
     return `https://api.telegram.org/file/bot${this.token}/${filePath}`;
   }
 
+  async getChat(chatId: number): Promise<TelegramChat> {
+    return this.call<TelegramChat>("getChat", { chat_id: chatId });
+  }
+
   async sendChatAction(chatId: number, action: string, messageThreadId?: number): Promise<boolean> {
     return this.call<boolean>("sendChatAction", {
       chat_id: chatId,

@@ -11,8 +11,8 @@ export interface DaemonContext {
   getStatus: () => Record<string, unknown>;
   shutdown: () => Promise<void>;
   generatePairingCode: () => string;
-  registerRemote: (command: string, chatId: ChannelChatId, ownerUserId: ChannelUserId, cwd: string) => { sessionId: string; dmBusy: boolean; linkedGroups: Array<{ chatId: string; title?: string }>; allLinkedGroups: Array<{ chatId: string; title?: string }> };
-  bindChat: (sessionId: string, chatId: ChannelChatId) => boolean;
+  registerRemote: (command: string, chatId: ChannelChatId, ownerUserId: ChannelUserId, cwd: string) => Promise<{ sessionId: string; dmBusy: boolean; linkedGroups: Array<{ chatId: string; title?: string }>; allLinkedGroups: Array<{ chatId: string; title?: string }> }>;
+  bindChat: (sessionId: string, chatId: ChannelChatId) => Promise<{ ok: boolean; error?: string }>;
   canUserAccessSession: (userId: ChannelUserId, sessionId: string) => boolean;
   drainRemoteInput: (sessionId: string) => string[];
   endRemote: (sessionId: string, exitCode: number | null) => void;
@@ -87,7 +87,7 @@ export async function startControlServer(ctx: DaemonContext): Promise<void> {
         if (!command || !chatId || !ownerUserId) {
           return Response.json({ ok: false, error: "Missing command, chatId, or ownerUserId" }, { status: 400 });
         }
-        const result = ctx.registerRemote(command, chatId, ownerUserId, cwd);
+        const result = await ctx.registerRemote(command, chatId, ownerUserId, cwd);
         return Response.json({ ok: true, sessionId: result.sessionId, dmBusy: result.dmBusy, linkedGroups: result.linkedGroups, allLinkedGroups: result.allLinkedGroups });
       }
 
@@ -102,8 +102,8 @@ export async function startControlServer(ctx: DaemonContext): Promise<void> {
         if (!ctx.canUserAccessSession(ownerUserId, sessionId)) {
           return Response.json({ ok: false, error: "Unauthorized session access" }, { status: 403 });
         }
-        const success = ctx.bindChat(sessionId, targetChatId);
-        return Response.json({ ok: success });
+        const result = await ctx.bindChat(sessionId, targetChatId);
+        return Response.json({ ok: result.ok, ...(result.error ? { error: result.error } : {}) });
       }
 
       // Match /remote/:id/* actions

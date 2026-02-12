@@ -1,5 +1,5 @@
-import { loadConfig } from "../config/store";
-import { getTelegramBotToken, getAllLinkedGroups, isLinkedGroup } from "../config/schema";
+import { loadConfig, invalidateCache, saveConfig } from "../config/store";
+import { getTelegramBotToken, getAllLinkedGroups, isLinkedGroup, removeLinkedGroup } from "../config/schema";
 import { logger } from "./logger";
 import { writePidFile, installSignalHandlers, onShutdown, removeAuthToken, removePidFile, removeSocket } from "./lifecycle";
 import { startControlServer } from "./control-server";
@@ -19,7 +19,11 @@ const DAEMON_STARTED_AT = Date.now();
 export async function startDaemon(): Promise<void> {
   await logger.info("Daemon starting", { pid: process.pid });
 
-  const config = await loadConfig();
+  let config = await loadConfig();
+  async function refreshConfig() {
+    invalidateCache();
+    config = await loadConfig();
+  }
   const botToken = getTelegramBotToken(config);
   if (!botToken) {
     await logger.error("No bot token configured. Run `tg init` first.");
@@ -370,17 +374,31 @@ export async function startDaemon(): Promise<void> {
     generatePairingCode() {
       return generatePairingCode();
     },
-    registerRemote(command: string, chatId: ChannelChatId, ownerUserId: ChannelUserId, cwd: string): { sessionId: string; dmBusy: boolean; linkedGroups: Array<{ chatId: string; title?: string }>; allLinkedGroups: Array<{ chatId: string; title?: string }> } {
+    async registerRemote(command: string, chatId: ChannelChatId, ownerUserId: ChannelUserId, cwd: string): Promise<{ sessionId: string; dmBusy: boolean; linkedGroups: Array<{ chatId: string; title?: string }>; allLinkedGroups: Array<{ chatId: string; title?: string }> }> {
       cancelAutoStop();
       const remote = sessionManager.registerRemote(command, chatId, ownerUserId, cwd);
 
       const existingBound = sessionManager.getAttachedRemote(chatId);
       const dmBusy = !!existingBound && existingBound.id !== remote.id;
 
-      const allLinkedGroups = getAllLinkedGroups(config).map((g) => ({
-        chatId: g.chatId,
-        title: g.title,
-      }));
+      await refreshConfig();
+      const tgChannel = primaryChannel as TelegramChannel;
+      const rawGroups = getAllLinkedGroups(config);
+
+      // Validate groups still exist on Telegram, remove dead ones
+      const validGroups: Array<{ chatId: string; title?: string }> = [];
+      for (const g of rawGroups) {
+        const alive = await tgChannel.validateChat(g.chatId);
+        if (alive) {
+          validGroups.push({ chatId: g.chatId, title: g.title });
+        } else {
+          await logger.info("Removing inaccessible linked group", { chatId: g.chatId, title: g.title });
+          removeLinkedGroup(config, g.chatId);
+          await saveConfig(config);
+        }
+      }
+
+      const allLinkedGroups = validGroups;
       const linkedGroups = allLinkedGroups.filter((g) => {
         const bound = sessionManager.getAttachedRemote(g.chatId);
         return !bound || bound.id === remote.id;
@@ -388,12 +406,25 @@ export async function startDaemon(): Promise<void> {
 
       return { sessionId: remote.id, dmBusy, linkedGroups, allLinkedGroups };
     },
-    bindChat(sessionId: string, chatId: ChannelChatId): boolean {
+    async bindChat(sessionId: string, chatId: ChannelChatId): Promise<{ ok: boolean; error?: string }> {
       const remote = sessionManager.getRemote(sessionId);
-      if (!remote) return false;
+      if (!remote) return { ok: false, error: "Session not found" };
       const isOwnerDm = remote.chatId === chatId;
+      await refreshConfig();
       const isLinkedTarget = isLinkedGroup(config, chatId);
-      if (!isOwnerDm && !isLinkedTarget) return false;
+      if (!isOwnerDm && !isLinkedTarget) return { ok: false, error: "Group is not linked" };
+
+      // Validate the chat still exists on Telegram
+      if (!isOwnerDm) {
+        const tgChannel = primaryChannel as TelegramChannel;
+        const alive = await tgChannel.validateChat(chatId);
+        if (!alive) {
+          removeLinkedGroup(config, chatId);
+          await saveConfig(config);
+          return { ok: false, error: "Group no longer exists or bot was removed from it" };
+        }
+      }
+
       // Remove auto-attached DM if binding to a different chat
       if (remote.chatId !== chatId) {
         sessionManager.detach(remote.chatId);
@@ -405,7 +436,7 @@ export async function startDaemon(): Promise<void> {
       const label = remote.cwd.split("/").pop() || remote.cwd;
       const tool = remote.command.split(" ")[0];
       primaryChannel.send(chatId, `⛳️ <b>${escapeHtml(label)}</b> [${escapeHtml(tool)}] started`);
-      return true;
+      return { ok: true };
     },
     canUserAccessSession(userId: ChannelUserId, sessionId: string): boolean {
       return sessionManager.canUserAccessSession(userId, sessionId);
@@ -528,6 +559,7 @@ export async function startDaemon(): Promise<void> {
   // Start receiving on all channels
   for (const channel of channels) {
     channel.startReceiving(async (msg) => {
+      await refreshConfig();
       await routeMessage(msg, { config, sessionManager, channel });
     });
   }

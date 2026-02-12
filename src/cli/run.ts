@@ -786,12 +786,21 @@ Edit these instructions to define what the agent should do periodically.
             );
             if (choice >= 0 && choice < options.length && !options[choice].busy && options[choice].chatId) {
               const chosen = options[choice];
-              chatId = chosen.chatId as ChannelChatId;
-              await daemonRequest("/remote/bind-chat", "POST", {
-                sessionId: remoteId,
-                chatId: chosen.chatId,
-                ownerUserId,
-              });
+              try {
+                await daemonRequest("/remote/bind-chat", "POST", {
+                  sessionId: remoteId,
+                  chatId: chosen.chatId,
+                  ownerUserId,
+                });
+                chatId = chosen.chatId as ChannelChatId;
+              } catch (bindErr) {
+                console.error(`\x1b[33m⚠ ${(bindErr as Error).message}. Falling back to DM.\x1b[0m`);
+                await daemonRequest("/remote/bind-chat", "POST", {
+                  sessionId: remoteId,
+                  chatId,
+                  ownerUserId,
+                });
+              }
             }
           }
         }

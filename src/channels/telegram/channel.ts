@@ -133,6 +133,16 @@ export class TelegramChannel implements Channel {
     this.lastMessage.delete(chatId);
   }
 
+  async validateChat(chatId: ChannelChatId): Promise<boolean> {
+    const { chatId: numChatId } = fromChatId(chatId);
+    try {
+      await this.api.getChat(numChatId);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   clearLastMessage(chatId: ChannelChatId): void {
     this.lastMessage.delete(chatId);
   }
