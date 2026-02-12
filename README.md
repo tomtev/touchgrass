@@ -33,7 +33,6 @@ More channels (Discord, Slack) coming soon.
 - [CLI commands](#cli-commands)
 - [Telegram commands](#telegram-commands)
 - [Group chats](#group-chats)
-- [Multiple sessions](#multiple-sessions)
 - [Heartbeat mode](#heartbeat-mode)
 - [Requirements](#requirements)
 
