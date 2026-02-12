@@ -41,15 +41,22 @@ function terminalPicker(title: string, options: string[], hint?: string, disable
     const RESET = "\x1b[0m";
     const CYAN = "\x1b[36m";
     const BOLD = "\x1b[1m";
-    const totalLines = 1 + options.length + (hint ? 2 : 0);
+    let totalRows = 0;
+
+    function visRows(text: string): number {
+      const cols = process.stdout.columns || 80;
+      return Math.max(1, Math.ceil(text.length / cols));
+    }
 
     function render() {
-      process.stdout.write(`\x1b[${totalLines}A\x1b[J`);
+      process.stdout.write(`\x1b[${totalRows}A\x1b[J`);
       draw();
     }
 
     function draw() {
+      totalRows = 0;
       process.stdout.write(`  ${BOLD}${title}${RESET}\n`);
+      totalRows += visRows(`  ${title}`);
       for (let i = 0; i < options.length; i++) {
         if (dis.has(i)) {
           process.stdout.write(`  ${DIM}${STRIKETHROUGH}  ${options[i]}${RESET}\n`);
@@ -58,9 +65,11 @@ function terminalPicker(title: string, options: string[], hint?: string, disable
         } else {
           process.stdout.write(`  ${DIM}  ${options[i]}${RESET}\n`);
         }
+        totalRows += visRows(`    ${options[i]}`);
       }
       if (hint) {
         process.stdout.write(`\n  ${DIM}${hint}${RESET}\n`);
+        totalRows += 1 + visRows(`  ${hint}`);
       }
     }
 
