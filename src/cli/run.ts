@@ -736,7 +736,8 @@ Edit these instructions to define what the agent should do periodically.
           const groups = (res.linkedGroups as Array<{ chatId: string; title?: string }>) || [];
 
           // Build all options: DM (bot name) + all linked groups/topics (including busy from full list)
-          const allGroups = (res.allLinkedGroups as Array<{ chatId: string; title?: string }>) || groups;
+          const allGroups = (res.allLinkedGroups as Array<{ chatId: string; title?: string; busyLabel?: string }>) || groups;
+          const dmBusyLabel = res.dmBusyLabel as string | undefined;
           const options: Array<{ label: string; chatId: string; busy: boolean }> = [];
           let dmLabel = "DM";
           try {
@@ -744,11 +745,12 @@ Edit these instructions to define what the agent should do periodically.
             const me = await api.getMe();
             if (me.first_name) dmLabel = me.first_name;
           } catch {}
-          options.push({ label: `${dmLabel} \x1b[2m(DM)\x1b[22m`, chatId: chatId!, busy: dmBusy });
+          const dmSuffix = dmBusy && dmBusyLabel ? `\x1b[2m(DM) ← ${dmBusyLabel}\x1b[22m` : "\x1b[2m(DM)\x1b[22m";
+          options.push({ label: `${dmLabel} ${dmSuffix}`, chatId: chatId!, busy: dmBusy });
 
           // Separate groups and topics, then interleave topics under their parent group
-          const groupEntries: Array<{ chatId: string; title?: string; busy: boolean }> = [];
-          const topicEntries: Array<{ chatId: string; title?: string; busy: boolean; parentChatId: string }> = [];
+          const groupEntries: Array<{ chatId: string; title?: string; busy: boolean; busyLabel?: string }> = [];
+          const topicEntries: Array<{ chatId: string; title?: string; busy: boolean; busyLabel?: string; parentChatId: string }> = [];
           for (const g of allGroups) {
             const isBusy = !groups.some((av) => av.chatId === g.chatId);
             const parts = g.chatId.split(":");
@@ -759,18 +761,21 @@ Edit these instructions to define what the agent should do periodically.
             }
           }
           for (const g of groupEntries) {
-            options.push({ label: `${g.title || g.chatId} \x1b[2m(Group)\x1b[22m`, chatId: g.chatId, busy: g.busy });
+            const suffix = g.busy && g.busyLabel ? `\x1b[2m(Group) ← ${g.busyLabel}\x1b[22m` : "\x1b[2m(Group)\x1b[22m";
+            options.push({ label: `${g.title || g.chatId} ${suffix}`, chatId: g.chatId, busy: g.busy });
             // Insert topics belonging to this group immediately after
             for (const t of topicEntries) {
               if (t.parentChatId === g.chatId) {
-                options.push({ label: `  ${t.title || "Topic"} \x1b[2m(Topic)\x1b[22m`, chatId: t.chatId, busy: t.busy });
+                const tSuffix = t.busy && t.busyLabel ? `\x1b[2m(Topic) ← ${t.busyLabel}\x1b[22m` : "\x1b[2m(Topic)\x1b[22m";
+                options.push({ label: `  ${t.title || "Topic"} ${tSuffix}`, chatId: t.chatId, busy: t.busy });
               }
             }
           }
           // Orphan topics (parent group not linked) — show at the end
           for (const t of topicEntries) {
             if (!groupEntries.some((g) => g.chatId === t.parentChatId)) {
-              options.push({ label: `  ${t.title || "Topic"} \x1b[2m(Topic)\x1b[22m`, chatId: t.chatId, busy: t.busy });
+              const tSuffix = t.busy && t.busyLabel ? `\x1b[2m(Topic) ← ${t.busyLabel}\x1b[22m` : "\x1b[2m(Topic)\x1b[22m";
+              options.push({ label: `  ${t.title || "Topic"} ${tSuffix}`, chatId: t.chatId, busy: t.busy });
             }
           }
 
@@ -785,15 +790,13 @@ Edit these instructions to define what the agent should do periodically.
               ownerUserId,
             });
           } else {
-            const labels = options.map((o) => o.busy ? `${o.label} (busy)` : o.label);
-            const disabled = new Set(options.map((o, i) => o.busy ? i : -1).filter((i) => i >= 0));
+            const labels = options.map((o) => o.label);
             const choice = await terminalPicker(
               "⛳ Select a Telegram channel:",
               labels,
-              "Add bot to a Telegram group and send /link to add more channels",
-              disabled
+              "Add bot to a Telegram group and send /link to add more channels"
             );
-            if (choice >= 0 && choice < options.length && !options[choice].busy && options[choice].chatId) {
+            if (choice >= 0 && choice < options.length && options[choice].chatId) {
               const chosen = options[choice];
               try {
                 await daemonRequest("/remote/bind-chat", "POST", {

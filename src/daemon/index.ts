@@ -374,12 +374,13 @@ export async function startDaemon(): Promise<void> {
     generatePairingCode() {
       return generatePairingCode();
     },
-    async registerRemote(command: string, chatId: ChannelChatId, ownerUserId: ChannelUserId, cwd: string): Promise<{ sessionId: string; dmBusy: boolean; linkedGroups: Array<{ chatId: string; title?: string }>; allLinkedGroups: Array<{ chatId: string; title?: string }> }> {
+    async registerRemote(command: string, chatId: ChannelChatId, ownerUserId: ChannelUserId, cwd: string): Promise<{ sessionId: string; dmBusy: boolean; dmBusyLabel?: string; linkedGroups: Array<{ chatId: string; title?: string }>; allLinkedGroups: Array<{ chatId: string; title?: string; busyLabel?: string }> }> {
       cancelAutoStop();
       const remote = sessionManager.registerRemote(command, chatId, ownerUserId, cwd);
 
       const existingBound = sessionManager.getAttachedRemote(chatId);
       const dmBusy = !!existingBound && existingBound.id !== remote.id;
+      const dmBusyLabel = dmBusy && existingBound ? `${existingBound.command.split(" ")[0]} ${existingBound.cwd.split("/").pop()}` : undefined;
 
       await refreshConfig();
       const tgChannel = primaryChannel as TelegramChannel;
@@ -398,13 +399,14 @@ export async function startDaemon(): Promise<void> {
         }
       }
 
-      const allLinkedGroups = validGroups;
-      const linkedGroups = allLinkedGroups.filter((g) => {
+      const allLinkedGroups = validGroups.map((g) => {
         const bound = sessionManager.getAttachedRemote(g.chatId);
-        return !bound || bound.id === remote.id;
+        const busyLabel = bound && bound.id !== remote.id ? `${bound.command.split(" ")[0]} ${bound.cwd.split("/").pop()}` : undefined;
+        return { chatId: g.chatId, title: g.title, busyLabel };
       });
+      const linkedGroups = allLinkedGroups.filter((g) => !g.busyLabel);
 
-      return { sessionId: remote.id, dmBusy, linkedGroups, allLinkedGroups };
+      return { sessionId: remote.id, dmBusy, dmBusyLabel, linkedGroups, allLinkedGroups };
     },
     async bindChat(sessionId: string, chatId: ChannelChatId): Promise<{ ok: boolean; error?: string }> {
       const remote = sessionManager.getRemote(sessionId);
