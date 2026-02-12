@@ -67,9 +67,15 @@ export async function routeMessage(
     return;
   }
 
-  // Auto-update group title if it changed (skip topics — their names are user-provided via /link)
+  // Auto-update group title if it changed
   if (msg.isGroup && msg.chatTitle && chatId.split(":").length < 3) {
     if (updateLinkedGroupTitle(ctx.config, chatId, msg.chatTitle)) {
+      await saveConfig(ctx.config);
+    }
+  }
+  // Auto-update topic title if detected from Telegram
+  if (msg.isGroup && msg.topicTitle && chatId.split(":").length >= 3) {
+    if (updateLinkedGroupTitle(ctx.config, chatId, msg.topicTitle)) {
       await saveConfig(ctx.config);
     }
   }
@@ -112,8 +118,12 @@ export async function routeMessage(
       if (addLinkedGroup(ctx.config, parentChatId, msg.chatTitle)) {
         await saveConfig(ctx.config);
       }
-      // Link the topic with provided name or fallback
-      const topicTitle = linkArg || "Topic";
+      // Require a name for topics (auto-detected or user-provided)
+      const topicTitle = linkArg || msg.topicTitle;
+      if (!topicTitle) {
+        await ctx.channel.send(chatId, "Please provide a name: <code>/link MyTopic</code>");
+        return;
+      }
       const added = addLinkedGroup(ctx.config, chatId, topicTitle);
       if (added) {
         await saveConfig(ctx.config);

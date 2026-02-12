@@ -30,6 +30,8 @@ export class TelegramChannel implements Channel {
   private lastMessage: Map<string, { messageId: number; text: string }> = new Map();
   private typingTimers: Map<ChannelChatId, { interval: ReturnType<typeof setInterval>; timeout: ReturnType<typeof setTimeout> }> = new Map();
   private readonly uploadTtlMs = 24 * 60 * 60 * 1000;
+  // Cache forum topic names: key = "chatId:threadId", value = topic name
+  private topicNames: Map<string, string> = new Map();
   onPollAnswer: ((answer: TelegramPollAnswer) => void) | null = null;
 
   constructor(botToken: string) {
@@ -249,6 +251,18 @@ export class TelegramChannel implements Channel {
               const msg = update.message;
               const isGroup = msg.chat.type !== "private";
 
+              // Cache forum topic names from service messages
+              if (msg.forum_topic_created && msg.message_thread_id) {
+                this.topicNames.set(`${msg.chat.id}:${msg.message_thread_id}`, msg.forum_topic_created.name);
+              }
+              if (msg.forum_topic_edited?.name && msg.message_thread_id) {
+                this.topicNames.set(`${msg.chat.id}:${msg.message_thread_id}`, msg.forum_topic_edited.name);
+              }
+              // Also cache from reply_to_message if it's the topic creation message
+              if (msg.reply_to_message?.forum_topic_created && msg.message_thread_id) {
+                this.topicNames.set(`${msg.chat.id}:${msg.message_thread_id}`, msg.reply_to_message.forum_topic_created.name);
+              }
+
               // Download photos/documents to local disk and use file paths
               let text = msg.text?.trim() || "";
               const fileUrls: string[] = [];
@@ -300,6 +314,11 @@ export class TelegramChannel implements Channel {
               text = this.stripBotMention(text);
               if (!text) continue;
 
+              // Resolve topic title from cache
+              const topicTitle = msg.message_thread_id && msg.message_thread_id !== 1
+                ? this.topicNames.get(`${msg.chat.id}:${msg.message_thread_id}`)
+                : undefined;
+
               const inbound: InboundMessage = {
                 userId: `telegram:${msg.from.id}`,
                 chatId: toChatId(msg.chat.id, msg.message_thread_id),
@@ -308,6 +327,7 @@ export class TelegramChannel implements Channel {
                 fileUrls: fileUrls.length > 0 ? fileUrls : undefined,
                 isGroup,
                 chatTitle: isGroup ? msg.chat.title : undefined,
+                topicTitle,
               };
 
               await onMessage(inbound);

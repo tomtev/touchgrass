@@ -10,6 +10,7 @@ export interface InboundMessage {
   fileUrls?: string[]; // resolved attachment URLs
   isGroup?: boolean; // true if message came from a group/channel
   chatTitle?: string; // group/channel title
+  topicTitle?: string; // forum topic title (if detectable)
 }
 
 export interface Channel {

@@ -46,6 +46,8 @@ export interface TelegramMessage {
   reply_to_message?: TelegramMessage;
   message_thread_id?: number;
   is_topic_message?: boolean;
+  forum_topic_created?: { name: string; icon_color: number; icon_custom_emoji_id?: string };
+  forum_topic_edited?: { name?: string; icon_custom_emoji_id?: string };
 }
 
 export interface TelegramPoll {
