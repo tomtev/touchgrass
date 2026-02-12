@@ -205,8 +205,8 @@ tg pi --continue
 
 ## FAQ
 
-**Does `tg claude` change how Claude Code works?**
-No. It's a thin PTY wrapper — Claude runs in a real terminal and behaves identically. All flags, features, and keyboard shortcuts work as normal.
+**Does `tg` change how my CLI tool works?**
+No. It's a thin PTY wrapper — your tool runs in a real terminal and behaves identically. All flags, features, and keyboard shortcuts work as normal.
 
 **Can I type locally and use Telegram at the same time?**
 Yes. Local input is instant. Telegram input is polled every 200ms. Avoid typing in both simultaneously as keystrokes could interleave.
