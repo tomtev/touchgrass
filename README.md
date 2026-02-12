@@ -1,6 +1,6 @@
 # ⛳️ touchgrass.sh
 
-Manage Claude Code, Codex & Pi terminals on the go with Telegram.
+Manage Claude Code, Codex & Pi terminals on-the-go.
 
 - ✅ **Simple to run** — just prefix terminal commands with `tg`, like `tg claude`
 - ✅ **Communicate with your terminals from Telegram** — send input, see responses
