@@ -39,6 +39,7 @@ More channels (Discord, Slack) coming soon.
 - [Telegram commands](#telegram-commands)
 - [Connect terminal sessions to Telegram](#connect-terminal-sessions-to-telegram)
 - [Heartbeat mode](#heartbeat-mode)
+- [FAQ](#faq)
 - [Requirements](#requirements)
 
 ## Setup
@@ -201,6 +202,14 @@ tg pi --continue
 ```
 
 **Note:** If you use `/resume` inside Claude Code (after starting with `tg claude`), the Telegram bridge stays connected to the original session. To bridge the new session, restart with `tg claude --resume <id>`.
+
+## FAQ
+
+**Does `tg claude` change how Claude Code works?**
+No. It's a thin PTY wrapper — Claude runs in a real terminal and behaves identically. All flags, features, and keyboard shortcuts work as normal.
+
+**Can I type locally and use Telegram at the same time?**
+Yes. Local input is instant. Telegram input is polled every 200ms. Avoid typing in both simultaneously as keystrokes could interleave.
 
 ## Requirements
 
