@@ -18,7 +18,7 @@ tg claude    # To start a Claude Code. All --props allowed.
 tg codex     # To start Codex. All --props allowed.
 ```
 
-#### Heartbeat mode - Give life to Claude Code and Codex
+#### Heartbeat mode - Keep your terminals alive with workflows and cron jobs.
 
 Set up autonomous workflows with **heartbeat mode** — your agent checks a `HEARTBEAT.md` file on a schedule and follows the instructions inside. Update the file from anywhere (even your phone) and the agent picks it up on the next beat.
 
