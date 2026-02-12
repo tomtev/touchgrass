@@ -166,6 +166,22 @@ export class SessionManager {
 
   // Reverse lookup: find which chat a session is bound to
   getBoundChat(sessionId: string): ChannelChatId | null {
+    // For remote sessions, prefer an explicitly attached non-owner chat
+    // (group/topic) over owner DM if both are attached.
+    const remote = this.remotes.get(sessionId);
+    if (remote) {
+      let ownerDmAttached = false;
+      for (const [chatId, id] of this.attachments) {
+        if (id !== sessionId) continue;
+        if (chatId === remote.chatId) {
+          ownerDmAttached = true;
+          continue;
+        }
+        return chatId;
+      }
+      return ownerDmAttached ? remote.chatId : null;
+    }
+
     for (const [chatId, id] of this.attachments) {
       if (id === sessionId) return chatId;
     }
