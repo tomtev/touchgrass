@@ -205,4 +205,12 @@ describe("getBoundChat", () => {
     mgr.attach("telegram:-200" as ChannelChatId, remote.id);
     expect(mgr.getBoundChat(remote.id)).toBe("telegram:-200");
   });
+
+  it("prefers a non-owner bound chat over owner DM when both are attached", () => {
+    const mgr = createManager();
+    const remote = mgr.registerRemote("claude", "telegram:100" as ChannelChatId, "telegram:100" as ChannelUserId);
+    // Keep owner DM attached and also attach a topic/group chat.
+    mgr.attach("telegram:-200:7" as ChannelChatId, remote.id);
+    expect(mgr.getBoundChat(remote.id)).toBe("telegram:-200:7");
+  });
 });

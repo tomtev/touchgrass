@@ -437,11 +437,10 @@ export async function startDaemon(): Promise<void> {
       // Disconnect old session from this channel if taken
       const oldRemote = sessionManager.getAttachedRemote(chatId);
       if (oldRemote && oldRemote.id !== sessionId) {
-        sessionManager.detach(chatId);
-        sessionManager.unsubscribeGroup(oldRemote.id, chatId);
-        // Re-bind old session to its owner DM
-        sessionManager.attach(oldRemote.chatId, oldRemote.id);
-        primaryChannel.send(chatId, `${fmt.escape("⛳️")} ${fmt.bold(fmt.escape(sessionLabel(oldRemote.command, oldRemote.cwd)))} disconnected`);
+        return {
+          ok: false,
+          error: `Channel is busy with ${sessionLabel(oldRemote.command, oldRemote.cwd)}`,
+        };
       }
 
       // Remove auto-attached DM if binding to a different chat

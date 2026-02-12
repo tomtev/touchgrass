@@ -100,6 +100,11 @@ async function simulateBindChat(
     }
   }
 
+  const oldRemote = sessionManager.getAttachedRemote(chatId);
+  if (oldRemote && oldRemote.id !== sessionId) {
+    return { ok: false, error: `Channel is busy with ${oldRemote.command}`, configModified };
+  }
+
   if (remote.chatId !== chatId) {
     sessionManager.detach(remote.chatId);
   }
@@ -274,6 +279,26 @@ describe("bindChat handler — group validation", () => {
 
     expect(result.ok).toBe(false);
     expect(result.error).toBe("Session not found");
+  });
+
+  it("returns error when target channel is already bound by another session", async () => {
+    const config = makeConfig([
+      { chatId: "telegram:-100", title: "Live Group", linkedAt: "2024-01-01" },
+    ]);
+    const mgr = new SessionManager({ ...defaultSettings });
+    const first = mgr.registerRemote("claude", "telegram:100" as ChannelChatId, "telegram:100" as ChannelUserId);
+    const second = mgr.registerRemote("codex", "telegram:200" as ChannelChatId, "telegram:200" as ChannelUserId);
+    mgr.attach("telegram:-100" as ChannelChatId, first.id);
+    const validateChat = mock(async () => true);
+
+    const result = await simulateBindChat(
+      mgr, config, validateChat,
+      second.id, "telegram:-100" as ChannelChatId,
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("Channel is busy");
+    expect(mgr.getBoundChat(first.id)).toBe("telegram:-100");
   });
 });
 

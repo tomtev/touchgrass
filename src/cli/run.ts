@@ -561,15 +561,26 @@ function watchSessionFile(
         const bytesToRead = fileSize - byteOffset;
         const buffer = Buffer.alloc(bytesToRead);
         const fd = await open(filePath, "r");
+        let totalBytesRead = 0;
         try {
-          await fd.read(buffer, 0, bytesToRead, byteOffset);
+          while (totalBytesRead < bytesToRead) {
+            const { bytesRead } = await fd.read(
+              buffer,
+              totalBytesRead,
+              bytesToRead - totalBytesRead,
+              byteOffset + totalBytesRead
+            );
+            if (bytesRead === 0) break;
+            totalBytesRead += bytesRead;
+          }
         } finally {
           await fd.close();
         }
-        byteOffset = fileSize;
+        if (totalBytesRead === 0) break;
+        byteOffset += totalBytesRead;
 
         // Split into lines, prepending any partial line from last read
-        const chunk = partial + buffer.toString("utf-8");
+        const chunk = partial + buffer.toString("utf-8", 0, totalBytesRead);
         const lines = chunk.split("\n");
 
         // Last element is either empty (chunk ended with \n) or a partial line
@@ -600,7 +611,7 @@ function watchSessionFile(
         }
 
         // Re-check if events arrived while we were processing
-        if (pendingRecheck) hasMore = true;
+        if (pendingRecheck || totalBytesRead < bytesToRead) hasMore = true;
       }
     } catch {} // file may not exist yet
     processing = false;
@@ -704,6 +715,7 @@ Edit these instructions to define what the agent should do periodically.
   let channel: Channel | null = null;
   let chatId: ChannelChatId | null = null;
   let ownerUserId: string | null = null;
+  let didBindChat = false;
 
   try {
     const config = await loadConfig();
@@ -788,12 +800,18 @@ Edit these instructions to define what the agent should do periodically.
               chatId,
               ownerUserId,
             });
+            didBindChat = true;
           } else {
             const labels = options.map((o) => o.label);
+            const disabled = new Set<number>();
+            options.forEach((o, idx) => {
+              if (o.busy && o.chatId) disabled.add(idx);
+            });
             const choice = await terminalPicker(
               "⛳ Select a Telegram channel:",
               labels,
-              "Add bot to a Telegram group and send /link to add more channels"
+              "Add bot to a Telegram group and send /link to add more channels (busy channels are disabled)",
+              disabled
             );
             if (choice >= 0 && choice < options.length && options[choice].chatId) {
               const chosen = options[choice];
@@ -804,13 +822,9 @@ Edit these instructions to define what the agent should do periodically.
                   ownerUserId,
                 });
                 chatId = chosen.chatId as ChannelChatId;
+                didBindChat = true;
               } catch (bindErr) {
-                console.error(`\x1b[33m⚠ ${(bindErr as Error).message}. Falling back to DM.\x1b[0m`);
-                await daemonRequest("/remote/bind-chat", "POST", {
-                  sessionId: remoteId,
-                  chatId,
-                  ownerUserId,
-                });
+                console.error(`\x1b[33m⚠ ${(bindErr as Error).message}. Keeping current channel binding.\x1b[0m`);
               }
             }
           }
@@ -1017,11 +1031,13 @@ Edit these instructions to define what the agent should do periodically.
   // Track group chats subscribed to this session's output
   const subscribedGroups = new Set<ChannelChatId>();
   // Track which chat this session is bound to (may differ from chatId if bound to a group)
-  let boundChat: ChannelChatId | null = null;
+  let boundChat: ChannelChatId | null = remoteId && didBindChat ? chatId : null;
+  let nullBoundPolls = 0;
   let groupPollTimer: ReturnType<typeof setInterval> | null = null;
+  const getPrimaryTargetChat = (): ChannelChatId | null => remoteId ? boundChat : chatId;
   if (remoteId) {
     const pollRemoteId = remoteId;
-    groupPollTimer = setInterval(async () => {
+    const pollBinding = async () => {
       try {
         const res = await daemonRequest(`/remote/${pollRemoteId}/subscribed-groups`);
         const chatIds = res.chatIds as string[] | undefined;
@@ -1029,10 +1045,21 @@ Edit these instructions to define what the agent should do periodically.
           subscribedGroups.clear();
           for (const id of chatIds) subscribedGroups.add(id);
         }
-        boundChat = typeof res.boundChat === "string"
-          ? (res.boundChat as ChannelChatId)
-          : null;
+        if (typeof res.boundChat === "string") {
+          boundChat = res.boundChat as ChannelChatId;
+          nullBoundPolls = 0;
+        } else if (boundChat === null) {
+          nullBoundPolls = 0;
+        } else if (++nullBoundPolls >= 3) {
+          // Prevent single transient races from bouncing output to an old fallback chat.
+          boundChat = null;
+          nullBoundPolls = 0;
+        }
       } catch {}
+    };
+    await pollBinding();
+    groupPollTimer = setInterval(() => {
+      pollBinding().catch(() => {});
     }, 2000);
   }
 
@@ -1059,7 +1086,6 @@ Edit these instructions to define what the agent should do periodically.
   // Watch session JSONL for assistant responses.
   const watcherRef: { current: FSWatcher | null; dir: FSWatcher | null } = { current: null, dir: null };
   if (channel && chatId && projectDir) {
-    const tgChatId = chatId;
     const tgChannel = channel;
     const tgRemoteId = remoteId;
 
@@ -1081,8 +1107,8 @@ Edit these instructions to define what the agent should do periodically.
       const onToolCall = tgRemoteId
         ? (calls: ToolCallInfo[]) => {
             // Agent is working — assert typing on all target chats
-            const typingTarget = boundChat || tgChatId;
-            tgChannel.setTyping(typingTarget, true);
+            const typingTarget = getPrimaryTargetChat();
+            if (typingTarget) tgChannel.setTyping(typingTarget, true);
             for (const gid of subscribedGroups) tgChannel.setTyping(gid, true);
 
             for (const call of calls) {
@@ -1114,10 +1140,12 @@ Edit these instructions to define what the agent should do periodically.
         : undefined;
 
       watcherRef.current = watchSessionFile(sessionFile, (text) => {
-        // Determine target chats: bound chat + subscribed groups (skip unbound DM)
-        const targetChat = boundChat || tgChatId;
-        const targets = new Set<ChannelChatId>([targetChat]);
+        // Determine target chats: bound chat + subscribed groups.
+        const targets = new Set<ChannelChatId>();
+        const targetChat = getPrimaryTargetChat();
+        if (targetChat) targets.add(targetChat);
         for (const gid of subscribedGroups) targets.add(gid);
+        if (targets.size === 0) return;
 
         for (const cid of targets) tgChannel.setTyping(cid, false);
 
@@ -1239,7 +1267,8 @@ Edit these instructions to define what the agent should do periodically.
 
             // Regular text input — start typing indicator
             if (channel && chatId) {
-              channel.setTyping(chatId, true);
+              const typingTarget = getPrimaryTargetChat();
+              if (typingTarget) channel.setTyping(typingTarget, true);
               for (const gid of subscribedGroups) channel.setTyping(gid, true);
             }
             terminal.write(Buffer.from(line));
