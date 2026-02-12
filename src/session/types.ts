@@ -1,4 +1,4 @@
-import type { ChannelChatId } from "../channel/types";
+import type { ChannelChatId, ChannelUserId } from "../channel/types";
 
 export type SessionState = "running" | "exited" | "remote";
 
@@ -9,6 +9,7 @@ export interface SessionInfo {
   createdAt: string;
   exitCode: number | null;
   ownerChatId: ChannelChatId;
+  ownerUserId: ChannelUserId;
 }
 
 export interface SessionEvents {

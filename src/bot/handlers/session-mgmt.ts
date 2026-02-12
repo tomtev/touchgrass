@@ -8,21 +8,24 @@ export async function handleSessionMgmt(
   ctx: RouterContext
 ): Promise<void> {
   const chatId = msg.chatId;
+  const userId = msg.userId;
   const parts = args.split(/\s+/);
   const subCmd = parts[0];
   const sessionId = parts[1];
 
   switch (subCmd) {
     case "ls": {
-      const sessions = ctx.sessionManager.list();
+      const sessions = ctx.sessionManager.listForUser(userId);
       if (sessions.length === 0) {
         await ctx.channel.send(chatId, "No active sessions.");
         return;
       }
       const attached = ctx.sessionManager.getAttached(chatId);
       const attachedRemote = ctx.sessionManager.getAttachedRemote(chatId);
+      const attachedId = attached?.ownerUserId === userId ? attached.id : undefined;
+      const attachedRemoteId = attachedRemote?.ownerUserId === userId ? attachedRemote.id : undefined;
       const lines = sessions.map((s) => {
-        const isAttached = attached?.id === s.id || attachedRemote?.id === s.id;
+        const isAttached = attachedId === s.id || attachedRemoteId === s.id;
         const marker = isAttached ? " (attached)" : "";
         return `<code>${s.id}</code> [${s.state}] ${escapeHtml(s.command)}${marker}`;
       });
@@ -33,6 +36,10 @@ export async function handleSessionMgmt(
     case "attach": {
       if (!sessionId) {
         await ctx.channel.send(chatId, "Usage: <code>tg attach &lt;id&gt;</code>");
+        return;
+      }
+      if (!ctx.sessionManager.canUserAccessSession(userId, sessionId)) {
+        await ctx.channel.send(chatId, `Session <code>${sessionId}</code> not found or exited.`);
         return;
       }
       if (ctx.sessionManager.attach(chatId, sessionId)) {
@@ -57,6 +64,10 @@ export async function handleSessionMgmt(
         await ctx.channel.send(chatId, "Usage: <code>tg stop &lt;id&gt;</code>");
         return;
       }
+      if (!ctx.sessionManager.canUserAccessSession(userId, sessionId)) {
+        await ctx.channel.send(chatId, `Session <code>${sessionId}</code> not found or already exited.`);
+        return;
+      }
       if (ctx.sessionManager.stopSession(sessionId)) {
         await ctx.channel.send(chatId, `Sent SIGTERM to session <code>${sessionId}</code>.`);
       } else {
@@ -68,6 +79,10 @@ export async function handleSessionMgmt(
     case "kill": {
       if (!sessionId) {
         await ctx.channel.send(chatId, "Usage: <code>tg kill &lt;id&gt;</code>");
+        return;
+      }
+      if (!ctx.sessionManager.canUserAccessSession(userId, sessionId)) {
+        await ctx.channel.send(chatId, `Session <code>${sessionId}</code> not found or already exited.`);
         return;
       }
       if (ctx.sessionManager.killSession(sessionId)) {

@@ -26,7 +26,7 @@ export async function handleSpawn(
     return;
   }
 
-  const session = ctx.sessionManager.spawn(command, args, chatId);
+  const session = ctx.sessionManager.spawn(command, args, chatId, msg.userId);
 
   if (!session) {
     await ctx.channel.send(chatId, "Max sessions reached. Stop a session first.");

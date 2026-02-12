@@ -1,4 +1,4 @@
-import type { ChannelChatId } from "../channel/types";
+import type { ChannelChatId, ChannelUserId } from "../channel/types";
 import { paths } from "../config/paths";
 import { logger } from "./logger";
 import { removeSocket, onShutdown } from "./lifecycle";
@@ -8,8 +8,9 @@ export interface DaemonContext {
   getStatus: () => Record<string, unknown>;
   shutdown: () => Promise<void>;
   generatePairingCode: () => string;
-  registerRemote: (command: string, chatId: ChannelChatId, cwd: string, name: string) => { sessionId: string; dmBusy: boolean; linkedGroups: Array<{ chatId: string; title?: string }>; allLinkedGroups: Array<{ chatId: string; title?: string }> };
+  registerRemote: (command: string, chatId: ChannelChatId, ownerUserId: ChannelUserId, cwd: string, name: string) => { sessionId: string; dmBusy: boolean; linkedGroups: Array<{ chatId: string; title?: string }>; allLinkedGroups: Array<{ chatId: string; title?: string }> };
   bindChat: (sessionId: string, chatId: ChannelChatId) => boolean;
+  canUserAccessSession: (userId: ChannelUserId, sessionId: string) => boolean;
   drainRemoteInput: (sessionId: string) => string[];
   endRemote: (sessionId: string, exitCode: number | null) => void;
   getSubscribedGroups: (sessionId: string) => string[];
@@ -61,12 +62,13 @@ export async function startControlServer(ctx: DaemonContext): Promise<void> {
         const body = await readJsonBody(req);
         const command = body.command as string;
         const chatId = body.chatId as string;
+        const ownerUserId = body.ownerUserId as string;
         const cwd = (body.cwd as string) || "";
         const name = (body.name as string) || "";
-        if (!command || !chatId) {
-          return Response.json({ ok: false, error: "Missing command or chatId" }, { status: 400 });
+        if (!command || !chatId || !ownerUserId) {
+          return Response.json({ ok: false, error: "Missing command, chatId, or ownerUserId" }, { status: 400 });
         }
-        const result = ctx.registerRemote(command, chatId, cwd, name);
+        const result = ctx.registerRemote(command, chatId, ownerUserId, cwd, name);
         return Response.json({ ok: true, sessionId: result.sessionId, dmBusy: result.dmBusy, linkedGroups: result.linkedGroups, allLinkedGroups: result.allLinkedGroups });
       }
 
@@ -74,8 +76,12 @@ export async function startControlServer(ctx: DaemonContext): Promise<void> {
         const body = await readJsonBody(req);
         const sessionId = body.sessionId as string;
         const targetChatId = body.chatId as string;
-        if (!sessionId || !targetChatId) {
-          return Response.json({ ok: false, error: "Missing sessionId or chatId" }, { status: 400 });
+        const ownerUserId = body.ownerUserId as string;
+        if (!sessionId || !targetChatId || !ownerUserId) {
+          return Response.json({ ok: false, error: "Missing sessionId, chatId, or ownerUserId" }, { status: 400 });
+        }
+        if (!ctx.canUserAccessSession(ownerUserId, sessionId)) {
+          return Response.json({ ok: false, error: "Unauthorized session access" }, { status: 403 });
         }
         const success = ctx.bindChat(sessionId, targetChatId);
         return Response.json({ ok: success });

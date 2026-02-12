@@ -6,9 +6,10 @@ import { startControlServer } from "./control-server";
 import { routeMessage } from "../bot/command-router";
 import { SessionManager } from "../session/manager";
 import { generatePairingCode } from "../security/pairing";
+import { isUserPaired } from "../security/allowlist";
 import { TelegramChannel } from "../channels/telegram/channel";
 import { escapeHtml } from "../channels/telegram/formatter";
-import type { Channel, ChannelChatId } from "../channel/types";
+import type { Channel, ChannelChatId, ChannelUserId } from "../channel/types";
 import type { AskQuestion } from "../session/manager";
 import type { TelegramPollAnswer } from "../channels/telegram/api";
 
@@ -146,15 +147,28 @@ export async function startDaemon(): Promise<void> {
   function handlePollAnswer(answer: TelegramPollAnswer) {
     const poll = sessionManager.getPollByPollId(answer.poll_id);
     if (!poll) return;
+    const answerUserId = `telegram:${answer.user.id}`;
+    if (!isUserPaired(config, answerUserId)) {
+      logger.warn("Ignoring poll answer from unpaired user", { userId: answerUserId, pollId: answer.poll_id });
+      return;
+    }
+
+    const remote = sessionManager.getRemote(poll.sessionId);
+    if (!remote) return;
+    if (remote.ownerUserId !== answerUserId) {
+      logger.warn("Ignoring poll answer from non-owner", {
+        userId: answerUserId,
+        sessionId: poll.sessionId,
+        ownerUserId: remote.ownerUserId,
+      });
+      return;
+    }
 
     const tgChannel = primaryChannel as TelegramChannel;
 
     // Close the poll
     tgChannel.closePoll(poll.chatId, poll.messageId).catch(() => {});
     sessionManager.removePoll(answer.poll_id);
-
-    const remote = sessionManager.getRemote(poll.sessionId);
-    if (!remote) return;
 
     const otherIdx = poll.optionCount; // "Other" is the last option
     const selectedOther = answer.option_ids.includes(otherIdx);
@@ -351,9 +365,9 @@ export async function startDaemon(): Promise<void> {
     generatePairingCode() {
       return generatePairingCode();
     },
-    registerRemote(command: string, chatId: ChannelChatId, cwd: string, name: string): { sessionId: string; dmBusy: boolean; linkedGroups: Array<{ chatId: string; title?: string }>; allLinkedGroups: Array<{ chatId: string; title?: string }> } {
+    registerRemote(command: string, chatId: ChannelChatId, ownerUserId: ChannelUserId, cwd: string, name: string): { sessionId: string; dmBusy: boolean; linkedGroups: Array<{ chatId: string; title?: string }>; allLinkedGroups: Array<{ chatId: string; title?: string }> } {
       cancelAutoStop();
-      const remote = sessionManager.registerRemote(command, chatId, cwd, name);
+      const remote = sessionManager.registerRemote(command, chatId, ownerUserId, cwd, name);
 
       const existingBound = sessionManager.getAttachedRemote(chatId);
       const dmBusy = !!existingBound && existingBound.id !== remote.id;
@@ -382,6 +396,9 @@ export async function startDaemon(): Promise<void> {
       const tool = remote.command.split(" ")[0];
       primaryChannel.send(chatId, `⛳️ <b>${escapeHtml(label)}</b> [${tool}] started`);
       return true;
+    },
+    canUserAccessSession(userId: ChannelUserId, sessionId: string): boolean {
+      return sessionManager.canUserAccessSession(userId, sessionId);
     },
     drainRemoteInput(sessionId: string): string[] {
       return sessionManager.drainRemoteInput(sessionId);

@@ -1,5 +1,5 @@
 import { randomBytes } from "crypto";
-import type { ChannelChatId } from "../channel/types";
+import type { ChannelChatId, ChannelUserId } from "../channel/types";
 import type { SessionState, SessionEvents } from "./types";
 import { OutputBuffer } from "./output-buffer";
 import { logger } from "../daemon/logger";
@@ -9,6 +9,7 @@ export class Session {
   readonly command: string;
   readonly createdAt: string;
   readonly ownerChatId: ChannelChatId;
+  readonly ownerUserId: ChannelUserId;
   state: SessionState = "running";
   exitCode: number | null = null;
 
@@ -20,6 +21,7 @@ export class Session {
     command: string,
     args: string[],
     ownerChatId: ChannelChatId,
+    ownerUserId: ChannelUserId,
     events: SessionEvents,
     settings: { minMs: number; maxMs: number; maxChars: number }
   ) {
@@ -27,6 +29,7 @@ export class Session {
     this.command = [command, ...args].join(" ");
     this.createdAt = new Date().toISOString();
     this.ownerChatId = ownerChatId;
+    this.ownerUserId = ownerUserId;
 
     this.outputBuffer = new OutputBuffer(
       (data) => events.onOutput(this.id, data),
@@ -35,12 +38,8 @@ export class Session {
       settings.maxChars
     );
 
-    // Spawn with a PTY by using Bun's built-in terminal support
-    // We use a shell to handle command parsing
-    const shell = process.env.SHELL || "/bin/bash";
-    const fullCommand = [command, ...args].join(" ");
-
-    this.proc = Bun.spawn([shell, "-c", fullCommand], {
+    // Spawn directly without shell interpolation to avoid command injection.
+    this.proc = Bun.spawn([command, ...args], {
       stdout: "pipe",
       stderr: "pipe",
       stdin: "pipe",
@@ -70,7 +69,7 @@ export class Session {
       logger.info("Session exited", { id: this.id, command: this.command, exitCode: code });
     });
 
-    logger.info("Session created", { id: this.id, command: this.command, ownerChatId });
+    logger.info("Session created", { id: this.id, command: this.command, ownerChatId, ownerUserId });
   }
 
   private async readStream(

@@ -26,6 +26,7 @@ export async function handleStdinInput(
   ctx: RouterContext
 ): Promise<void> {
   const chatId = msg.chatId;
+  const userId = msg.userId;
   const text = msg.text?.trim();
   if (!text) return;
 
@@ -38,7 +39,11 @@ export async function handleStdinInput(
 
   // 1. Check regular attached sessions
   const session = ctx.sessionManager.getAttached(chatId);
-  if (session) {
+  if (session && session.ownerUserId !== userId) {
+    await ctx.channel.send(chatId, "This chat is bound to another user's session.");
+    return;
+  }
+  if (session && session.ownerUserId === userId) {
     ctx.channel.setTyping(chatId, true);
     session.writeStdin(text);
     maybeSubscribeGroup(session.id);
@@ -47,7 +52,11 @@ export async function handleStdinInput(
 
   // 2. Check attached remote sessions
   const remote = ctx.sessionManager.getAttachedRemote(chatId);
-  if (remote) {
+  if (remote && remote.ownerUserId !== userId) {
+    await ctx.channel.send(chatId, "This chat is bound to another user's session.");
+    return;
+  }
+  if (remote && remote.ownerUserId === userId) {
     if (!handleTextWhilePoll(remote, text, ctx)) {
       remote.inputQueue.push(text);
     }
@@ -56,7 +65,7 @@ export async function handleStdinInput(
   }
 
   // 3. Single session auto-route: if exactly 1 remote, send there (DMs only)
-  const remotes = ctx.sessionManager.listRemotes();
+  const remotes = ctx.sessionManager.listRemotesForUser(userId);
   if (remotes.length === 1 && !msg.isGroup) {
     if (!handleTextWhilePoll(remotes[0], text, ctx)) {
       remotes[0].inputQueue.push(text);

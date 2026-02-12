@@ -1,5 +1,5 @@
 import { randomBytes } from "crypto";
-import type { ChannelChatId } from "../channel/types";
+import type { ChannelChatId, ChannelUserId } from "../channel/types";
 import { Session } from "./session";
 import type { SessionInfo, SessionEvents } from "./types";
 import type { TgSettings } from "../config/schema";
@@ -11,6 +11,7 @@ export interface RemoteSession {
   cwd: string;
   name: string;
   chatId: ChannelChatId;
+  ownerUserId: ChannelUserId;
   inputQueue: string[];
 }
 
@@ -59,7 +60,7 @@ export class SessionManager {
     this.eventHandlers = handlers;
   }
 
-  spawn(command: string, args: string[], ownerChatId: ChannelChatId): Session | null {
+  spawn(command: string, args: string[], ownerChatId: ChannelChatId, ownerUserId: ChannelUserId): Session | null {
     if (this.sessions.size >= this.settings.maxSessions) {
       return null;
     }
@@ -80,7 +81,7 @@ export class SessionManager {
       },
     };
 
-    const session = new Session(command, args, ownerChatId, events, {
+    const session = new Session(command, args, ownerChatId, ownerUserId, events, {
       minMs: this.settings.outputBatchMinMs,
       maxMs: this.settings.outputBatchMaxMs,
       maxChars: this.settings.outputBufferMaxChars,
@@ -105,6 +106,7 @@ export class SessionManager {
       createdAt: s.createdAt,
       exitCode: s.exitCode,
       ownerChatId: s.ownerChatId,
+      ownerUserId: s.ownerUserId,
     }));
     const remote = Array.from(this.remotes.values()).map((r) => ({
       id: r.id,
@@ -113,8 +115,13 @@ export class SessionManager {
       createdAt: "",
       exitCode: null,
       ownerChatId: r.chatId,
+      ownerUserId: r.ownerUserId,
     }));
     return [...regular, ...remote];
+  }
+
+  listForUser(userId: ChannelUserId): SessionInfo[] {
+    return this.list().filter((s) => s.ownerUserId === userId);
   }
 
   getAttached(chatId: ChannelChatId): Session | undefined {
@@ -142,16 +149,19 @@ export class SessionManager {
   attach(chatId: ChannelChatId, sessionId: string): boolean {
     if (sessionId.startsWith("r-")) {
       if (!this.remotes.has(sessionId)) return false;
+      this.removeChatFromAllGroupSubscriptions(chatId);
       this.attachments.set(chatId, sessionId);
       return true;
     }
     const session = this.sessions.get(sessionId);
     if (!session || session.state === "exited") return false;
+    this.removeChatFromAllGroupSubscriptions(chatId);
     this.attachments.set(chatId, sessionId);
     return true;
   }
 
   detach(chatId: ChannelChatId): boolean {
+    this.removeChatFromAllGroupSubscriptions(chatId);
     return this.attachments.delete(chatId);
   }
 
@@ -187,9 +197,15 @@ export class SessionManager {
     this.groupSubscriptions.clear();
   }
 
-  registerRemote(command: string, chatId: ChannelChatId, cwd: string = "", name: string = ""): RemoteSession {
+  registerRemote(
+    command: string,
+    chatId: ChannelChatId,
+    ownerUserId: ChannelUserId,
+    cwd: string = "",
+    name: string = ""
+  ): RemoteSession {
     const id = "r-" + randomBytes(3).toString("hex");
-    const remote: RemoteSession = { id, command, cwd, name, chatId, inputQueue: [] };
+    const remote: RemoteSession = { id, command, cwd, name, chatId, ownerUserId, inputQueue: [] };
     this.remotes.set(id, remote);
     // Only auto-attach if no existing attachment (don't overwrite)
     if (!this.attachments.has(chatId)) {
@@ -237,6 +253,18 @@ export class SessionManager {
     return Array.from(this.remotes.values());
   }
 
+  listRemotesForUser(userId: ChannelUserId): RemoteSession[] {
+    return Array.from(this.remotes.values()).filter((r) => r.ownerUserId === userId);
+  }
+
+  canUserAccessSession(userId: ChannelUserId, sessionId: string): boolean {
+    const session = this.sessions.get(sessionId);
+    if (session) return session.ownerUserId === userId;
+    const remote = this.remotes.get(sessionId);
+    if (remote) return remote.ownerUserId === userId;
+    return false;
+  }
+
   subscribeGroup(sessionId: string, chatId: ChannelChatId): void {
     let groups = this.groupSubscriptions.get(sessionId);
     if (!groups) {
@@ -254,6 +282,13 @@ export class SessionManager {
   unsubscribeGroup(sessionId: string, chatId: ChannelChatId): void {
     const groups = this.groupSubscriptions.get(sessionId);
     if (groups) {
+      groups.delete(chatId);
+      if (groups.size === 0) this.groupSubscriptions.delete(sessionId);
+    }
+  }
+
+  private removeChatFromAllGroupSubscriptions(chatId: ChannelChatId): void {
+    for (const [sessionId, groups] of this.groupSubscriptions) {
       groups.delete(chatId);
       if (groups.size === 0) this.groupSubscriptions.delete(sessionId);
     }

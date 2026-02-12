@@ -694,12 +694,14 @@ Edit these instructions to define what the agent should do periodically.
   let remoteId: string | null = null;
   let channel: Channel | null = null;
   let chatId: ChannelChatId | null = null;
+  let ownerUserId: string | null = null;
 
   try {
     const config = await loadConfig();
     const pairedUsers = getAllPairedUsers(config);
     const botToken = getTelegramBotToken(config);
     if (pairedUsers.length > 0 && botToken) {
+      ownerUserId = pairedUsers[0].userId;
       chatId = pairedUsers[0].userId.startsWith("telegram:")
         ? `telegram:${pairedUsers[0].userId.split(":")[1]}`
         : pairedUsers[0].userId;
@@ -709,6 +711,7 @@ Edit these instructions to define what the agent should do periodically.
         const res = await daemonRequest("/remote/register", "POST", {
           command: fullCommand,
           chatId,
+          ownerUserId,
           cwd: process.cwd(),
           name: sessionName,
         });
@@ -731,6 +734,7 @@ Edit these instructions to define what the agent should do periodically.
             await daemonRequest("/remote/bind-chat", "POST", {
               sessionId: remoteId,
               chatId,
+              ownerUserId,
             });
           } else {
             const labels = options.map((o) => o.busy ? `${o.label} (busy)` : o.label);
@@ -747,6 +751,7 @@ Edit these instructions to define what the agent should do periodically.
               await daemonRequest("/remote/bind-chat", "POST", {
                 sessionId: remoteId,
                 chatId: chosen.chatId,
+                ownerUserId,
               });
             }
           }
@@ -900,11 +905,12 @@ Edit these instructions to define what the agent should do periodically.
         const res = await daemonRequest(`/remote/${pollRemoteId}/subscribed-groups`);
         const chatIds = res.chatIds as string[] | undefined;
         if (chatIds) {
+          subscribedGroups.clear();
           for (const id of chatIds) subscribedGroups.add(id);
         }
-        if (res.boundChat) {
-          boundChat = res.boundChat as ChannelChatId;
-        }
+        boundChat = typeof res.boundChat === "string"
+          ? (res.boundChat as ChannelChatId)
+          : null;
       } catch {}
     }, 2000);
   }

@@ -1,4 +1,4 @@
-import type { Channel, InboundMessage, ChannelUserId } from "../channel/types";
+import type { Channel, InboundMessage } from "../channel/types";
 import type { TgConfig } from "../config/schema";
 import type { SessionManager } from "../session/manager";
 import { isUserPaired } from "../security/allowlist";
@@ -61,14 +61,16 @@ export async function routeMessage(
 
   // /sessions — list active sessions
   if (text === "/sessions") {
-    const sessions = ctx.sessionManager.list();
+    const sessions = ctx.sessionManager.listForUser(userId);
     if (sessions.length === 0) {
       await ctx.channel.send(chatId, "No active sessions.");
       return;
     }
     const attached = ctx.sessionManager.getAttached(chatId);
     const attachedRemote = ctx.sessionManager.getAttachedRemote(chatId);
-    const mainId = attached?.id || attachedRemote?.id;
+    const attachedId = attached?.ownerUserId === userId ? attached.id : undefined;
+    const attachedRemoteId = attachedRemote?.ownerUserId === userId ? attachedRemote.id : undefined;
+    const mainId = attachedId || attachedRemoteId;
     const lines = sessions.map((s) => {
       const label = s.id;
       const isMain = label === mainId;
@@ -102,6 +104,10 @@ export async function routeMessage(
       await ctx.channel.send(chatId, "Usage: /bind &lt;session-id&gt;\nExample: <code>/bind r-abc123</code>");
       return;
     }
+    if (!ctx.sessionManager.canUserAccessSession(userId, sessionId)) {
+      await ctx.channel.send(chatId, `Session <code>${sessionId}</code> not found.`);
+      return;
+    }
     if (ctx.sessionManager.attach(chatId, sessionId)) {
       // Subscribe group chats to session output
       if (msg.isGroup) {
@@ -124,7 +130,9 @@ export async function routeMessage(
   if (text === "/unbind") {
     const attached = ctx.sessionManager.getAttached(chatId);
     const attachedRemote = ctx.sessionManager.getAttachedRemote(chatId);
-    const sessionId = attached?.id || attachedRemote?.id;
+    const attachedId = attached?.ownerUserId === userId ? attached.id : undefined;
+    const attachedRemoteId = attachedRemote?.ownerUserId === userId ? attachedRemote.id : undefined;
+    const sessionId = attachedId || attachedRemoteId;
     if (sessionId) {
       ctx.sessionManager.detach(chatId);
       if (msg.isGroup) {
