@@ -4,8 +4,7 @@ Manage Claude Code, Codex & Pi terminals on the go with Telegram.
 
 - ✅ **Simple to run** — just prefix terminal commands with `tg`, like `tg claude`
 - ✅ **Communicate with your terminals from Telegram** — send input, see responses
-- ✅ **Approve tool calls from your phone** — interactive polls for file edits, bash commands, etc.
-- ✅ **Route sessions to groups or forum topics** — each agent gets its own chat
+- ✅ **Connect terminal tabs to multiple groups and topics** — each session gets its own chat
 - ✅ **Heartbeat mode** — run autonomous cron jobs and workflows with a `HEARTBEAT.md` file
 
 ### Quick install
