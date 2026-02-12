@@ -32,7 +32,7 @@ More channels (Discord, Slack) coming soon.
 - [How it works](#how-it-works)
 - [CLI commands](#cli-commands)
 - [Telegram commands](#telegram-commands)
-- [Group chats](#group-chats)
+- [Connect terminal sessions to Telegram](#connect-terminal-sessions-to-telegram)
 - [Heartbeat mode](#heartbeat-mode)
 - [Requirements](#requirements)
 
@@ -132,24 +132,26 @@ Two processes cooperate:
 
 Any plain text you send goes to the subscribed session.
 
-## Group chats
+## Connect terminal sessions to Telegram
 
-Use groups to run multiple sessions at once — one chat per session.
+When you run `tg claude`, a picker lets you choose where to send output — your DM, a group, or a forum topic.
 
-1. Add the bot to a Telegram group
-2. Send `/link` to register the group with the bot
-3. When you start a new session (`tg claude`), linked groups appear in the terminal picker
+1. Add the bot to a Telegram group (or forum)
+2. Send `/link` in the group to register it (or `/link TopicName` inside a forum topic)
+3. Start a session — linked groups and topics appear in the picker
 
 ```
-  Select a chat for this session:
-  ❯ DM
-    My Dev Group
-    Backend Team
+  ⛳ Select a Telegram channel:
+  ❯ TouchgrassBot          (DM)
+    Dev Team                (Group)
+      Features              (Topic)
+      Bugs                  (Topic)
+    Other Group             (Group)
 
-  Add bot to a Telegram group and send /link to add more chats
+  Add bot to a Telegram group and send /link to add more channels
 ```
 
-You can also manually subscribe from Telegram: `/subscribe <session-id>` in any linked group.
+You can also subscribe from Telegram: `/subscribe <session-id>` in any linked group or topic.
 
 All group members can see responses, but only paired users can send input.
 
