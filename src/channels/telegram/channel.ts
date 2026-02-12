@@ -252,15 +252,17 @@ export class TelegramChannel implements Channel {
               const isGroup = msg.chat.type !== "private";
 
               // Cache forum topic names from service messages
-              if (msg.forum_topic_created && msg.message_thread_id) {
-                this.topicNames.set(`${msg.chat.id}:${msg.message_thread_id}`, msg.forum_topic_created.name);
-              }
-              if (msg.forum_topic_edited?.name && msg.message_thread_id) {
-                this.topicNames.set(`${msg.chat.id}:${msg.message_thread_id}`, msg.forum_topic_edited.name);
-              }
-              // Also cache from reply_to_message if it's the topic creation message
-              if (msg.reply_to_message?.forum_topic_created && msg.message_thread_id) {
-                this.topicNames.set(`${msg.chat.id}:${msg.message_thread_id}`, msg.reply_to_message.forum_topic_created.name);
+              if (msg.message_thread_id) {
+                const key = `${msg.chat.id}:${msg.message_thread_id}`;
+                // Edited name always wins (most recent)
+                if (msg.forum_topic_edited?.name) {
+                  this.topicNames.set(key, msg.forum_topic_edited.name);
+                } else if (msg.forum_topic_created) {
+                  this.topicNames.set(key, msg.forum_topic_created.name);
+                } else if (msg.reply_to_message?.forum_topic_created && !this.topicNames.has(key)) {
+                  // Only use creation message from reply chain as fallback (it has the original name, not renamed)
+                  this.topicNames.set(key, msg.reply_to_message.forum_topic_created.name);
+                }
               }
 
               // Download photos/documents to local disk and use file paths

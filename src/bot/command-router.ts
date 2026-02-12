@@ -61,6 +61,7 @@ export async function routeMessage(
     msg.isGroup &&
     text !== "/link" &&
     !text.startsWith("/link ") &&
+    text !== "/unlink" &&
     !isLinkedGroup(ctx.config, chatId)
   ) {
     await ctx.channel.send(chatId, "This group is not linked yet. Run <code>/link</code> first.");
