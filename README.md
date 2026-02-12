@@ -2,8 +2,6 @@
 
 Manage Claude Code, Codex & Pi terminals on the go with Telegram.
 
-Security model: this tool is designed for single-user laptops. Only one paired Telegram user is supported.
-
 ### Quick install
 
 ```bash
