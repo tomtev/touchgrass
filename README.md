@@ -156,25 +156,6 @@ All group members can see responses, but only paired users can send input.
 
 **Note:** Disable "Group Privacy" in BotFather (`/setprivacy` -> Disable) so the bot can see non-command messages in groups.
 
-## Multiple sessions
-
-Run multiple agents at once. Each session binds to a separate chat (DM or group).
-
-```bash
-# Terminal 1 — binds to DM
-tg claude
-
-# Terminal 2 — picker shows DM + linked groups
-tg codex
-```
-
-When you start a second session, a terminal picker lets you choose which chat to bind it to. Link groups beforehand with `/link` to have them available as options.
-
-In Telegram:
-- `/sessions` — see all running sessions
-- `/subscribe <id>` — subscribe this chat to a session
-- `/unsubscribe` — unsubscribe from current session
-
 ## Heartbeat mode
 
 Automatically send a periodic message to the agent, prompting it to check a `HEARTBEAT.md` file for instructions. Great for long-running autonomous workflows.
