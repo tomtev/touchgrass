@@ -216,9 +216,15 @@ export class SessionManager {
     command: string,
     chatId: ChannelChatId,
     ownerUserId: ChannelUserId,
-    cwd: string = ""
+    cwd: string = "",
+    existingId?: string
   ): RemoteSession {
-    const id = "r-" + randomBytes(3).toString("hex");
+    // If re-registering with an existing ID, return it if it already exists (idempotent)
+    if (existingId) {
+      const existing = this.remotes.get(existingId);
+      if (existing) return existing;
+    }
+    const id = existingId || "r-" + randomBytes(3).toString("hex");
     const remote: RemoteSession = { id, command, cwd, chatId, ownerUserId, inputQueue: [] };
     this.remotes.set(id, remote);
     // Only auto-attach if no existing attachment (don't overwrite)

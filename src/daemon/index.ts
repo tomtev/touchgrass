@@ -379,9 +379,9 @@ export async function startDaemon(): Promise<void> {
     generatePairingCode() {
       return generatePairingCode();
     },
-    async registerRemote(command: string, chatId: ChannelChatId, ownerUserId: ChannelUserId, cwd: string): Promise<{ sessionId: string; dmBusy: boolean; dmBusyLabel?: string; linkedGroups: Array<{ chatId: string; title?: string }>; allLinkedGroups: Array<{ chatId: string; title?: string; busyLabel?: string }> }> {
+    async registerRemote(command: string, chatId: ChannelChatId, ownerUserId: ChannelUserId, cwd: string, existingId?: string): Promise<{ sessionId: string; dmBusy: boolean; dmBusyLabel?: string; linkedGroups: Array<{ chatId: string; title?: string }>; allLinkedGroups: Array<{ chatId: string; title?: string; busyLabel?: string }> }> {
       cancelAutoStop();
-      const remote = sessionManager.registerRemote(command, chatId, ownerUserId, cwd);
+      const remote = sessionManager.registerRemote(command, chatId, ownerUserId, cwd, existingId);
 
       const existingBound = sessionManager.getAttachedRemote(chatId);
       const dmBusy = !!existingBound && existingBound.id !== remote.id;
@@ -459,6 +459,9 @@ export async function startDaemon(): Promise<void> {
     },
     drainRemoteInput(sessionId: string): string[] {
       return sessionManager.drainRemoteInput(sessionId);
+    },
+    hasRemote(sessionId: string): boolean {
+      return !!sessionManager.getRemote(sessionId);
     },
     endRemote(sessionId: string, exitCode: number | null): void {
       const remote = sessionManager.getRemote(sessionId);

@@ -11,10 +11,11 @@ export interface DaemonContext {
   getStatus: () => Record<string, unknown>;
   shutdown: () => Promise<void>;
   generatePairingCode: () => string;
-  registerRemote: (command: string, chatId: ChannelChatId, ownerUserId: ChannelUserId, cwd: string) => Promise<{ sessionId: string; dmBusy: boolean; linkedGroups: Array<{ chatId: string; title?: string }>; allLinkedGroups: Array<{ chatId: string; title?: string }> }>;
+  registerRemote: (command: string, chatId: ChannelChatId, ownerUserId: ChannelUserId, cwd: string, sessionId?: string) => Promise<{ sessionId: string; dmBusy: boolean; linkedGroups: Array<{ chatId: string; title?: string }>; allLinkedGroups: Array<{ chatId: string; title?: string }> }>;
   bindChat: (sessionId: string, chatId: ChannelChatId) => Promise<{ ok: boolean; error?: string }>;
   canUserAccessSession: (userId: ChannelUserId, sessionId: string) => boolean;
   drainRemoteInput: (sessionId: string) => string[];
+  hasRemote: (sessionId: string) => boolean;
   endRemote: (sessionId: string, exitCode: number | null) => void;
   getSubscribedGroups: (sessionId: string) => string[];
   getBoundChat: (sessionId: string) => string | null;
@@ -84,10 +85,11 @@ export async function startControlServer(ctx: DaemonContext): Promise<void> {
         const chatId = body.chatId as string;
         const ownerUserId = body.ownerUserId as string;
         const cwd = (body.cwd as string) || "";
+        const sessionId = (body.sessionId as string) || undefined;
         if (!command || !chatId || !ownerUserId) {
           return Response.json({ ok: false, error: "Missing command, chatId, or ownerUserId" }, { status: 400 });
         }
-        const result = await ctx.registerRemote(command, chatId, ownerUserId, cwd);
+        const result = await ctx.registerRemote(command, chatId, ownerUserId, cwd, sessionId || undefined);
         return Response.json({ ok: true, sessionId: result.sessionId, dmBusy: result.dmBusy, linkedGroups: result.linkedGroups, allLinkedGroups: result.allLinkedGroups });
       }
 
@@ -161,6 +163,10 @@ export async function startControlServer(ctx: DaemonContext): Promise<void> {
           return Response.json({ ok: true });
         }
         if (action === "input" && req.method === "GET") {
+          // Signal to CLI that this session is unknown so it can re-register
+          if (!ctx.hasRemote(sessionId)) {
+            return Response.json({ ok: true, lines: [], unknown: true });
+          }
           const lines = ctx.drainRemoteInput(sessionId);
           return Response.json({ ok: true, lines });
         }

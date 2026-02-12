@@ -1213,11 +1213,42 @@ Edit these instructions to define what the agent should do periodically.
   // Poll daemon for remote input if registered
   let pollTimer: ReturnType<typeof setInterval> | null = null;
   let processingInput = false;
+  let reconnecting = false;
   if (remoteId) {
     pollTimer = setInterval(async () => {
-      if (processingInput) return;
+      if (processingInput || reconnecting) return;
       try {
         const res = await daemonRequest(`/remote/${remoteId}/input`);
+
+        // Daemon restarted and lost our session — re-register with the same ID
+        if (res.unknown) {
+          reconnecting = true;
+          try {
+            await ensureDaemon();
+            const regRes = await daemonRequest("/remote/register", "POST", {
+              command: fullCommand,
+              chatId,
+              ownerUserId,
+              cwd: process.cwd(),
+              sessionId: remoteId,
+            });
+            if (regRes.ok) {
+              // Restore the chat binding
+              if (boundChat) {
+                await daemonRequest("/remote/bind-chat", "POST", {
+                  sessionId: remoteId,
+                  chatId: boundChat,
+                  ownerUserId,
+                });
+              }
+            }
+          } catch {
+            // Re-registration failed — will retry on next poll
+          }
+          reconnecting = false;
+          return;
+        }
+
         const lines = res.lines as string[] | undefined;
         if (lines && lines.length > 0) {
           processingInput = true;
