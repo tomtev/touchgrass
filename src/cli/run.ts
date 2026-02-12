@@ -765,8 +765,11 @@ Edit these instructions to define what the agent should do periodically.
             }
           }
 
-          if (options.length === 1 && !dmBusy) {
-            // Only DM, no groups — auto-bind silently
+          // Add "None" option at the end
+          options.push({ label: `None \x1b[2m(Connect later)\x1b[22m`, chatId: "", busy: false });
+
+          if (options.length === 2 && !dmBusy) {
+            // Only DM + None, no groups — auto-bind to DM silently
             await daemonRequest("/remote/bind-chat", "POST", {
               sessionId: remoteId,
               chatId,
@@ -781,7 +784,7 @@ Edit these instructions to define what the agent should do periodically.
               "Add bot to a Telegram group and send /link to add more channels",
               disabled
             );
-            if (choice >= 0 && choice < options.length && !options[choice].busy) {
+            if (choice >= 0 && choice < options.length && !options[choice].busy && options[choice].chatId) {
               const chosen = options[choice];
               chatId = chosen.chatId as ChannelChatId;
               await daemonRequest("/remote/bind-chat", "POST", {
