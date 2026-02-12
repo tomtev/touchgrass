@@ -144,7 +144,6 @@ No explicit start/stop. `ensureDaemon()` checks PID + health, forks if needed. D
 - `/subscribe <id>` — Subscribe this chat/group to a session
 - `/unsubscribe` — Unsubscribe from current session
 - `/link` — Register this group/topic with the bot (stores in config)
-- `/send <id> <text>` — Send to a specific session
 - `/help` — Show help
 - `/pair <code>` — Pair with a pairing code
 
