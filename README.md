@@ -212,7 +212,7 @@ No. It's a thin PTY wrapper — your tool runs in a real terminal and behaves id
 A lightweight file watcher reads the session JSONL files that CLI tools like Claude Code, Codex, and PI already write. When new assistant output appears, it's forwarded to Telegram via the Bot API. No hooks or plugins are injected into the tool itself.
 
 **Can I type locally and use Telegram at the same time?**
-Yes. Local input is instant. Telegram input is polled every 200ms. Avoid typing in both simultaneously as keystrokes could interleave.
+Yes. Both work in real-time. Avoid typing in both simultaneously as keystrokes could interleave.
 
 ## Requirements
 
