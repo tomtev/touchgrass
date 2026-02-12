@@ -1,6 +1,6 @@
 # ⛳️ touchgrass.sh
 
-Manage Claude Code & Codex terminals on the go with Telegram.
+Manage Claude Code, Codex & Pi terminals on the go with Telegram.
 
 ### Quick install
 
