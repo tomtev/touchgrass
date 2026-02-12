@@ -34,6 +34,11 @@ async function main() {
       await runLs();
       break;
     }
+    case "links": {
+      const { runLinks } = await import("./cli/links");
+      await runLinks();
+      break;
+    }
     case "claude":
     case "codex":
     case "pi": {
@@ -72,11 +77,12 @@ Commands:
   pi       Run PI with chat bridge
 
 Options (for claude/codex/pi):
-  --tg-name <name>       Custom session name
   --tg-heartbeat         Send periodic heartbeat to agent
   --tg-interval <min>    Heartbeat interval (default: 60)
   --tg-send-files        Allow assistant output paths to be auto-sent as Telegram files
+
   ls       List active sessions
+  links    List and manage linked groups/topics
   init     Set up bot token
   pair     Generate a pairing code
   logs     Tail the daemon log
