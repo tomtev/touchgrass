@@ -4,12 +4,12 @@ import type { RouterContext } from "../command-router";
 const HELP_TEXT = `⛳ <b>touchgrass.sh</b>
 
 <b>Sessions:</b>
-Any text you send goes to the bound session.
+Any text you send goes to the subscribed session.
 
 <b>Commands:</b>
 /sessions — List active sessions
-/bind &lt;id&gt; — Bind this chat to a session
-/unbind — Unbind from current session
+/subscribe &lt;id&gt; — Subscribe this chat to a session
+/unsubscribe — Unsubscribe from current session
 /link — Register this group with the bot
 /help — Show this help
 /pair &lt;code&gt; — Pair with a pairing code

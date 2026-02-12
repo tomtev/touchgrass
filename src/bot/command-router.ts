@@ -74,7 +74,7 @@ export async function routeMessage(
     const lines = sessions.map((s) => {
       const label = s.id;
       const isMain = label === mainId;
-      const marker = isMain ? " (bound)" : "";
+      const marker = isMain ? " (subscribed)" : "";
       return `<code>${label}</code> ${escapeHtml(s.command)}${marker}`;
     });
     await ctx.channel.send(chatId, lines.join("\n"));
@@ -90,18 +90,18 @@ export async function routeMessage(
     const added = addLinkedGroup(ctx.config, chatId, msg.chatTitle);
     if (added) {
       await saveConfig(ctx.config);
-      await ctx.channel.send(chatId, `Group linked. Sessions can now be bound to this group.`);
+      await ctx.channel.send(chatId, `Group linked. Sessions can now be subscribed to this group.`);
     } else {
       await ctx.channel.send(chatId, `This group is already linked.`);
     }
     return;
   }
 
-  // /bind <id> — bind this chat to a session
-  if (text.startsWith("/bind")) {
-    const sessionId = text.slice(5).trim();
+  // /subscribe <id> — subscribe this chat to a session
+  if (text.startsWith("/subscribe")) {
+    const sessionId = text.slice(10).trim();
     if (!sessionId) {
-      await ctx.channel.send(chatId, "Usage: /bind &lt;session-id&gt;\nExample: <code>/bind r-abc123</code>");
+      await ctx.channel.send(chatId, "Usage: /subscribe &lt;session-id&gt;\nExample: <code>/subscribe r-abc123</code>");
       return;
     }
     if (!ctx.sessionManager.canUserAccessSession(userId, sessionId)) {
@@ -115,7 +115,7 @@ export async function routeMessage(
       }
       const remote = ctx.sessionManager.getRemote(sessionId);
       const label = remote?.name || remote?.cwd.split("/").pop() || sessionId;
-      let reply = `Bound to <b>${escapeHtml(label)}</b> <i>(${sessionId})</i>`;
+      let reply = `Subscribed to <b>${escapeHtml(label)}</b> <i>(${sessionId})</i>`;
       if (msg.isGroup) {
         reply += `\n\n⚠️ For plain text messages to work in groups, disable <b>Group Privacy</b> in @BotFather (<code>/setprivacy</code> → Disable).`;
       }
@@ -126,8 +126,8 @@ export async function routeMessage(
     return;
   }
 
-  // /unbind — unbind this chat from its session
-  if (text === "/unbind") {
+  // /unsubscribe — unsubscribe this chat from its session
+  if (text === "/unsubscribe") {
     const attached = ctx.sessionManager.getAttached(chatId);
     const attachedRemote = ctx.sessionManager.getAttachedRemote(chatId);
     const attachedId = attached?.ownerUserId === userId ? attached.id : undefined;
@@ -138,9 +138,9 @@ export async function routeMessage(
       if (msg.isGroup) {
         ctx.sessionManager.unsubscribeGroup(sessionId, chatId);
       }
-      await ctx.channel.send(chatId, `Unbound from <i>(${sessionId})</i>`);
+      await ctx.channel.send(chatId, `Unsubscribed from <i>(${sessionId})</i>`);
     } else {
-      await ctx.channel.send(chatId, "Not bound to any session.");
+      await ctx.channel.send(chatId, "Not subscribed to any session.");
     }
     return;
   }

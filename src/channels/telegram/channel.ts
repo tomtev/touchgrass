@@ -169,8 +169,8 @@ export class TelegramChannel implements Channel {
       await logger.info("Bot connected", { username: me.username, id: me.id });
       await this.api.setMyCommands([
         { command: "sessions", description: "List active sessions" },
-        { command: "bind", description: "Bind to session: /bind <id>" },
-        { command: "unbind", description: "Unbind from session" },
+        { command: "subscribe", description: "Subscribe to session: /subscribe <id>" },
+        { command: "unsubscribe", description: "Unsubscribe from session" },
         { command: "link", description: "Register this group with the bot" },
         { command: "help", description: "Show help" },
         { command: "pair", description: "Pair with code: /pair <code>" },

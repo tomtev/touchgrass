@@ -1,6 +1,7 @@
 import { loadConfig } from "../config/store";
 import { getTelegramBotToken, getAllPairedUsers } from "../config/schema";
 import { TelegramChannel } from "../channels/telegram/channel";
+import { TelegramApi } from "../channels/telegram/api";
 import type { Channel, ChannelChatId } from "../channel/types";
 import { daemonRequest } from "./client";
 import { ensureDaemon } from "./ensure-daemon";
@@ -14,6 +15,10 @@ import { join } from "path";
 // Per-CLI patterns for detecting approval prompts in terminal output.
 // Both `promptText` and `optionText` must be present in the PTY buffer to trigger a notification.
 // Add entries here when adding support for new CLIs.
+// Tools that can actually require user approval in Claude Code.
+// Only these tools update `lastToolCall` for approval prompt attribution.
+const APPROVABLE_TOOLS = new Set(["Bash", "Edit", "Write", "NotebookEdit"]);
+
 const APPROVAL_PATTERNS: Record<string, { promptText: string; optionText: string }> = {
   claude: { promptText: "Do you want to", optionText: "1. Yes" },
   codex: { promptText: "Would you like to run the following command", optionText: "1. Yes, proceed" },
@@ -715,13 +720,19 @@ Edit these instructions to define what the agent should do periodically.
           const dmBusy = res.dmBusy as boolean;
           const groups = (res.linkedGroups as Array<{ chatId: string; title?: string }>) || [];
 
-          // Build all options: DM + all linked groups (including busy from full list)
+          // Build all options: DM (bot name) + all linked groups (including busy from full list)
           const allGroups = (res.allLinkedGroups as Array<{ chatId: string; title?: string }>) || groups;
           const options: Array<{ label: string; chatId: string; busy: boolean }> = [];
-          options.push({ label: "DM", chatId: chatId!, busy: dmBusy });
+          let dmLabel = "DM";
+          try {
+            const api = new TelegramApi(botToken);
+            const me = await api.getMe();
+            if (me.first_name) dmLabel = me.first_name;
+          } catch {}
+          options.push({ label: `${dmLabel} \x1b[2m(DM)\x1b[22m`, chatId: chatId!, busy: dmBusy });
           for (const g of allGroups) {
             const isBusy = !groups.some((av) => av.chatId === g.chatId);
-            options.push({ label: g.title || g.chatId, chatId: g.chatId, busy: isBusy });
+            options.push({ label: `${g.title || g.chatId} \x1b[2m(Group)\x1b[22m`, chatId: g.chatId, busy: isBusy });
           }
 
           if (options.length === 1 && !dmBusy) {
@@ -735,9 +746,9 @@ Edit these instructions to define what the agent should do periodically.
             const labels = options.map((o) => o.busy ? `${o.label} (busy)` : o.label);
             const disabled = new Set(options.map((o, i) => o.busy ? i : -1).filter((i) => i >= 0));
             const choice = await terminalPicker(
-              "Select a chat for this session:",
+              "⛳ Select a Telegram channel:",
               labels,
-              "Add bot to a Telegram group and send /link to add more chats",
+              "Add bot to a Telegram group and send /link to add more channels",
               disabled
             );
             if (choice >= 0 && choice < options.length && !options[choice].busy) {
@@ -1022,7 +1033,10 @@ Edit these instructions to define what the agent should do periodically.
             for (const gid of subscribedGroups) tgChannel.setTyping(gid, true);
 
             for (const call of calls) {
-              lastToolCall = { name: call.name, input: call.input };
+              // Only track approvable tools for approval prompt attribution
+              if (APPROVABLE_TOOLS.has(call.name)) {
+                lastToolCall = { name: call.name, input: call.input };
+              }
               // Send tool notification immediately (no poll)
               daemonRequest(`/remote/${tgRemoteId}/tool-call`, "POST", {
                 name: call.name,
