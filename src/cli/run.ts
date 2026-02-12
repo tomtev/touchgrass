@@ -5,10 +5,10 @@ import { TelegramApi } from "../channels/telegram/api";
 import type { Channel, ChannelChatId } from "../channel/types";
 import { daemonRequest } from "./client";
 import { ensureDaemon } from "./ensure-daemon";
-import { markdownToHtml, stripAnsiReadable } from "../utils/ansi";
+import { escapeHtml, markdownToHtml, stripAnsiReadable } from "../utils/ansi";
 import { paths, ensureDirs } from "../config/paths";
-import { watch, readdirSync, statSync, readFileSync, existsSync, type FSWatcher } from "fs";
-import { open, writeFile, unlink } from "fs/promises";
+import { watch, readdirSync, statSync, readFileSync, type FSWatcher } from "fs";
+import { chmod, open, writeFile, unlink } from "fs/promises";
 import { homedir } from "os";
 import { join } from "path";
 
@@ -128,7 +128,8 @@ interface SessionManifest {
 async function writeManifest(manifest: SessionManifest): Promise<void> {
   await ensureDirs();
   const file = join(paths.sessionsDir, `${manifest.id}.json`);
-  await writeFile(file, JSON.stringify(manifest, null, 2), "utf-8");
+  await writeFile(file, JSON.stringify(manifest, null, 2), { encoding: "utf-8", mode: 0o600 });
+  await chmod(file, 0o600).catch(() => {});
 }
 
 async function removeManifest(id: string): Promise<void> {
@@ -641,6 +642,7 @@ export async function runRun(): Promise<void> {
 
   let heartbeatEnabled = false;
   let heartbeatInterval = 60; // minutes
+  let sendFilesFromAssistant = false;
 
   const heartbeatIdx = cmdArgs.indexOf("--tg-heartbeat");
   if (heartbeatIdx !== -1) {
@@ -652,6 +654,12 @@ export async function runRun(): Promise<void> {
   if (intervalIdx !== -1 && intervalIdx + 1 < cmdArgs.length) {
     heartbeatInterval = parseFloat(cmdArgs[intervalIdx + 1]) || 60;
     cmdArgs = [...cmdArgs.slice(0, intervalIdx), ...cmdArgs.slice(intervalIdx + 2)];
+  }
+
+  const sendFilesIdx = cmdArgs.indexOf("--tg-send-files");
+  if (sendFilesIdx !== -1) {
+    sendFilesFromAssistant = true;
+    cmdArgs = [...cmdArgs.slice(0, sendFilesIdx), ...cmdArgs.slice(sendFilesIdx + 1)];
   }
 
   if (heartbeatEnabled) {
@@ -700,6 +708,12 @@ Edit these instructions to define what the agent should do periodically.
     const config = await loadConfig();
     const pairedUsers = getAllPairedUsers(config);
     const botToken = getTelegramBotToken(config);
+    if (pairedUsers.length > 1) {
+      console.error("Security check failed: multiple paired users detected in config.");
+      console.error("Single-user mode requires exactly one paired Telegram user.");
+      console.error(`Fix by removing extra users in ${paths.config}.`);
+      process.exit(1);
+    }
     if (pairedUsers.length > 0 && botToken) {
       ownerUserId = pairedUsers[0].userId;
       chatId = pairedUsers[0].userId.startsWith("telegram:")
@@ -720,7 +734,7 @@ Edit these instructions to define what the agent should do periodically.
           const dmBusy = res.dmBusy as boolean;
           const groups = (res.linkedGroups as Array<{ chatId: string; title?: string }>) || [];
 
-          // Build all options: DM (bot name) + all linked groups (including busy from full list)
+          // Build all options: DM (bot name) + all linked groups/topics (including busy from full list)
           const allGroups = (res.allLinkedGroups as Array<{ chatId: string; title?: string }>) || groups;
           const options: Array<{ label: string; chatId: string; busy: boolean }> = [];
           let dmLabel = "DM";
@@ -730,9 +744,33 @@ Edit these instructions to define what the agent should do periodically.
             if (me.first_name) dmLabel = me.first_name;
           } catch {}
           options.push({ label: `${dmLabel} \x1b[2m(DM)\x1b[22m`, chatId: chatId!, busy: dmBusy });
+
+          // Separate groups and topics, then interleave topics under their parent group
+          const groupEntries: Array<{ chatId: string; title?: string; busy: boolean }> = [];
+          const topicEntries: Array<{ chatId: string; title?: string; busy: boolean; parentChatId: string }> = [];
           for (const g of allGroups) {
             const isBusy = !groups.some((av) => av.chatId === g.chatId);
-            options.push({ label: `${g.title || g.chatId} \x1b[2m(Group)\x1b[22m`, chatId: g.chatId, busy: isBusy });
+            const parts = g.chatId.split(":");
+            if (parts.length >= 3) {
+              topicEntries.push({ ...g, busy: isBusy, parentChatId: `${parts[0]}:${parts[1]}` });
+            } else {
+              groupEntries.push({ ...g, busy: isBusy });
+            }
+          }
+          for (const g of groupEntries) {
+            options.push({ label: `${g.title || g.chatId} \x1b[2m(Group)\x1b[22m`, chatId: g.chatId, busy: g.busy });
+            // Insert topics belonging to this group immediately after
+            for (const t of topicEntries) {
+              if (t.parentChatId === g.chatId) {
+                options.push({ label: `  ${t.title || "Topic"} \x1b[2m(Topic)\x1b[22m`, chatId: t.chatId, busy: t.busy });
+              }
+            }
+          }
+          // Orphan topics (parent group not linked) — show at the end
+          for (const t of topicEntries) {
+            if (!groupEntries.some((g) => g.chatId === t.parentChatId)) {
+              options.push({ label: `  ${t.title || "Topic"} \x1b[2m(Topic)\x1b[22m`, chatId: t.chatId, busy: t.busy });
+            }
           }
 
           if (options.length === 1 && !dmBusy) {
@@ -1073,7 +1111,7 @@ Edit these instructions to define what the agent should do periodically.
           tgChannel.send(cid, html);
         }
         // Detect file paths in the text and send as attachments
-        if (tgChannel.sendDocument) {
+        if (sendFilesFromAssistant && tgChannel.sendDocument) {
           const files = extractFilePaths(text, process.cwd());
           for (const fp of files) {
             const fileName = fp.split("/").pop() || "file";
@@ -1223,7 +1261,7 @@ Edit these instructions to define what the agent should do periodically.
     await removeManifest(remoteId);
   } else if (channel && chatId) {
     const status = exitCode === 0 ? "exited" : `exited with code ${exitCode ?? "unknown"}`;
-    await channel.send(chatId, `Command <code>${fullCommand}</code> ${status}.`);
+    await channel.send(chatId, `Command <code>${escapeHtml(fullCommand)}</code> ${escapeHtml(status)}.`);
   }
 
   if (process.stdin.isTTY) {

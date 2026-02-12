@@ -66,10 +66,10 @@ export class Session {
       this.state = "exited";
       this.exitCode = code;
       events.onExit(this.id, code);
-      logger.info("Session exited", { id: this.id, command: this.command, exitCode: code });
+      logger.info("Session exited", { id: this.id, tool: command, exitCode: code });
     });
 
-    logger.info("Session created", { id: this.id, command: this.command, ownerChatId, ownerUserId });
+    logger.info("Session created", { id: this.id, tool: command, ownerChatId, ownerUserId });
   }
 
   private async readStream(

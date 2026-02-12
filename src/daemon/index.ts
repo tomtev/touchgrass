@@ -1,12 +1,13 @@
 import { loadConfig } from "../config/store";
-import { getTelegramBotToken, getAllLinkedGroups } from "../config/schema";
+import { getTelegramBotToken, getAllLinkedGroups, isLinkedGroup } from "../config/schema";
 import { logger } from "./logger";
-import { writePidFile, installSignalHandlers, onShutdown, removePidFile, removeSocket } from "./lifecycle";
+import { writePidFile, installSignalHandlers, onShutdown, removeAuthToken, removePidFile, removeSocket } from "./lifecycle";
 import { startControlServer } from "./control-server";
 import { routeMessage } from "../bot/command-router";
 import { SessionManager } from "../session/manager";
 import { generatePairingCode } from "../security/pairing";
 import { isUserPaired } from "../security/allowlist";
+import { rotateDaemonAuthToken } from "../security/daemon-auth";
 import { TelegramChannel } from "../channels/telegram/channel";
 import { escapeHtml } from "../channels/telegram/formatter";
 import type { Channel, ChannelChatId, ChannelUserId } from "../channel/types";
@@ -28,6 +29,7 @@ export async function startDaemon(): Promise<void> {
 
   installSignalHandlers();
   await writePidFile();
+  const daemonAuthToken = await rotateDaemonAuthToken();
 
   const sessionManager = new SessionManager(config.settings);
 
@@ -63,6 +65,7 @@ export async function startDaemon(): Promise<void> {
         await logger.info("No active sessions, auto-stopping daemon");
         for (const ch of channels) ch.stopReceiving();
         sessionManager.killAll();
+        await removeAuthToken();
         await removePidFile();
         await removeSocket();
         process.exit(0);
@@ -341,6 +344,7 @@ export async function startDaemon(): Promise<void> {
   });
 
   await startControlServer({
+    authToken: daemonAuthToken,
     startedAt: DAEMON_STARTED_AT,
     getStatus() {
       return {
@@ -358,6 +362,7 @@ export async function startDaemon(): Promise<void> {
       cancelAutoStop();
       for (const ch of channels) ch.stopReceiving();
       sessionManager.killAll();
+      await removeAuthToken();
       await removePidFile();
       await removeSocket();
       process.exit(0);
@@ -386,15 +391,20 @@ export async function startDaemon(): Promise<void> {
     bindChat(sessionId: string, chatId: ChannelChatId): boolean {
       const remote = sessionManager.getRemote(sessionId);
       if (!remote) return false;
+      const isOwnerDm = remote.chatId === chatId;
+      const isLinkedTarget = isLinkedGroup(config, chatId);
+      if (!isOwnerDm && !isLinkedTarget) return false;
       // Remove auto-attached DM if binding to a different chat
       if (remote.chatId !== chatId) {
         sessionManager.detach(remote.chatId);
       }
       sessionManager.attach(chatId, sessionId);
-      sessionManager.subscribeGroup(sessionId, chatId);
+      if (isLinkedTarget) {
+        sessionManager.subscribeGroup(sessionId, chatId);
+      }
       const label = remote.name || remote.cwd.split("/").pop() || remote.cwd;
       const tool = remote.command.split(" ")[0];
-      primaryChannel.send(chatId, `⛳️ <b>${escapeHtml(label)}</b> [${tool}] started`);
+      primaryChannel.send(chatId, `⛳️ <b>${escapeHtml(label)}</b> [${escapeHtml(tool)}] started`);
       return true;
     },
     canUserAccessSession(userId: ChannelUserId, sessionId: string): boolean {
@@ -409,7 +419,7 @@ export async function startDaemon(): Promise<void> {
         const label = remote.name || remote.cwd.split("/").pop() || remote.cwd;
         const tool = remote.command.split(" ")[0];
         const status = exitCode === 0 ? "exited" : `exited with code ${exitCode ?? "unknown"}`;
-        const msg = `⛳️ <b>${escapeHtml(label)}</b> [${tool}] ${status}`;
+        const msg = `⛳️ <b>${escapeHtml(label)}</b> [${escapeHtml(tool)}] ${escapeHtml(status)}`;
         const boundChat = sessionManager.getBoundChat(sessionId);
         if (boundChat) {
           primaryChannel.send(boundChat, msg);

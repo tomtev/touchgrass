@@ -1,4 +1,4 @@
-import { appendFile } from "fs/promises";
+import { appendFile, chmod } from "fs/promises";
 import { paths, ensureDirs } from "../config/paths";
 
 export type LogLevel = "info" | "warn" | "error" | "debug";
@@ -28,7 +28,8 @@ export async function log(level: LogLevel, msg: string, data?: unknown): Promise
     ...(data !== undefined ? { data } : {}),
   };
   const line = JSON.stringify(entry) + "\n";
-  await appendFile(paths.logFile, line, "utf-8");
+  await appendFile(paths.logFile, line, { encoding: "utf-8", mode: 0o600 });
+  await chmod(paths.logFile, 0o600).catch(() => {});
 }
 
 export const logger = {

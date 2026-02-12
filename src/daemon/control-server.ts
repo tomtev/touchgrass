@@ -2,8 +2,11 @@ import type { ChannelChatId, ChannelUserId } from "../channel/types";
 import { paths } from "../config/paths";
 import { logger } from "./logger";
 import { removeSocket, onShutdown } from "./lifecycle";
+import { timingSafeEqual } from "crypto";
+import { chmod } from "fs/promises";
 
 export interface DaemonContext {
+  authToken: string;
   startedAt: number;
   getStatus: () => Record<string, unknown>;
   shutdown: () => Promise<void>;
@@ -27,6 +30,19 @@ async function readJsonBody(req: Request): Promise<Record<string, unknown>> {
   return JSON.parse(text) as Record<string, unknown>;
 }
 
+function constantTimeEqual(a: string, b: string): boolean {
+  const aa = Buffer.from(a);
+  const bb = Buffer.from(b);
+  if (aa.length !== bb.length) return false;
+  return timingSafeEqual(aa, bb);
+}
+
+function isAuthorized(req: Request, expectedToken: string): boolean {
+  const provided = req.headers.get("x-touchgrass-auth");
+  if (!provided) return false;
+  return constantTimeEqual(provided, expectedToken);
+}
+
 export async function startControlServer(ctx: DaemonContext): Promise<void> {
   // Remove stale socket
   await removeSocket();
@@ -36,6 +52,10 @@ export async function startControlServer(ctx: DaemonContext): Promise<void> {
     async fetch(req) {
       const url = new URL(req.url, "http://localhost");
       const path = url.pathname;
+
+      if (!isAuthorized(req, ctx.authToken)) {
+        return Response.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+      }
 
       if (path === "/status") {
         return Response.json({ ok: true, ...ctx.getStatus() });
@@ -166,6 +186,7 @@ export async function startControlServer(ctx: DaemonContext): Promise<void> {
     },
   });
 
+  await chmod(paths.socket, 0o600).catch(() => {});
   onShutdown(() => server.stop());
   await logger.info("Control server listening", { socket: paths.socket });
 }

@@ -1,4 +1,5 @@
 import { paths } from "../config/paths";
+import { readDaemonAuthToken } from "../security/daemon-auth";
 
 export async function daemonRequest(
   path: string,
@@ -6,16 +7,33 @@ export async function daemonRequest(
   body?: Record<string, unknown>
 ): Promise<Record<string, unknown>> {
   try {
+    const headers: Record<string, string> = {};
+    const authToken = await readDaemonAuthToken();
+    if (authToken) {
+      headers["x-touchgrass-auth"] = authToken;
+    }
+
     const opts: Record<string, unknown> = {
       method,
       unix: paths.socket,
     };
     if (body !== undefined) {
-      opts.headers = { "Content-Type": "application/json" };
+      headers["Content-Type"] = "application/json";
       opts.body = JSON.stringify(body);
     }
+    if (Object.keys(headers).length > 0) {
+      opts.headers = headers;
+    }
+
     const res = await fetch(`http://localhost${path}`, opts as RequestInit);
-    return (await res.json()) as Record<string, unknown>;
+    const payload = (await res.json()) as Record<string, unknown>;
+    if (!res.ok || payload.ok === false) {
+      const error = typeof payload.error === "string"
+        ? payload.error
+        : `Daemon request failed (${res.status})`;
+      throw new Error(error);
+    }
+    return payload;
   } catch (e: unknown) {
     const err = e as Error;
     if (err.message?.includes("ENOENT") || err.message?.includes("ECONNREFUSED")) {

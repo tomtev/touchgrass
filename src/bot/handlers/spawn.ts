@@ -1,6 +1,6 @@
 import type { InboundMessage } from "../../channel/types";
 import type { RouterContext } from "../command-router";
-import { logger } from "../../daemon/logger";
+import { escapeHtml } from "../../channels/telegram/formatter";
 
 const ALLOWED_COMMANDS = ["claude", "codex", "pi"];
 
@@ -22,7 +22,7 @@ export async function handleSpawn(
   const args = parts.slice(1).map((a) => a.replace(/^"|"$/g, ""));
 
   if (!ALLOWED_COMMANDS.includes(command)) {
-    await ctx.channel.send(chatId, `Command <code>${command}</code> not allowed. Allowed: ${ALLOWED_COMMANDS.join(", ")}`);
+    await ctx.channel.send(chatId, `Command <code>${escapeHtml(command)}</code> not allowed. Allowed: ${ALLOWED_COMMANDS.join(", ")}`);
     return;
   }
 
@@ -35,7 +35,7 @@ export async function handleSpawn(
 
   await ctx.channel.send(
     chatId,
-    `Session <code>${session.id}</code> started: <code>${commandStr}</code>\nYou are auto-attached. Send text to write to stdin.`
+    `Session <code>${escapeHtml(session.id)}</code> started: <code>${escapeHtml(commandStr)}</code>\nYou are auto-attached. Send text to write to stdin.`
   );
   // Clear last message so output starts fresh
   ctx.channel.clearLastMessage(chatId);

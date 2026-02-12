@@ -1,4 +1,4 @@
-import { readFile, writeFile } from "fs/promises";
+import { readFile, writeFile, chmod } from "fs/promises";
 import { paths, ensureDirs } from "./paths";
 import { type TgConfig, type ChannelConfig, createDefaultConfig, validateConfig, defaultSettings } from "./schema";
 
@@ -41,6 +41,7 @@ export async function loadConfig(): Promise<TgConfig> {
   if (cached) return cached;
   try {
     const raw = await readFile(paths.config, "utf-8");
+    await chmod(paths.config, 0o600).catch(() => {});
     const parsed = JSON.parse(raw);
 
     // Auto-migrate old format
@@ -72,7 +73,8 @@ export async function loadConfig(): Promise<TgConfig> {
 
 export async function saveConfig(config: TgConfig): Promise<void> {
   await ensureDirs();
-  await writeFile(paths.config, JSON.stringify(config, null, 2) + "\n", "utf-8");
+  await writeFile(paths.config, JSON.stringify(config, null, 2) + "\n", { encoding: "utf-8", mode: 0o600 });
+  await chmod(paths.config, 0o600).catch(() => {});
   cached = config;
 }
 

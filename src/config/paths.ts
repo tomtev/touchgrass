@@ -8,6 +8,7 @@ export const paths = {
   config: join(TG_DIR, "config.json"),
   pidFile: join(TG_DIR, "daemon.pid"),
   socket: join(TG_DIR, "daemon.sock"),
+  authToken: join(TG_DIR, "daemon.auth"),
   logsDir: join(TG_DIR, "logs"),
   logFile: join(TG_DIR, "logs", "daemon.log"),
   sessionsDir: join(TG_DIR, "sessions"),
@@ -15,9 +16,11 @@ export const paths = {
 };
 
 export async function ensureDirs(): Promise<void> {
-  const { mkdir } = await import("fs/promises");
-  await mkdir(paths.dir, { recursive: true });
-  await mkdir(paths.logsDir, { recursive: true });
-  await mkdir(paths.sessionsDir, { recursive: true });
-  await mkdir(paths.uploadsDir, { recursive: true });
+  const { mkdir, chmod } = await import("fs/promises");
+  const secureDirs = [paths.dir, paths.logsDir, paths.sessionsDir, paths.uploadsDir];
+
+  for (const dir of secureDirs) {
+    await mkdir(dir, { recursive: true, mode: 0o700 });
+    await chmod(dir, 0o700).catch(() => {});
+  }
 }

@@ -3,7 +3,7 @@ import type { TgConfig } from "../config/schema";
 import type { SessionManager } from "../session/manager";
 import { isUserPaired } from "../security/allowlist";
 import { escapeHtml } from "../channels/telegram/formatter";
-import { addLinkedGroup, updateLinkedGroupTitle } from "../config/schema";
+import { addLinkedGroup, isLinkedGroup, updateLinkedGroupTitle } from "../config/schema";
 import { saveConfig } from "../config/store";
 import { handlePair } from "./handlers/pair";
 import { handleHelp } from "./handlers/help";
@@ -29,7 +29,12 @@ export async function routeMessage(
   const chatId = msg.chatId;
   const username = msg.username;
 
-  await logger.debug("Received message", { userId, chatId, text: text.slice(0, 100) });
+  await logger.debug("Received message", {
+    userId,
+    chatId,
+    isCommand: text.startsWith("/"),
+    textLen: text.length,
+  });
 
   // /pair is always available (for unpaired users)
   if (text.startsWith("/pair")) {
@@ -52,8 +57,18 @@ export async function routeMessage(
     return;
   }
 
-  // Auto-update group title if it changed
-  if (msg.isGroup && msg.chatTitle) {
+  if (
+    msg.isGroup &&
+    text !== "/link" &&
+    !text.startsWith("/link ") &&
+    !isLinkedGroup(ctx.config, chatId)
+  ) {
+    await ctx.channel.send(chatId, "This group is not linked yet. Run <code>/link</code> first.");
+    return;
+  }
+
+  // Auto-update group title if it changed (skip topics — their names are user-provided via /link)
+  if (msg.isGroup && msg.chatTitle && chatId.split(":").length < 3) {
     if (updateLinkedGroupTitle(ctx.config, chatId, msg.chatTitle)) {
       await saveConfig(ctx.config);
     }
@@ -81,18 +96,39 @@ export async function routeMessage(
     return;
   }
 
-  // /link — register this group with the bot
-  if (text === "/link") {
+  // /link — register this group or topic with the bot
+  if (text === "/link" || text.startsWith("/link ")) {
     if (!msg.isGroup) {
-      await ctx.channel.send(chatId, "Use /link in a group to register it with the bot.");
+      await ctx.channel.send(chatId, "Use /link in a group or topic to register it with the bot.");
       return;
     }
-    const added = addLinkedGroup(ctx.config, chatId, msg.chatTitle);
-    if (added) {
-      await saveConfig(ctx.config);
-      await ctx.channel.send(chatId, `Group linked. Sessions can now be subscribed to this group.`);
+    const linkArg = text.slice(5).trim(); // optional name for topics
+    const isTopic = chatId.split(":").length >= 3;
+
+    if (isTopic) {
+      // Auto-link parent group if not already linked
+      const parts = chatId.split(":");
+      const parentChatId = `${parts[0]}:${parts[1]}`;
+      if (addLinkedGroup(ctx.config, parentChatId, msg.chatTitle)) {
+        await saveConfig(ctx.config);
+      }
+      // Link the topic with provided name or fallback
+      const topicTitle = linkArg || "Topic";
+      const added = addLinkedGroup(ctx.config, chatId, topicTitle);
+      if (added) {
+        await saveConfig(ctx.config);
+        await ctx.channel.send(chatId, `Topic <b>${escapeHtml(topicTitle)}</b> linked.`);
+      } else {
+        await ctx.channel.send(chatId, `This topic is already linked.`);
+      }
     } else {
-      await ctx.channel.send(chatId, `This group is already linked.`);
+      const added = addLinkedGroup(ctx.config, chatId, msg.chatTitle);
+      if (added) {
+        await saveConfig(ctx.config);
+        await ctx.channel.send(chatId, `Group linked. Sessions can now be subscribed to this group.`);
+      } else {
+        await ctx.channel.send(chatId, `This group is already linked.`);
+      }
     }
     return;
   }
@@ -104,8 +140,12 @@ export async function routeMessage(
       await ctx.channel.send(chatId, "Usage: /subscribe &lt;session-id&gt;\nExample: <code>/subscribe r-abc123</code>");
       return;
     }
+    if (msg.isGroup && !isLinkedGroup(ctx.config, chatId)) {
+      await ctx.channel.send(chatId, "This group is not linked yet. Run <code>/link</code> first.");
+      return;
+    }
     if (!ctx.sessionManager.canUserAccessSession(userId, sessionId)) {
-      await ctx.channel.send(chatId, `Session <code>${sessionId}</code> not found.`);
+      await ctx.channel.send(chatId, `Session <code>${escapeHtml(sessionId)}</code> not found.`);
       return;
     }
     if (ctx.sessionManager.attach(chatId, sessionId)) {
@@ -115,13 +155,13 @@ export async function routeMessage(
       }
       const remote = ctx.sessionManager.getRemote(sessionId);
       const label = remote?.name || remote?.cwd.split("/").pop() || sessionId;
-      let reply = `Subscribed to <b>${escapeHtml(label)}</b> <i>(${sessionId})</i>`;
+      let reply = `Subscribed to <b>${escapeHtml(label)}</b> <i>(${escapeHtml(sessionId)})</i>`;
       if (msg.isGroup) {
         reply += `\n\n⚠️ For plain text messages to work in groups, disable <b>Group Privacy</b> in @BotFather (<code>/setprivacy</code> → Disable).`;
       }
       await ctx.channel.send(chatId, reply);
     } else {
-      await ctx.channel.send(chatId, `Session <code>${sessionId}</code> not found.`);
+      await ctx.channel.send(chatId, `Session <code>${escapeHtml(sessionId)}</code> not found.`);
     }
     return;
   }
@@ -138,7 +178,7 @@ export async function routeMessage(
       if (msg.isGroup) {
         ctx.sessionManager.unsubscribeGroup(sessionId, chatId);
       }
-      await ctx.channel.send(chatId, `Unsubscribed from <i>(${sessionId})</i>`);
+      await ctx.channel.send(chatId, `Unsubscribed from <i>(${escapeHtml(sessionId)})</i>`);
     } else {
       await ctx.channel.send(chatId, "Not subscribed to any session.");
     }

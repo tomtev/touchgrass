@@ -2,6 +2,7 @@ import type { InboundMessage } from "../../channel/types";
 import type { RouterContext } from "../command-router";
 import type { TelegramChannel } from "../../channels/telegram/channel";
 import type { RemoteSession } from "../../session/manager";
+import { escapeHtml } from "../../channels/telegram/formatter";
 
 // If a session has a pending poll, close it and push the text as a free-form "Other" answer
 function handleTextWhilePoll(remote: RemoteSession, text: string, ctx: RouterContext): boolean {
@@ -77,7 +78,7 @@ export async function handleStdinInput(
   if (remotes.length > 0) {
     const list = remotes.map((r) => {
       const label = r.name || r.cwd.split("/").pop() || r.id;
-      return `  <code>${r.id}</code> — ${label}`;
+      return `  <code>${r.id}</code> — ${escapeHtml(label)}`;
     }).join("\n");
     await ctx.channel.send(
       chatId,

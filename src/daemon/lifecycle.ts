@@ -1,10 +1,11 @@
-import { readFile, writeFile, unlink } from "fs/promises";
+import { readFile, writeFile, unlink, chmod } from "fs/promises";
 import { paths, ensureDirs } from "../config/paths";
 import { logger } from "./logger";
 
 export async function writePidFile(): Promise<void> {
   await ensureDirs();
-  await writeFile(paths.pidFile, String(process.pid), "utf-8");
+  await writeFile(paths.pidFile, String(process.pid), { encoding: "utf-8", mode: 0o600 });
+  await chmod(paths.pidFile, 0o600).catch(() => {});
 }
 
 export async function readPidFile(): Promise<number | null> {
@@ -28,6 +29,14 @@ export async function removePidFile(): Promise<void> {
 export async function removeSocket(): Promise<void> {
   try {
     await unlink(paths.socket);
+  } catch {
+    // Ignore if already removed
+  }
+}
+
+export async function removeAuthToken(): Promise<void> {
+  try {
+    await unlink(paths.authToken);
   } catch {
     // Ignore if already removed
   }
@@ -65,6 +74,7 @@ export function installSignalHandlers(): void {
     }
     await removePidFile();
     await removeSocket();
+    await removeAuthToken();
     process.exit(0);
   };
 

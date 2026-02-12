@@ -5,13 +5,20 @@ import { stripAnsi } from "../../utils/ansi";
 import { logger } from "../../daemon/logger";
 import { paths, ensureDirs } from "../../config/paths";
 import { join } from "path";
+import { chmod, readdir, stat, unlink } from "fs/promises";
 
-function toChatId(num: number): ChannelChatId {
+function toChatId(num: number, threadId?: number): ChannelChatId {
+  if (threadId && threadId !== 1) return `telegram:${num}:${threadId}`;
   return `telegram:${num}`;
 }
 
-function fromChatId(chatId: ChannelChatId): number {
-  return Number(chatId.split(":")[1]);
+function fromChatId(chatId: ChannelChatId): { chatId: number; threadId?: number } {
+  const parts = chatId.split(":");
+  const numChatId = Number(parts[1]);
+  if (parts.length >= 3) {
+    return { chatId: numChatId, threadId: Number(parts[2]) };
+  }
+  return { chatId: numChatId };
 }
 
 export class TelegramChannel implements Channel {
@@ -22,6 +29,7 @@ export class TelegramChannel implements Channel {
   // Track last message per chat for in-place editing
   private lastMessage: Map<string, { messageId: number; text: string }> = new Map();
   private typingTimers: Map<ChannelChatId, { interval: ReturnType<typeof setInterval>; timeout: ReturnType<typeof setTimeout> }> = new Map();
+  private readonly uploadTtlMs = 24 * 60 * 60 * 1000;
   onPollAnswer: ((answer: TelegramPollAnswer) => void) | null = null;
 
   constructor(botToken: string) {
@@ -32,11 +40,11 @@ export class TelegramChannel implements Channel {
     if (active) {
       // Already typing for this chat
       if (this.typingTimers.has(chatId)) return;
-      const numChatId = fromChatId(chatId);
+      const { chatId: numChatId, threadId } = fromChatId(chatId);
       // Send immediately, then repeat every 4.5s (Telegram expires after 5s)
-      this.api.sendChatAction(numChatId, "typing").catch(() => {});
+      this.api.sendChatAction(numChatId, "typing", threadId).catch(() => {});
       const interval = setInterval(() => {
-        this.api.sendChatAction(numChatId, "typing").catch(() => {});
+        this.api.sendChatAction(numChatId, "typing", threadId).catch(() => {});
       }, 4500);
       // Auto-clear after 2 minutes to prevent stuck typing indicators
       const timeout = setTimeout(() => this.setTyping(chatId, false), 120_000);
@@ -53,9 +61,9 @@ export class TelegramChannel implements Channel {
 
   async send(chatId: ChannelChatId, html: string): Promise<void> {
     this.setTyping(chatId, false);
-    const numChatId = fromChatId(chatId);
+    const { chatId: numChatId, threadId } = fromChatId(chatId);
     try {
-      await this.api.sendMessage(numChatId, html);
+      await this.api.sendMessage(numChatId, html, "HTML", threadId);
       this.lastMessage.delete(chatId);
     } catch (e) {
       await logger.error("Failed to send message", { chatId, error: (e as Error).message });
@@ -64,7 +72,7 @@ export class TelegramChannel implements Channel {
 
   async sendOutput(chatId: ChannelChatId, rawOutput: string): Promise<void> {
     this.setTyping(chatId, false);
-    const numChatId = fromChatId(chatId);
+    const { chatId: numChatId, threadId } = fromChatId(chatId);
     const clean = stripAnsi(rawOutput);
     if (!clean.trim()) return;
 
@@ -83,7 +91,9 @@ export class TelegramChannel implements Channel {
             await this.api.editMessageText(
               numChatId,
               last.messageId,
-              `<pre>${combined}</pre>`
+              `<pre>${combined}</pre>`,
+              "HTML",
+              threadId
             );
             this.lastMessage.set(chatId, {
               messageId: last.messageId,
@@ -97,7 +107,7 @@ export class TelegramChannel implements Channel {
       }
 
       try {
-        const sent = await this.api.sendMessage(numChatId, html);
+        const sent = await this.api.sendMessage(numChatId, html, "HTML", threadId);
         this.lastMessage.set(chatId, {
           messageId: sent.message_id,
           text: chunk,
@@ -109,9 +119,9 @@ export class TelegramChannel implements Channel {
   }
 
   async sendDocument(chatId: ChannelChatId, filePath: string, caption?: string): Promise<void> {
-    const numChatId = fromChatId(chatId);
+    const { chatId: numChatId, threadId } = fromChatId(chatId);
     try {
-      await this.api.sendDocument(numChatId, filePath, caption);
+      await this.api.sendDocument(numChatId, filePath, caption, threadId);
     } catch (e) {
       await logger.error("Failed to send document", { chatId, filePath, error: (e as Error).message });
     }
@@ -119,7 +129,7 @@ export class TelegramChannel implements Channel {
 
   async sendSessionExit(chatId: ChannelChatId, sessionId: string, exitCode: number | null): Promise<void> {
     const status = exitCode === 0 ? "exited" : `exited with code ${exitCode ?? "unknown"}`;
-    await this.send(chatId, `Session <code>${sessionId}</code> ${status}.`);
+    await this.send(chatId, `Session <code>${escapeHtml(sessionId)}</code> ${escapeHtml(status)}.`);
     this.lastMessage.delete(chatId);
   }
 
@@ -133,15 +143,15 @@ export class TelegramChannel implements Channel {
     options: string[],
     multiSelect: boolean
   ): Promise<{ pollId: string; messageId: number }> {
-    const numChatId = fromChatId(chatId);
-    const sent = await this.api.sendPoll(numChatId, question, options, multiSelect);
+    const { chatId: numChatId, threadId } = fromChatId(chatId);
+    const sent = await this.api.sendPoll(numChatId, question, options, multiSelect, false, threadId);
     // Telegram includes poll info in the sent message
     const poll = (sent as unknown as { poll?: { id: string } }).poll;
     return { pollId: poll?.id ?? "", messageId: sent.message_id };
   }
 
   async closePoll(chatId: ChannelChatId, messageId: number): Promise<void> {
-    const numChatId = fromChatId(chatId);
+    const { chatId: numChatId } = fromChatId(chatId);
     try {
       await this.api.stopPoll(numChatId, messageId);
     } catch {
@@ -161,9 +171,34 @@ export class TelegramChannel implements Channel {
     return result;
   }
 
+  private async cleanupOldUploads(): Promise<void> {
+    const now = Date.now();
+    try {
+      await ensureDirs();
+      const files = await readdir(paths.uploadsDir);
+      for (const fileName of files) {
+        const fullPath = join(paths.uploadsDir, fileName);
+        try {
+          const fileStat = await stat(fullPath);
+          if (!fileStat.isFile()) continue;
+          if (now - fileStat.mtimeMs > this.uploadTtlMs) {
+            await unlink(fullPath);
+          } else {
+            await chmod(fullPath, 0o600).catch(() => {});
+          }
+        } catch {
+          // Ignore files that disappeared between readdir/stat
+        }
+      }
+    } catch {
+      // Ignore cleanup failures
+    }
+  }
+
   async startReceiving(onMessage: (msg: InboundMessage) => Promise<void>): Promise<void> {
     // Validate bot and register commands
     try {
+      await this.cleanupOldUploads();
       const me = await this.api.getMe();
       this.botUsername = me.username || null;
       await logger.info("Bot connected", { username: me.username, id: me.id });
@@ -171,7 +206,7 @@ export class TelegramChannel implements Channel {
         { command: "sessions", description: "List active sessions" },
         { command: "subscribe", description: "Subscribe to session: /subscribe <id>" },
         { command: "unsubscribe", description: "Unsubscribe from session" },
-        { command: "link", description: "Register this group with the bot" },
+        { command: "link", description: "Register this group/topic with the bot" },
         { command: "help", description: "Show help" },
         { command: "pair", description: "Pair with code: /pair <code>" },
       ]);
@@ -233,6 +268,7 @@ export class TelegramChannel implements Channel {
                     if (res.ok) {
                       const buffer = await res.arrayBuffer();
                       await Bun.write(localPath, buffer);
+                      await chmod(localPath, 0o600).catch(() => {});
                       fileUrls.push(localPath);
                       const caption = msg.caption?.trim() || "";
                       text = caption
@@ -255,7 +291,7 @@ export class TelegramChannel implements Channel {
 
               const inbound: InboundMessage = {
                 userId: `telegram:${msg.from.id}`,
-                chatId: toChatId(msg.chat.id),
+                chatId: toChatId(msg.chat.id, msg.message_thread_id),
                 username: msg.from.username,
                 text,
                 fileUrls: fileUrls.length > 0 ? fileUrls : undefined,

@@ -95,7 +95,9 @@ export async function ensureDaemon(): Promise<void> {
       // Daemon is current
       return;
     } catch {
-      // Socket not responding — restart
+      // Socket not responding or auth mismatch — force restart
+      try { process.kill(pid, "SIGTERM"); } catch {}
+      await Bun.sleep(250);
     }
   }
 

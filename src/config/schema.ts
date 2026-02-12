@@ -108,3 +108,10 @@ export function addLinkedGroup(config: TgConfig, chatId: string, title?: string)
   }
   return false;
 }
+
+export function isLinkedGroup(config: TgConfig, chatId: string): boolean {
+  for (const ch of Object.values(config.channels)) {
+    if (ch.linkedGroups?.some((g) => g.chatId === chatId)) return true;
+  }
+  return false;
+}

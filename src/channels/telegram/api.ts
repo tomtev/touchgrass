@@ -44,6 +44,8 @@ export interface TelegramMessage {
   photo?: TelegramPhotoSize[];
   document?: TelegramDocument;
   reply_to_message?: TelegramMessage;
+  message_thread_id?: number;
+  is_topic_message?: boolean;
 }
 
 export interface TelegramPoll {
@@ -121,12 +123,14 @@ export class TelegramApi {
   async sendMessage(
     chatId: number,
     text: string,
-    parseMode: "HTML" | "MarkdownV2" | "" = "HTML"
+    parseMode: "HTML" | "MarkdownV2" | "" = "HTML",
+    messageThreadId?: number
   ): Promise<TelegramMessage> {
     return this.call<TelegramMessage>("sendMessage", {
       chat_id: chatId,
       text,
       ...(parseMode ? { parse_mode: parseMode } : {}),
+      ...(messageThreadId ? { message_thread_id: messageThreadId } : {}),
     });
   }
 
@@ -144,21 +148,27 @@ export class TelegramApi {
     return `https://api.telegram.org/file/bot${this.token}/${filePath}`;
   }
 
-  async sendChatAction(chatId: number, action: string): Promise<boolean> {
-    return this.call<boolean>("sendChatAction", { chat_id: chatId, action });
+  async sendChatAction(chatId: number, action: string, messageThreadId?: number): Promise<boolean> {
+    return this.call<boolean>("sendChatAction", {
+      chat_id: chatId,
+      action,
+      ...(messageThreadId ? { message_thread_id: messageThreadId } : {}),
+    });
   }
 
   async editMessageText(
     chatId: number,
     messageId: number,
     text: string,
-    parseMode: "HTML" | "MarkdownV2" | "" = "HTML"
+    parseMode: "HTML" | "MarkdownV2" | "" = "HTML",
+    messageThreadId?: number
   ): Promise<TelegramMessage | true> {
     return this.call<TelegramMessage | true>("editMessageText", {
       chat_id: chatId,
       message_id: messageId,
       text,
       ...(parseMode ? { parse_mode: parseMode } : {}),
+      ...(messageThreadId ? { message_thread_id: messageThreadId } : {}),
     });
   }
 
@@ -167,7 +177,8 @@ export class TelegramApi {
     question: string,
     options: string[],
     allowsMultipleAnswers = false,
-    isAnonymous = false
+    isAnonymous = false,
+    messageThreadId?: number
   ): Promise<TelegramMessage> {
     return this.call<TelegramMessage>("sendPoll", {
       chat_id: chatId,
@@ -175,19 +186,22 @@ export class TelegramApi {
       options: options.map((text) => ({ text })),
       allows_multiple_answers: allowsMultipleAnswers,
       is_anonymous: isAnonymous,
+      ...(messageThreadId ? { message_thread_id: messageThreadId } : {}),
     });
   }
 
   async sendDocument(
     chatId: number,
     filePath: string,
-    caption?: string
+    caption?: string,
+    messageThreadId?: number
   ): Promise<TelegramMessage> {
     const file = Bun.file(filePath);
     const formData = new FormData();
     formData.append("chat_id", String(chatId));
     formData.append("document", file, filePath.split("/").pop() || "file");
     if (caption) formData.append("caption", caption);
+    if (messageThreadId) formData.append("message_thread_id", String(messageThreadId));
 
     const url = `${this.baseUrl}/sendDocument`;
     const res = await fetch(url, { method: "POST", body: formData });
@@ -196,7 +210,7 @@ export class TelegramApi {
       const body = (await res.json()) as ApiResponse<TelegramMessage>;
       const retryAfter = body.parameters?.retry_after ?? 5;
       await Bun.sleep(retryAfter * 1000);
-      return this.sendDocument(chatId, filePath, caption);
+      return this.sendDocument(chatId, filePath, caption, messageThreadId);
     }
 
     if (!res.ok) {

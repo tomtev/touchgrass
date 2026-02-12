@@ -2,6 +2,8 @@
 
 Manage Claude Code, Codex & Pi terminals on the go with Telegram.
 
+Security model: this tool is designed for single-user laptops. Only one paired Telegram user is supported.
+
 ### Quick install
 
 ```bash
@@ -76,6 +78,7 @@ tg codex                                              # Start Codex
 tg codex --dangerously-bypass-approvals-and-sandbox   # Start Codex in auto-accept mode
 tg pi                                    # Start PI
 tg claude --tg-name my-project           # Custom session name
+tg claude --tg-send-files                # Opt-in: auto-send assistant-referenced files
 ```
 
 That's it. You'll get agent responses in Telegram and can send input back from your phone.
