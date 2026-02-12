@@ -7,7 +7,7 @@ export async function runLinks(): Promise<void> {
 
   if (groups.length === 0) {
     console.log("No linked groups or topics.");
-    return;
+    process.exit(0);
   }
 
   console.log("\nLinked groups and topics:\n");
@@ -24,7 +24,7 @@ export async function runLinks(): Promise<void> {
   });
 
   if (!input) {
-    return;
+    process.exit(0);
   }
 
   const idx = parseInt(input) - 1;
@@ -40,4 +40,5 @@ export async function runLinks(): Promise<void> {
   } else {
     console.error("Failed to remove.");
   }
+  process.exit(0);
 }
