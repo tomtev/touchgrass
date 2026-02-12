@@ -514,8 +514,7 @@ async function writePollKeypresses(
 }
 
 // Watch a JSONL file for new assistant messages using incremental reads.
-// Only reads new bytes from the file on each change, debounces rapid fs.watch
-// events, and handles partial lines at chunk boundaries.
+// Uses fs.watch + periodic polling fallback for reliability on macOS.
 function watchSessionFile(
   filePath: string,
   onAssistant: (text: string) => void,
@@ -535,89 +534,105 @@ function watchSessionFile(
   }
   let partial = ""; // Buffer for incomplete trailing line
   let processing = false;
-  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  let pendingRecheck = false; // Set when an event arrives during processing
 
   async function processNewContent() {
-    if (processing) return;
+    if (processing) {
+      pendingRecheck = true;
+      return;
+    }
     processing = true;
     try {
-      // Get current file size to know how much to read
-      const stat = statSync(filePath);
-      const fileSize = stat.size;
+      // Loop until no more new data (handles events that arrived during processing)
+      let hasMore = true;
+      while (hasMore) {
+        pendingRecheck = false;
+        hasMore = false;
 
-      // File truncated or unchanged — reset
-      if (fileSize < byteOffset) {
-        byteOffset = 0;
-        partial = "";
-      }
-      if (fileSize <= byteOffset) {
-        processing = false;
-        return;
-      }
+        const stat = statSync(filePath);
+        const fileSize = stat.size;
 
-      // Read only the new bytes from our last position
-      const bytesToRead = fileSize - byteOffset;
-      const buffer = Buffer.alloc(bytesToRead);
-      const fd = await open(filePath, "r");
-      try {
-        await fd.read(buffer, 0, bytesToRead, byteOffset);
-      } finally {
-        await fd.close();
-      }
-      byteOffset = fileSize;
+        // File truncated — reset
+        if (fileSize < byteOffset) {
+          byteOffset = 0;
+          partial = "";
+        }
+        if (fileSize <= byteOffset) break;
 
-      // Split into lines, prepending any partial line from last read
-      const chunk = partial + buffer.toString("utf-8");
-      const lines = chunk.split("\n");
-
-      // Last element is either empty (chunk ended with \n) or a partial line
-      partial = lines.pop() ?? "";
-
-      for (const line of lines) {
-        if (!line) continue;
+        // Read only the new bytes from our last position
+        const bytesToRead = fileSize - byteOffset;
+        const buffer = Buffer.alloc(bytesToRead);
+        const fd = await open(filePath, "r");
         try {
-          const msg = JSON.parse(line);
-          const assistantText = extractAssistantText(msg);
-          if (assistantText) onAssistant(assistantText);
-          if (onQuestion) {
-            const questions = extractAskUserQuestion(msg);
-            if (questions) onQuestion(questions);
-          }
-          // Always run extractToolCalls to populate toolUseIdToName map
-          const calls = extractToolCalls(msg);
-          if (onToolCall && calls.length > 0) onToolCall(calls);
-          if (onToolResult) {
-            const results = extractToolResults(msg);
-            if (results.length > 0) onToolResult(results);
-          }
-          if (onThinking) {
-            const thinking = extractThinking(msg);
-            if (thinking) onThinking(thinking);
-          }
-          if (onToolDone) {
-            const doneIds = extractCompletedToolIds(msg);
-            if (doneIds.length > 0) onToolDone(doneIds);
-          }
-        } catch {}
+          await fd.read(buffer, 0, bytesToRead, byteOffset);
+        } finally {
+          await fd.close();
+        }
+        byteOffset = fileSize;
+
+        // Split into lines, prepending any partial line from last read
+        const chunk = partial + buffer.toString("utf-8");
+        const lines = chunk.split("\n");
+
+        // Last element is either empty (chunk ended with \n) or a partial line
+        partial = lines.pop() ?? "";
+
+        for (const line of lines) {
+          if (!line) continue;
+          try {
+            const msg = JSON.parse(line);
+            const assistantText = extractAssistantText(msg);
+            if (assistantText) onAssistant(assistantText);
+            if (onQuestion) {
+              const questions = extractAskUserQuestion(msg);
+              if (questions) onQuestion(questions);
+            }
+            // Always run extractToolCalls to populate toolUseIdToName map
+            const calls = extractToolCalls(msg);
+            if (onToolCall && calls.length > 0) onToolCall(calls);
+            if (onToolResult) {
+              const results = extractToolResults(msg);
+              if (results.length > 0) onToolResult(results);
+            }
+            if (onThinking) {
+              const thinking = extractThinking(msg);
+              if (thinking) onThinking(thinking);
+            }
+            if (onToolDone) {
+              const doneIds = extractCompletedToolIds(msg);
+              if (doneIds.length > 0) onToolDone(doneIds);
+            }
+          } catch {} // skip malformed JSONL lines
+        }
+
+        // Re-check if events arrived while we were processing
+        if (pendingRecheck) hasMore = true;
       }
-    } catch {}
+    } catch {} // file may not exist yet
     processing = false;
   }
 
   function scheduleProcess() {
-    // Debounce: fs.watch fires multiple times per write on macOS.
-    // Coalesce into a single read after 50ms of quiet.
-    if (debounceTimer) clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(() => {
-      debounceTimer = null;
-      processNewContent();
-    }, 50);
+    // No debounce — process immediately. The processing loop handles coalescing.
+    processNewContent();
   }
 
   // Process any content already in the file (e.g. PI writes response before we find the file)
   processNewContent();
 
   const watcher = watch(filePath, scheduleProcess);
+
+  // Periodic fallback: fs.watch on macOS can miss events.
+  // Poll every 2s to catch anything the watcher dropped.
+  const fallbackTimer = setInterval(processNewContent, 2000);
+
+  // Attach cleanup to the watcher so callers can close everything
+  const origClose = watcher.close.bind(watcher);
+  watcher.close = () => {
+    clearInterval(fallbackTimer);
+    origClose();
+  };
+
   return watcher;
 }
 
@@ -961,6 +976,11 @@ Edit these instructions to define what the agent should do periodically.
 
       const onToolCall = tgRemoteId
         ? (calls: ToolCallInfo[]) => {
+            // Agent is working — assert typing on all target chats
+            const typingTarget = boundChat || tgChatId;
+            tgChannel.setTyping(typingTarget, true);
+            for (const gid of subscribedGroups) tgChannel.setTyping(gid, true);
+
             for (const call of calls) {
               // Send tool notification immediately (no poll)
               daemonRequest(`/remote/${tgRemoteId}/tool-call`, "POST", {
@@ -1148,8 +1168,7 @@ Edit these instructions to define what the agent should do periodically.
           processingInput = false;
         }
       } catch {
-        if (pollTimer) clearInterval(pollTimer);
-        pollTimer = null;
+        // Don't kill polling on transient errors — just retry next interval
         processingInput = false;
       }
     }, 200);

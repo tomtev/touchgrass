@@ -434,6 +434,8 @@ export async function startDaemon(): Promise<void> {
       const html = formatToolCall(name, input);
       if (!html) return;
       primaryChannel.send(targetChat, html);
+      // Re-assert typing — send() clears it on Telegram's side
+      primaryChannel.setTyping(targetChat, true);
     },
     handleApprovalNeeded(sessionId: string, name: string, input: Record<string, unknown>): void {
       const remote = sessionManager.getRemote(sessionId);
@@ -481,6 +483,8 @@ export async function startDaemon(): Promise<void> {
       const label = toolName === "Bash" ? "Output" : `${toolName} result`;
       const html = `<b>${escapeHtml(label)}</b>\n<pre>${escapeHtml(truncated)}</pre>`;
       primaryChannel.send(targetChat, html);
+      // Re-assert typing — agent is still working after tool result
+      primaryChannel.setTyping(targetChat, true);
     },
     handleQuestion(sessionId: string, questions: unknown[]): void {
       const remote = sessionManager.getRemote(sessionId);
