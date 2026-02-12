@@ -1,6 +1,5 @@
 import type { InboundMessage } from "../../channel/types";
 import type { RouterContext } from "../command-router";
-import { escapeHtml } from "../../channels/telegram/formatter";
 
 export async function handleSessionMgmt(
   msg: InboundMessage,
@@ -9,10 +8,11 @@ export async function handleSessionMgmt(
 ): Promise<void> {
   const chatId = msg.chatId;
   const userId = msg.userId;
+  const { fmt } = ctx.channel;
   const parts = args.split(/\s+/);
   const subCmd = parts[0];
   const sessionId = parts[1];
-  const safeSessionId = sessionId ? escapeHtml(sessionId) : "";
+  const safeSessionId = sessionId ? fmt.escape(sessionId) : "";
 
   switch (subCmd) {
     case "ls": {
@@ -28,7 +28,7 @@ export async function handleSessionMgmt(
       const lines = sessions.map((s) => {
         const isAttached = attachedId === s.id || attachedRemoteId === s.id;
         const marker = isAttached ? " (attached)" : "";
-        return `<code>${s.id}</code> [${s.state}] ${escapeHtml(s.command)}${marker}`;
+        return `${fmt.code(s.id)} [${s.state}] ${fmt.escape(s.command)}${marker}`;
       });
       await ctx.channel.send(chatId, lines.join("\n"));
       return;
@@ -36,17 +36,17 @@ export async function handleSessionMgmt(
 
     case "attach": {
       if (!sessionId) {
-        await ctx.channel.send(chatId, "Usage: <code>tg attach &lt;id&gt;</code>");
+        await ctx.channel.send(chatId, `Usage: ${fmt.code(`tg attach ${fmt.escape("<id>")}`)}`);
         return;
       }
       if (!ctx.sessionManager.canUserAccessSession(userId, sessionId)) {
-        await ctx.channel.send(chatId, `Session <code>${safeSessionId}</code> not found or exited.`);
+        await ctx.channel.send(chatId, `Session ${fmt.code(safeSessionId)} not found or exited.`);
         return;
       }
       if (ctx.sessionManager.attach(chatId, sessionId)) {
-        await ctx.channel.send(chatId, `Attached to session <code>${safeSessionId}</code>.`);
+        await ctx.channel.send(chatId, `Attached to session ${fmt.code(safeSessionId)}.`);
       } else {
-        await ctx.channel.send(chatId, `Session <code>${safeSessionId}</code> not found or exited.`);
+        await ctx.channel.send(chatId, `Session ${fmt.code(safeSessionId)} not found or exited.`);
       }
       return;
     }
@@ -62,34 +62,34 @@ export async function handleSessionMgmt(
 
     case "stop": {
       if (!sessionId) {
-        await ctx.channel.send(chatId, "Usage: <code>tg stop &lt;id&gt;</code>");
+        await ctx.channel.send(chatId, `Usage: ${fmt.code(`tg stop ${fmt.escape("<id>")}`)}`);
         return;
       }
       if (!ctx.sessionManager.canUserAccessSession(userId, sessionId)) {
-        await ctx.channel.send(chatId, `Session <code>${safeSessionId}</code> not found or already exited.`);
+        await ctx.channel.send(chatId, `Session ${fmt.code(safeSessionId)} not found or already exited.`);
         return;
       }
       if (ctx.sessionManager.stopSession(sessionId)) {
-        await ctx.channel.send(chatId, `Sent SIGTERM to session <code>${safeSessionId}</code>.`);
+        await ctx.channel.send(chatId, `Sent SIGTERM to session ${fmt.code(safeSessionId)}.`);
       } else {
-        await ctx.channel.send(chatId, `Session <code>${safeSessionId}</code> not found or already exited.`);
+        await ctx.channel.send(chatId, `Session ${fmt.code(safeSessionId)} not found or already exited.`);
       }
       return;
     }
 
     case "kill": {
       if (!sessionId) {
-        await ctx.channel.send(chatId, "Usage: <code>tg kill &lt;id&gt;</code>");
+        await ctx.channel.send(chatId, `Usage: ${fmt.code(`tg kill ${fmt.escape("<id>")}`)}`);
         return;
       }
       if (!ctx.sessionManager.canUserAccessSession(userId, sessionId)) {
-        await ctx.channel.send(chatId, `Session <code>${safeSessionId}</code> not found or already exited.`);
+        await ctx.channel.send(chatId, `Session ${fmt.code(safeSessionId)} not found or already exited.`);
         return;
       }
       if (ctx.sessionManager.killSession(sessionId)) {
-        await ctx.channel.send(chatId, `Sent SIGKILL to session <code>${safeSessionId}</code>.`);
+        await ctx.channel.send(chatId, `Sent SIGKILL to session ${fmt.code(safeSessionId)}.`);
       } else {
-        await ctx.channel.send(chatId, `Session <code>${safeSessionId}</code> not found or already exited.`);
+        await ctx.channel.send(chatId, `Session ${fmt.code(safeSessionId)} not found or already exited.`);
       }
       return;
     }

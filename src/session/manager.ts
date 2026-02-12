@@ -17,7 +17,7 @@ export interface RemoteSession {
 export interface PendingPoll {
   sessionId: string;
   chatId: ChannelChatId;
-  messageId: number;
+  messageId: string;
   questionIndex: number;
   totalQuestions: number;
   multiSelect: boolean;

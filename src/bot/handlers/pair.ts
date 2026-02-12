@@ -12,6 +12,7 @@ export async function handlePair(
   const chatId = msg.chatId;
   const userId = msg.userId;
   const username = msg.username;
+  const { fmt } = ctx.channel;
 
   if (isUserPaired(ctx.config, userId)) {
     await ctx.channel.send(chatId, "You are already paired.");
@@ -20,7 +21,7 @@ export async function handlePair(
 
   const parts = msg.text.trim().split(/\s+/);
   if (parts.length < 2) {
-    await ctx.channel.send(chatId, "Usage: /pair &lt;code&gt;");
+    await ctx.channel.send(chatId, `Usage: /pair ${fmt.escape("<code>")}`);
     return;
   }
 
@@ -42,6 +43,6 @@ export async function handlePair(
   await logger.info("User paired", { userId, username });
   await ctx.channel.send(
     chatId,
-    `Paired successfully! Welcome${username ? `, @${username}` : ""}.\n\nSend <code>tg &lt;command&gt;</code> to run a command.\nSend /help for more info.`
+    `Paired successfully! Welcome${username ? `, @${username}` : ""}.\n\nSend ${fmt.code(`tg ${fmt.escape("<command>")}`)} to run a command.\nSend /help for more info.`
   );
 }

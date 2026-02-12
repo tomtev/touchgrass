@@ -1,5 +1,6 @@
 import { TelegramApi, type TelegramUpdate, type TelegramPollAnswer } from "./api";
-import type { Channel, ChannelChatId, InboundMessage } from "../../channel/types";
+import type { Channel, ChannelChatId, InboundMessage, PollResult, PollAnswerHandler } from "../../channel/types";
+import { TelegramFormatter } from "./telegram-formatter";
 import { escapeHtml, chunkText } from "./formatter";
 import { stripAnsi } from "../../utils/ansi";
 import { logger } from "../../daemon/logger";
@@ -23,6 +24,7 @@ function fromChatId(chatId: ChannelChatId): { chatId: number; threadId?: number 
 
 export class TelegramChannel implements Channel {
   readonly type = "telegram";
+  readonly fmt = new TelegramFormatter();
   private api: TelegramApi;
   private running = false;
   private botUsername: string | null = null;
@@ -32,7 +34,7 @@ export class TelegramChannel implements Channel {
   private readonly uploadTtlMs = 24 * 60 * 60 * 1000;
   // Cache forum topic names: key = "chatId:threadId", value = topic name
   private topicNames: Map<string, string> = new Map();
-  onPollAnswer: ((answer: TelegramPollAnswer) => void) | null = null;
+  onPollAnswer: PollAnswerHandler | null = null;
 
   constructor(botToken: string) {
     this.api = new TelegramApi(botToken);
@@ -131,7 +133,7 @@ export class TelegramChannel implements Channel {
 
   async sendSessionExit(chatId: ChannelChatId, sessionId: string, exitCode: number | null): Promise<void> {
     const status = exitCode === 0 ? "disconnected" : `disconnected (code ${exitCode ?? "unknown"})`;
-    await this.send(chatId, `Session <code>${escapeHtml(sessionId)}</code> ${escapeHtml(status)}.`);
+    await this.send(chatId, `Session ${this.fmt.code(this.fmt.escape(sessionId))} ${this.fmt.escape(status)}.`);
     this.lastMessage.delete(chatId);
   }
 
@@ -154,18 +156,18 @@ export class TelegramChannel implements Channel {
     question: string,
     options: string[],
     multiSelect: boolean
-  ): Promise<{ pollId: string; messageId: number }> {
+  ): Promise<PollResult> {
     const { chatId: numChatId, threadId } = fromChatId(chatId);
     const sent = await this.api.sendPoll(numChatId, question, options, multiSelect, false, threadId);
     // Telegram includes poll info in the sent message
     const poll = (sent as unknown as { poll?: { id: string } }).poll;
-    return { pollId: poll?.id ?? "", messageId: sent.message_id };
+    return { pollId: poll?.id ?? "", messageId: String(sent.message_id) };
   }
 
-  async closePoll(chatId: ChannelChatId, messageId: number): Promise<void> {
+  async closePoll(chatId: ChannelChatId, messageId: string): Promise<void> {
     const { chatId: numChatId } = fromChatId(chatId);
     try {
-      await this.api.stopPoll(numChatId, messageId);
+      await this.api.stopPoll(numChatId, Number(messageId));
     } catch {
       // Poll may already be closed
     }
@@ -240,7 +242,12 @@ export class TelegramChannel implements Channel {
 
           if (update.poll_answer && this.onPollAnswer) {
             try {
-              this.onPollAnswer(update.poll_answer);
+              const pa = update.poll_answer;
+              this.onPollAnswer({
+                pollId: pa.poll_id,
+                userId: `telegram:${pa.user.id}`,
+                optionIds: pa.option_ids,
+              });
             } catch (e) {
               await logger.error("Error handling poll answer", { error: (e as Error).message });
             }
@@ -343,6 +350,11 @@ export class TelegramChannel implements Channel {
         if (this.running) await Bun.sleep(5000);
       }
     }
+  }
+
+  async getBotName(): Promise<string> {
+    const me = await this.api.getMe();
+    return me.first_name || me.username || "Bot";
   }
 
   stopReceiving(): void {

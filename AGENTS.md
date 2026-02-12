@@ -42,10 +42,13 @@ User terminal                         Telegram
 ### Core Abstractions
 | File | Purpose |
 |------|---------|
-| `src/channel/types.ts` | `Channel` interface, `InboundMessage`, `ChannelChatId`, `ChannelUserId` |
+| `src/channel/types.ts` | `Channel` interface, `InboundMessage`, `PollResult`, `PollAnswerHandler`, `isTopic()`, `getParentChatId()` |
+| `src/channel/formatter.ts` | `Formatter` interface — `bold()`, `italic()`, `code()`, `pre()`, `link()`, `escape()`, `fromMarkdown()` |
+| `src/channel/factory.ts` | `createChannel(name, config)` — creates channel instances from config |
 | `src/channels/telegram/channel.ts` | `TelegramChannel` implements `Channel` — sends messages, polls for updates, strips @mentions |
+| `src/channels/telegram/telegram-formatter.ts` | `TelegramFormatter` implements `Formatter` — HTML formatting for Telegram |
 | `src/channels/telegram/api.ts` | Raw Telegram Bot API wrapper (sendMessage, editMessageText, getUpdates, getFile) |
-| `src/channels/telegram/formatter.ts` | `escapeHtml()`, `chunkText()` — Telegram-specific |
+| `src/channels/telegram/formatter.ts` | `escapeHtml()`, `chunkText()` — Telegram-specific low-level helpers |
 
 ### Bot Layer (channel-agnostic)
 | File | Purpose |
@@ -100,7 +103,7 @@ User terminal                         Telegram
 ### Utilities
 | File | Purpose |
 |------|---------|
-| `src/utils/ansi.ts` | `stripAnsi()`, `markdownToHtml()`, re-exports `escapeHtml`/`chunkText` |
+| `src/utils/ansi.ts` | `stripAnsi()`, `stripAnsiReadable()` |
 
 ## Key Design Patterns
 
@@ -111,13 +114,16 @@ All IDs are prefixed with channel type for disambiguation:
 - Message refs: `"telegram:42"` (for reply-to tracking)
 - Remote session IDs: `"r-abc123"` (3-byte hex, no channel prefix)
 
-### Channel Interface
-Handlers send simple HTML (`<b>`, `<i>`, `<code>`, `<pre>`). Each channel implementation converts to native format if needed. `TelegramChannel` sends as-is. A future Discord channel would convert `<b>` → `**bold**`, `<code>` → backticks.
+### Channel Interface + Formatter
+Handlers use `channel.fmt` (a `Formatter` instance) for all text formatting: `fmt.bold()`, `fmt.code()`, `fmt.escape()`, etc. Each channel provides its own `Formatter` implementation (e.g. `TelegramFormatter` outputs HTML, a Discord formatter would output Markdown). Handlers never write raw HTML or channel-specific markup.
+
+Optional channel capabilities (polls, chat validation, bot name) are expressed as optional methods on `Channel`. Check with `if (channel.sendPoll)` before calling.
 
 New channel checklist:
-1. Create `src/channels/<name>/channel.ts` implementing `Channel`
-2. Add channel creation in `src/daemon/index.ts` (match on `cfg.type`)
-3. Add init flow in CLI if needed
+1. Create `src/channels/<name>/<name>-formatter.ts` implementing `Formatter`
+2. Create `src/channels/<name>/channel.ts` implementing `Channel` (set `readonly fmt = new MyFormatter()`)
+3. Add `case "<name>":` in `src/channel/factory.ts`
+4. Add init flow in CLI if needed
 
 ### Group Chat Support
 - `InboundMessage.isGroup` flag — set by channel implementation

@@ -1,11 +1,10 @@
 import { loadConfig } from "../config/store";
 import { getTelegramBotToken, getAllPairedUsers } from "../config/schema";
-import { TelegramChannel } from "../channels/telegram/channel";
-import { TelegramApi } from "../channels/telegram/api";
+import { createChannel } from "../channel/factory";
 import type { Channel, ChannelChatId } from "../channel/types";
 import { daemonRequest } from "./client";
 import { ensureDaemon } from "./ensure-daemon";
-import { escapeHtml, markdownToHtml, stripAnsiReadable } from "../utils/ansi";
+import { stripAnsiReadable } from "../utils/ansi";
 import { paths, ensureDirs } from "../config/paths";
 import { watch, readdirSync, statSync, readFileSync, type FSWatcher } from "fs";
 import { chmod, open, writeFile, unlink } from "fs/promises";
@@ -740,10 +739,10 @@ Edit these instructions to define what the agent should do periodically.
           const dmBusyLabel = res.dmBusyLabel as string | undefined;
           const options: Array<{ label: string; chatId: string; busy: boolean }> = [];
           let dmLabel = "DM";
+          // Create channel early for bot name lookup
+          const tempChannel = createChannel("telegram", { type: "telegram", credentials: { botToken }, pairedUsers: [], linkedGroups: [] });
           try {
-            const api = new TelegramApi(botToken);
-            const me = await api.getMe();
-            if (me.first_name) dmLabel = me.first_name;
+            if (tempChannel.getBotName) dmLabel = await tempChannel.getBotName();
           } catch {}
           const dmSuffix = dmBusy && dmBusyLabel ? `\x1b[2m(DM) ← ${dmBusyLabel}\x1b[22m` : "\x1b[2m(DM)\x1b[22m";
           options.push({ label: `${dmLabel} ${dmSuffix}`, chatId: chatId!, busy: dmBusy });
@@ -821,7 +820,7 @@ Edit these instructions to define what the agent should do periodically.
       }
 
       // Set up channel for JSONL watching
-      channel = new TelegramChannel(botToken);
+      channel = createChannel("telegram", { type: "telegram", credentials: { botToken }, pairedUsers: [], linkedGroups: [] });
 
     }
   } catch {
@@ -1122,9 +1121,9 @@ Edit these instructions to define what the agent should do periodically.
 
         for (const cid of targets) tgChannel.setTyping(cid, false);
 
-        const html = markdownToHtml(text);
+        const formatted = tgChannel.fmt.fromMarkdown(text);
         for (const cid of targets) {
-          tgChannel.send(cid, html);
+          tgChannel.send(cid, formatted);
         }
         // Detect file paths in the text and send as attachments
         if (sendFilesFromAssistant && tgChannel.sendDocument) {
@@ -1276,8 +1275,9 @@ Edit these instructions to define what the agent should do periodically.
     } catch {}
     await removeManifest(remoteId);
   } else if (channel && chatId) {
+    const { fmt } = channel;
     const status = exitCode === 0 ? "disconnected" : `disconnected (code ${exitCode ?? "unknown"})`;
-    await channel.send(chatId, `Command <code>${escapeHtml(fullCommand)}</code> ${escapeHtml(status)}.`);
+    await channel.send(chatId, `Command ${fmt.code(fmt.escape(fullCommand))} ${fmt.escape(status)}.`);
   }
 
   if (process.stdin.isTTY) {

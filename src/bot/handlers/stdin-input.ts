@@ -1,17 +1,15 @@
 import type { InboundMessage } from "../../channel/types";
 import type { RouterContext } from "../command-router";
-import type { TelegramChannel } from "../../channels/telegram/channel";
 import type { RemoteSession } from "../../session/manager";
-import { escapeHtml } from "../../channels/telegram/formatter";
 
 // If a session has a pending poll, close it and push the text as a free-form "Other" answer
 function handleTextWhilePoll(remote: RemoteSession, text: string, ctx: RouterContext): boolean {
   const activePoll = ctx.sessionManager.getActivePollForSession(remote.id);
   if (!activePoll) return false;
 
-  // Close the active Telegram poll
-  if (ctx.channel.type === "telegram") {
-    (ctx.channel as TelegramChannel).closePoll(activePoll.poll.chatId, activePoll.poll.messageId).catch(() => {});
+  // Close the active poll if the channel supports it
+  if (ctx.channel.closePoll) {
+    ctx.channel.closePoll(activePoll.poll.chatId, activePoll.poll.messageId).catch(() => {});
   }
   ctx.sessionManager.removePoll(activePoll.pollId);
 
@@ -29,6 +27,7 @@ export async function handleStdinInput(
   const chatId = msg.chatId;
   const userId = msg.userId;
   const text = msg.text?.trim();
+  const { fmt } = ctx.channel;
   if (!text) return;
 
   // Helper: when routing input from a group, subscribe the group to session output
@@ -78,17 +77,17 @@ export async function handleStdinInput(
   if (remotes.length > 0) {
     const list = remotes.map((r) => {
       const label = r.cwd.split("/").pop() || r.id;
-      return `  <code>${r.id}</code> — ${escapeHtml(label)}`;
+      return `  ${fmt.code(r.id)} ${fmt.escape("—")} ${fmt.escape(label)}`;
     }).join("\n");
     await ctx.channel.send(
       chatId,
-      `${msg.isGroup ? "Use /subscribe to attach this group to a session" : "Multiple sessions active"}. Reply to a message, or prefix with session ID:\n\n${list}\n\nUse <code>/subscribe ${remotes[0].id}</code> to set default.`
+      `${msg.isGroup ? "Use /subscribe to attach this group to a session" : "Multiple sessions active"}. Reply to a message, or prefix with session ID:\n\n${list}\n\nUse ${fmt.code(`/subscribe ${fmt.escape(remotes[0].id)}`)} to set default.`
     );
     return;
   }
 
   await ctx.channel.send(
     chatId,
-    "No active session. Run <code>tg claude</code>, <code>tg codex</code>, or <code>tg pi</code> in your terminal."
+    `No active session. Run ${fmt.code("tg claude")}, ${fmt.code("tg codex")}, or ${fmt.code("tg pi")} in your terminal.`
   );
 }
