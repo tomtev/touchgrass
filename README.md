@@ -211,6 +211,9 @@ No. It's a thin PTY wrapper — your tool runs in a real terminal and behaves id
 **How does it send messages to Telegram?**
 A lightweight file watcher reads the session JSONL files that CLI tools like Claude Code, Codex, and PI already write. When new assistant output appears, it's forwarded to Telegram via the Bot API. No hooks or plugins are injected into the tool itself.
 
+**How does heartbeat mode work?**
+It submits the contents of a `HEARTBEAT.md` file to the agent's terminal on a schedule. Write whatever instructions you want in the file, and the agent follows them on each heartbeat. Update the file any time — the agent picks up changes on the next beat.
+
 **Can I type locally and use Telegram at the same time?**
 Yes. Both work in real-time. Avoid typing in both simultaneously as keystrokes could interleave.
 

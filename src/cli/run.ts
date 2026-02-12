@@ -41,7 +41,7 @@ function terminalPicker(title: string, options: string[], hint?: string, disable
     const RESET = "\x1b[0m";
     const CYAN = "\x1b[36m";
     const BOLD = "\x1b[1m";
-    const totalLines = options.length + 2 + (hint ? 2 : 0);
+    const totalLines = 1 + options.length + (hint ? 2 : 0);
 
     function render() {
       process.stdout.write(`\x1b[${totalLines}A\x1b[J`);
@@ -49,7 +49,7 @@ function terminalPicker(title: string, options: string[], hint?: string, disable
     }
 
     function draw() {
-      process.stdout.write(`\n  ${BOLD}${title}${RESET}\n`);
+      process.stdout.write(`  ${BOLD}${title}${RESET}\n`);
       for (let i = 0; i < options.length; i++) {
         if (dis.has(i)) {
           process.stdout.write(`  ${DIM}${STRIKETHROUGH}  ${options[i]}${RESET}\n`);
@@ -80,7 +80,7 @@ function terminalPicker(title: string, options: string[], hint?: string, disable
 
     const wasRaw = process.stdin.isRaw;
     if (process.stdin.isTTY) process.stdin.setRawMode(true);
-    process.stdout.write(HIDE_CURSOR);
+    process.stdout.write(HIDE_CURSOR + "\n");
     draw();
 
     function onData(data: Buffer) {
