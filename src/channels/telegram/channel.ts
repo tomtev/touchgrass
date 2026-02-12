@@ -130,7 +130,7 @@ export class TelegramChannel implements Channel {
   }
 
   async sendSessionExit(chatId: ChannelChatId, sessionId: string, exitCode: number | null): Promise<void> {
-    const status = exitCode === 0 ? "exited" : `exited with code ${exitCode ?? "unknown"}`;
+    const status = exitCode === 0 ? "disconnected" : `disconnected (code ${exitCode ?? "unknown"})`;
     await this.send(chatId, `Session <code>${escapeHtml(sessionId)}</code> ${escapeHtml(status)}.`);
     this.lastMessage.delete(chatId);
   }

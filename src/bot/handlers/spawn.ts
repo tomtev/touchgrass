@@ -35,7 +35,7 @@ export async function handleSpawn(
 
   await ctx.channel.send(
     chatId,
-    `Session <code>${escapeHtml(session.id)}</code> started: <code>${escapeHtml(commandStr)}</code>\nYou are auto-attached. Send text to write to stdin.`
+    `Session <code>${escapeHtml(session.id)}</code> connected: <code>${escapeHtml(commandStr)}</code>\nYou are auto-attached. Send text to write to stdin.`
   );
   // Clear last message so output starts fresh
   ctx.channel.clearLastMessage(chatId);

@@ -1276,7 +1276,7 @@ Edit these instructions to define what the agent should do periodically.
     } catch {}
     await removeManifest(remoteId);
   } else if (channel && chatId) {
-    const status = exitCode === 0 ? "exited" : `exited with code ${exitCode ?? "unknown"}`;
+    const status = exitCode === 0 ? "disconnected" : `disconnected (code ${exitCode ?? "unknown"})`;
     await channel.send(chatId, `Command <code>${escapeHtml(fullCommand)}</code> ${escapeHtml(status)}.`);
   }
 

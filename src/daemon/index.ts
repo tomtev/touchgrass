@@ -437,7 +437,7 @@ export async function startDaemon(): Promise<void> {
       }
       const label = remote.cwd.split("/").pop() || remote.cwd;
       const tool = remote.command.split(" ")[0];
-      primaryChannel.send(chatId, `⛳️ <b>${escapeHtml(label)}</b> [${escapeHtml(tool)}] started`);
+      primaryChannel.send(chatId, `⛳️ <b>${escapeHtml(label)}</b> [${escapeHtml(tool)}] connected`);
       return { ok: true };
     },
     canUserAccessSession(userId: ChannelUserId, sessionId: string): boolean {
@@ -451,7 +451,7 @@ export async function startDaemon(): Promise<void> {
       if (remote) {
         const label = remote.cwd.split("/").pop() || remote.cwd;
         const tool = remote.command.split(" ")[0];
-        const status = exitCode === 0 ? "exited" : `exited with code ${exitCode ?? "unknown"}`;
+        const status = exitCode === 0 ? "disconnected" : `disconnected (code ${exitCode ?? "unknown"})`;
         const msg = `⛳️ <b>${escapeHtml(label)}</b> [${escapeHtml(tool)}] ${escapeHtml(status)}`;
         const boundChat = sessionManager.getBoundChat(sessionId);
         if (boundChat) {
