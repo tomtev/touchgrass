@@ -9,7 +9,6 @@ export interface RemoteSession {
   id: string;
   command: string;
   cwd: string;
-  name: string;
   chatId: ChannelChatId;
   ownerUserId: ChannelUserId;
   inputQueue: string[];
@@ -201,11 +200,10 @@ export class SessionManager {
     command: string,
     chatId: ChannelChatId,
     ownerUserId: ChannelUserId,
-    cwd: string = "",
-    name: string = ""
+    cwd: string = ""
   ): RemoteSession {
     const id = "r-" + randomBytes(3).toString("hex");
-    const remote: RemoteSession = { id, command, cwd, name, chatId, ownerUserId, inputQueue: [] };
+    const remote: RemoteSession = { id, command, cwd, chatId, ownerUserId, inputQueue: [] };
     this.remotes.set(id, remote);
     // Only auto-attach if no existing attachment (don't overwrite)
     if (!this.attachments.has(chatId)) {

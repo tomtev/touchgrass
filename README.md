@@ -75,7 +75,6 @@ tg claude --dangerously-skip-permissions # Start Claude Code in auto-accept mode
 tg codex                                              # Start Codex
 tg codex --dangerously-bypass-approvals-and-sandbox   # Start Codex in auto-accept mode
 tg pi                                    # Start PI
-tg claude --tg-name my-project           # Custom session name
 tg claude --tg-send-files                # Opt-in: auto-send assistant-referenced files
 ```
 
@@ -163,10 +162,10 @@ Run multiple agents at once. Each session binds to a separate chat (DM or group)
 
 ```bash
 # Terminal 1 — binds to DM
-tg claude --tg-name frontend
+tg claude
 
 # Terminal 2 — picker shows DM + linked groups
-tg codex --tg-name backend
+tg codex
 ```
 
 When you start a second session, a terminal picker lets you choose which chat to bind it to. Link groups beforehand with `/link` to have them available as options.

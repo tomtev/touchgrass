@@ -633,13 +633,6 @@ export async function runRun(): Promise<void> {
   }
 
   // Extract --tg-* flags (consumed by tg, not passed to the tool)
-  let sessionName: string | null = null;
-  const nameIdx = cmdArgs.indexOf("--tg-name");
-  if (nameIdx !== -1 && nameIdx + 1 < cmdArgs.length) {
-    sessionName = cmdArgs[nameIdx + 1];
-    cmdArgs = [...cmdArgs.slice(0, nameIdx), ...cmdArgs.slice(nameIdx + 2)];
-  }
-
   let heartbeatEnabled = false;
   let heartbeatInterval = 60; // minutes
   let sendFilesFromAssistant = false;
@@ -696,7 +689,7 @@ Edit these instructions to define what the agent should do periodically.
 
   const executable = SUPPORTED_COMMANDS[cmdName][0];
   const fullCommand = [executable, ...cmdArgs].join(" ");
-  const displayName = sessionName || process.cwd().split("/").pop() || "";
+  const displayName = process.cwd().split("/").pop() || "";
 
   // Try to register with daemon as a remote session
   let remoteId: string | null = null;
@@ -727,7 +720,6 @@ Edit these instructions to define what the agent should do periodically.
           chatId,
           ownerUserId,
           cwd: process.cwd(),
-          name: sessionName,
         });
         if (res.ok && res.sessionId) {
           remoteId = res.sessionId as string;

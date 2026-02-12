@@ -370,9 +370,9 @@ export async function startDaemon(): Promise<void> {
     generatePairingCode() {
       return generatePairingCode();
     },
-    registerRemote(command: string, chatId: ChannelChatId, ownerUserId: ChannelUserId, cwd: string, name: string): { sessionId: string; dmBusy: boolean; linkedGroups: Array<{ chatId: string; title?: string }>; allLinkedGroups: Array<{ chatId: string; title?: string }> } {
+    registerRemote(command: string, chatId: ChannelChatId, ownerUserId: ChannelUserId, cwd: string): { sessionId: string; dmBusy: boolean; linkedGroups: Array<{ chatId: string; title?: string }>; allLinkedGroups: Array<{ chatId: string; title?: string }> } {
       cancelAutoStop();
-      const remote = sessionManager.registerRemote(command, chatId, ownerUserId, cwd, name);
+      const remote = sessionManager.registerRemote(command, chatId, ownerUserId, cwd);
 
       const existingBound = sessionManager.getAttachedRemote(chatId);
       const dmBusy = !!existingBound && existingBound.id !== remote.id;
@@ -402,7 +402,7 @@ export async function startDaemon(): Promise<void> {
       if (isLinkedTarget) {
         sessionManager.subscribeGroup(sessionId, chatId);
       }
-      const label = remote.name || remote.cwd.split("/").pop() || remote.cwd;
+      const label = remote.cwd.split("/").pop() || remote.cwd;
       const tool = remote.command.split(" ")[0];
       primaryChannel.send(chatId, `⛳️ <b>${escapeHtml(label)}</b> [${escapeHtml(tool)}] started`);
       return true;
@@ -416,7 +416,7 @@ export async function startDaemon(): Promise<void> {
     endRemote(sessionId: string, exitCode: number | null): void {
       const remote = sessionManager.getRemote(sessionId);
       if (remote) {
-        const label = remote.name || remote.cwd.split("/").pop() || remote.cwd;
+        const label = remote.cwd.split("/").pop() || remote.cwd;
         const tool = remote.command.split(" ")[0];
         const status = exitCode === 0 ? "exited" : `exited with code ${exitCode ?? "unknown"}`;
         const msg = `⛳️ <b>${escapeHtml(label)}</b> [${escapeHtml(tool)}] ${escapeHtml(status)}`;

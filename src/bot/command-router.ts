@@ -154,7 +154,7 @@ export async function routeMessage(
         ctx.sessionManager.subscribeGroup(sessionId, chatId);
       }
       const remote = ctx.sessionManager.getRemote(sessionId);
-      const label = remote?.name || remote?.cwd.split("/").pop() || sessionId;
+      const label = remote?.cwd.split("/").pop() || sessionId;
       let reply = `Subscribed to <b>${escapeHtml(label)}</b> <i>(${escapeHtml(sessionId)})</i>`;
       if (msg.isGroup) {
         reply += `\n\n⚠️ For plain text messages to work in groups, disable <b>Group Privacy</b> in @BotFather (<code>/setprivacy</code> → Disable).`;

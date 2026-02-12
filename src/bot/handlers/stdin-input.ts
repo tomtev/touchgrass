@@ -77,7 +77,7 @@ export async function handleStdinInput(
   // 4. Multiple sessions or group without connection — show session list
   if (remotes.length > 0) {
     const list = remotes.map((r) => {
-      const label = r.name || r.cwd.split("/").pop() || r.id;
+      const label = r.cwd.split("/").pop() || r.id;
       return `  <code>${r.id}</code> — ${escapeHtml(label)}`;
     }).join("\n");
     await ctx.channel.send(
