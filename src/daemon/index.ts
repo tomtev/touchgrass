@@ -427,6 +427,18 @@ export async function startDaemon(): Promise<void> {
         }
       }
 
+      // Disconnect old session from this channel if taken
+      const oldRemote = sessionManager.getAttachedRemote(chatId);
+      if (oldRemote && oldRemote.id !== sessionId) {
+        sessionManager.detach(chatId);
+        sessionManager.unsubscribeGroup(oldRemote.id, chatId);
+        // Re-bind old session to its owner DM
+        sessionManager.attach(oldRemote.chatId, oldRemote.id);
+        const oldLabel = oldRemote.cwd.split("/").pop() || oldRemote.cwd;
+        const oldTool = oldRemote.command.split(" ")[0];
+        primaryChannel.send(chatId, `⛳️ <b>${escapeHtml(oldLabel)}</b> [${escapeHtml(oldTool)}] disconnected`);
+      }
+
       // Remove auto-attached DM if binding to a different chat
       if (remote.chatId !== chatId) {
         sessionManager.detach(remote.chatId);
