@@ -73,7 +73,9 @@ chmod +x "${INSTALL_DIR}/${BINARY_NAME}"
 if [ -f "$HOME/.touchgrass/daemon.pid" ]; then
   kill "$(cat "$HOME/.touchgrass/daemon.pid")" 2>/dev/null
   rm -f "$HOME/.touchgrass/daemon.pid"
-  info "Restarted daemon (will auto-start on next command)"
+  # Start the new daemon immediately so active CLI sessions reconnect
+  "${INSTALL_DIR}/${BINARY_NAME}" ls &>/dev/null &
+  info "Daemon restarted"
 fi
 
 echo ""
