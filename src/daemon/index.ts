@@ -16,6 +16,13 @@ import type { TelegramPollAnswer } from "../channels/telegram/api";
 
 const DAEMON_STARTED_AT = Date.now();
 
+/** Format a session label for Telegram messages: "claude (myproject)" or just "claude" */
+function sessionLabel(command: string, cwd: string): string {
+  const tool = command.split(" ")[0];
+  const folder = cwd.split("/").pop();
+  return folder ? `${tool} (${folder})` : tool;
+}
+
 export async function startDaemon(): Promise<void> {
   await logger.info("Daemon starting", { pid: process.pid });
 
@@ -380,7 +387,7 @@ export async function startDaemon(): Promise<void> {
 
       const existingBound = sessionManager.getAttachedRemote(chatId);
       const dmBusy = !!existingBound && existingBound.id !== remote.id;
-      const dmBusyLabel = dmBusy && existingBound ? `${existingBound.command.split(" ")[0]} ${existingBound.cwd.split("/").pop()}` : undefined;
+      const dmBusyLabel = dmBusy && existingBound ? sessionLabel(existingBound.command, existingBound.cwd) : undefined;
 
       await refreshConfig();
       const tgChannel = primaryChannel as TelegramChannel;
@@ -401,7 +408,7 @@ export async function startDaemon(): Promise<void> {
 
       const allLinkedGroups = validGroups.map((g) => {
         const bound = sessionManager.getAttachedRemote(g.chatId);
-        const busyLabel = bound && bound.id !== remote.id ? `${bound.command.split(" ")[0]} ${bound.cwd.split("/").pop()}` : undefined;
+        const busyLabel = bound && bound.id !== remote.id ? sessionLabel(bound.command, bound.cwd) : undefined;
         return { chatId: g.chatId, title: g.title, busyLabel };
       });
       const linkedGroups = allLinkedGroups.filter((g) => !g.busyLabel);
@@ -434,9 +441,7 @@ export async function startDaemon(): Promise<void> {
         sessionManager.unsubscribeGroup(oldRemote.id, chatId);
         // Re-bind old session to its owner DM
         sessionManager.attach(oldRemote.chatId, oldRemote.id);
-        const oldLabel = oldRemote.cwd.split("/").pop() || oldRemote.cwd;
-        const oldTool = oldRemote.command.split(" ")[0];
-        primaryChannel.send(chatId, `⛳️ <b>${escapeHtml(oldLabel)}</b> [${escapeHtml(oldTool)}] disconnected`);
+        primaryChannel.send(chatId, `⛳️ <b>${escapeHtml(sessionLabel(oldRemote.command, oldRemote.cwd))}</b> disconnected`);
       }
 
       // Remove auto-attached DM if binding to a different chat
@@ -447,9 +452,7 @@ export async function startDaemon(): Promise<void> {
       if (isLinkedTarget) {
         sessionManager.subscribeGroup(sessionId, chatId);
       }
-      const label = remote.cwd.split("/").pop() || remote.cwd;
-      const tool = remote.command.split(" ")[0];
-      primaryChannel.send(chatId, `⛳️ <b>${escapeHtml(label)}</b> [${escapeHtml(tool)}] connected`);
+      primaryChannel.send(chatId, `⛳️ <b>${escapeHtml(sessionLabel(remote.command, remote.cwd))}</b> connected`);
       return { ok: true };
     },
     canUserAccessSession(userId: ChannelUserId, sessionId: string): boolean {
@@ -461,10 +464,8 @@ export async function startDaemon(): Promise<void> {
     endRemote(sessionId: string, exitCode: number | null): void {
       const remote = sessionManager.getRemote(sessionId);
       if (remote) {
-        const label = remote.cwd.split("/").pop() || remote.cwd;
-        const tool = remote.command.split(" ")[0];
         const status = exitCode === 0 ? "disconnected" : `disconnected (code ${exitCode ?? "unknown"})`;
-        const msg = `⛳️ <b>${escapeHtml(label)}</b> [${escapeHtml(tool)}] ${escapeHtml(status)}`;
+        const msg = `⛳️ <b>${escapeHtml(sessionLabel(remote.command, remote.cwd))}</b> ${escapeHtml(status)}`;
         const boundChat = sessionManager.getBoundChat(sessionId);
         if (boundChat) {
           primaryChannel.send(boundChat, msg);
