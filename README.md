@@ -125,13 +125,13 @@ Two processes cooperate:
 | Command | Description |
 |---------|-------------|
 | `/sessions` | List active sessions |
-| `/bind <id>` | Bind this chat to a session |
-| `/unbind` | Unbind from current session |
-| `/link` | Register this group with the bot |
+| `/subscribe <id>` | Subscribe this chat to a session |
+| `/unsubscribe` | Unsubscribe from current session |
+| `/link` | Register this group/topic with the bot |
 | `/help` | Show help |
 | `/pair <code>` | Pair with a pairing code |
 
-Any plain text you send goes to the bound session.
+Any plain text you send goes to the subscribed session.
 
 ## Group chats
 
@@ -150,7 +150,7 @@ Use groups to run multiple sessions at once — one chat per session.
   Add bot to a Telegram group and send /link to add more chats
 ```
 
-You can also manually bind from Telegram: `/bind <session-id>` in any linked group.
+You can also manually subscribe from Telegram: `/subscribe <session-id>` in any linked group.
 
 All group members can see responses, but only paired users can send input.
 
@@ -172,8 +172,8 @@ When you start a second session, a terminal picker lets you choose which chat to
 
 In Telegram:
 - `/sessions` — see all running sessions
-- `/bind <id>` — bind this chat to a session
-- `/unbind` — unbind from current session
+- `/subscribe <id>` — subscribe this chat to a session
+- `/unsubscribe` — unsubscribe from current session
 
 ## Heartbeat mode
 

@@ -136,14 +136,14 @@ No explicit start/stop. `ensureDaemon()` checks PID + health, forks if needed. D
 2. Session prefix: `r-abc123 some text`
 3. Connected session (regular)
 4. Connected remote session
-5. Single remote auto-route (DMs only — groups always require explicit `/bind`)
-6. No connection: show session list with `/bind` instructions
+5. Single remote auto-route (DMs only — groups always require explicit `/subscribe`)
+6. No connection: show session list with `/subscribe` instructions
 
 ### Bot Commands
 - `/sessions` — List active sessions
-- `/bind <id>` — Bind this chat/group to a session
-- `/unbind` — Unbind from current session
-- `/link` — Register this group with the bot (stores in config)
+- `/subscribe <id>` — Subscribe this chat/group to a session
+- `/unsubscribe` — Unsubscribe from current session
+- `/link` — Register this group/topic with the bot (stores in config)
 - `/send <id> <text>` — Send to a specific session
 - `/help` — Show help
 - `/pair <code>` — Pair with a pairing code
