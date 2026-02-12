@@ -52,7 +52,7 @@ export async function runDoctor(): Promise<void> {
     const pairedUsers = getAllPairedUsers(config);
     checks.push({
       name: "Paired users",
-      status: pairedUsers.length > 0 ? "ok" : "warn",
+      status: pairedUsers.length === 1 ? "ok" : pairedUsers.length === 0 ? "warn" : "fail",
       detail: `${pairedUsers.length} user(s)`,
     });
   } catch {
