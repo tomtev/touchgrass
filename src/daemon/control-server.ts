@@ -17,7 +17,7 @@ export interface DaemonContext {
   getBoundChat: (sessionId: string) => string | null;
   handleQuestion: (sessionId: string, questions: unknown[]) => void;
   handleToolCall: (sessionId: string, name: string, input: Record<string, unknown>) => void;
-  handleApprovalNeeded: (sessionId: string, name: string, input: Record<string, unknown>) => void;
+  handleApprovalNeeded: (sessionId: string, name: string, input: Record<string, unknown>, promptText?: string, pollOptions?: string[]) => void;
   handleThinking: (sessionId: string, text: string) => void;
   handleToolResult: (sessionId: string, toolName: string, content: string) => void;
 }
@@ -127,7 +127,9 @@ export async function startControlServer(ctx: DaemonContext): Promise<void> {
           if (!name) {
             return Response.json({ ok: false, error: "Missing name" }, { status: 400 });
           }
-          ctx.handleApprovalNeeded(sessionId, name, input);
+          const promptText = (body.promptText as string) || undefined;
+          const pollOptions = Array.isArray(body.pollOptions) ? body.pollOptions as string[] : undefined;
+          ctx.handleApprovalNeeded(sessionId, name, input, promptText, pollOptions);
           return Response.json({ ok: true });
         }
         if (action === "question" && req.method === "POST") {

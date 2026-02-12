@@ -4,12 +4,21 @@ import { TelegramChannel } from "../channels/telegram/channel";
 import type { Channel, ChannelChatId } from "../channel/types";
 import { daemonRequest } from "./client";
 import { ensureDaemon } from "./ensure-daemon";
-import { markdownToHtml } from "../utils/ansi";
+import { markdownToHtml, stripAnsiReadable } from "../utils/ansi";
 import { paths, ensureDirs } from "../config/paths";
 import { watch, readdirSync, statSync, readFileSync, existsSync, type FSWatcher } from "fs";
 import { open, writeFile, unlink } from "fs/promises";
 import { homedir } from "os";
 import { join } from "path";
+
+// Per-CLI patterns for detecting approval prompts in terminal output.
+// Both `promptText` and `optionText` must be present in the PTY buffer to trigger a notification.
+// Add entries here when adding support for new CLIs.
+const APPROVAL_PATTERNS: Record<string, { promptText: string; optionText: string }> = {
+  claude: { promptText: "Do you want to", optionText: "1. Yes" },
+  codex: { promptText: "Would you like to run the following command", optionText: "1. Yes, proceed" },
+  // pi: { promptText: "...", optionText: "..." },
+};
 
 // Arrow-key picker for terminal selection
 function terminalPicker(title: string, options: string[], hint?: string, disabled?: Set<number>): Promise<number> {
@@ -405,30 +414,6 @@ function extractToolResults(msg: Record<string, unknown>): ToolResultInfo[] {
   return [];
 }
 
-// Extract all completed tool_use_ids from tool_result blocks (no filtering)
-function extractCompletedToolIds(msg: Record<string, unknown>): string[] {
-  if (msg.type === "user") {
-    const m = msg.message as Record<string, unknown> | undefined;
-    if (!m?.content || !Array.isArray(m.content)) return [];
-    const ids: string[] = [];
-    for (const block of m.content as Array<Record<string, unknown>>) {
-      if (block.type === "tool_result" && block.tool_use_id) ids.push(block.tool_use_id as string);
-    }
-    return ids;
-  }
-  if (msg.type === "message") {
-    const m = msg.message as Record<string, unknown> | undefined;
-    if (m?.role === "toolResult" && m.toolCallId) return [m.toolCallId as string];
-  }
-  if (msg.type === "response_item") {
-    const p = msg.payload as Record<string, unknown> | undefined;
-    if (p && (p.type === "function_call_output" || p.type === "custom_tool_call_output") && p.call_id) {
-      return [p.call_id as string];
-    }
-  }
-  return [];
-}
-
 // Detect absolute file paths in assistant text that exist on disk and are within the project directory
 const MAX_ATTACHMENT_SIZE = 50 * 1024 * 1024; // 50 MB (Telegram limit)
 const SENSITIVE_FILES = new Set([
@@ -523,7 +508,6 @@ function watchSessionFile(
   onThinking?: (text: string) => void,
   onToolResult?: (results: ToolResultInfo[]) => void,
   startFromEnd?: boolean,
-  onToolDone?: (toolUseIds: string[]) => void,
 ): FSWatcher {
   // For resumed sessions, skip existing content — only watch new writes
   let byteOffset = 0;
@@ -597,10 +581,6 @@ function watchSessionFile(
             if (onThinking) {
               const thinking = extractThinking(msg);
               if (thinking) onThinking(thinking);
-            }
-            if (onToolDone) {
-              const doneIds = extractCompletedToolIds(msg);
-              if (doneIds.length > 0) onToolDone(doneIds);
             }
           } catch {} // skip malformed JSONL lines
         }
@@ -882,12 +862,74 @@ Edit these instructions to define what the agent should do periodically.
     process.stdin.setRawMode(true);
   }
 
+  // PTY output buffer for detecting approval prompts (per-CLI patterns)
+  const approvalPattern = APPROVAL_PATTERNS[cmdName];
+  let ptyBuffer = "";
+  let lastNotifiedPrompt = "";
+  // Track the last tool call so we can report it when the approval prompt appears
+  let lastToolCall: { name: string; input: Record<string, unknown> } | null = null;
+  const onApprovalPrompt = remoteId
+    ? (promptText: string, pollOptions?: string[]) => {
+        daemonRequest(`/remote/${remoteId}/approval-needed`, "POST", {
+          name: lastToolCall?.name || "unknown",
+          input: lastToolCall?.input || {},
+          promptText,
+          pollOptions,
+        }).catch(() => {});
+      }
+    : null;
+
   const proc = Bun.spawn([executable, ...cmdArgs], {
     terminal: {
       cols: process.stdout.columns || 80,
       rows: process.stdout.rows || 24,
       data(_terminal, data) {
         process.stdout.write(data);
+        // Buffer last ~1000 chars of PTY output for prompt detection
+        // Uses stripAnsiReadable to replace ANSI codes with spaces (preserves word boundaries)
+        const text = Buffer.from(data).toString("utf-8");
+        ptyBuffer += stripAnsiReadable(text);
+        if (ptyBuffer.length > 2000) ptyBuffer = ptyBuffer.slice(-1000);
+
+        if (!approvalPattern) return; // No approval detection for this CLI
+        const promptIdx = ptyBuffer.lastIndexOf(approvalPattern.promptText);
+        const hasOption = ptyBuffer.includes(approvalPattern.optionText);
+        if (promptIdx >= 0 && hasOption) {
+          // Extract the prompt sentence: "Do you want to ...?"
+          const afterPrompt = ptyBuffer.slice(promptIdx);
+          const endIdx = afterPrompt.indexOf("?");
+          const promptText = endIdx >= 0 ? afterPrompt.slice(0, endIdx + 1).trim() : approvalPattern.promptText;
+          // Extract poll options from text after the "?": "1. Yes", "2. Yes, allow ...", "3. No"
+          // Search only after the "?" to avoid matching digits in filenames (e.g. "poem-7.md")
+          const optionsText = endIdx >= 0 ? afterPrompt.slice(endIdx + 1) : "";
+          const options: string[] = [];
+          // Find positions of "1. ", "2. ", "3. " markers
+          const idx1 = optionsText.indexOf("1.");
+          const idx2 = optionsText.indexOf("2.");
+          const idx3 = optionsText.indexOf("3.");
+          if (idx1 >= 0 && idx2 > idx1 && idx3 > idx2) {
+            options.push(optionsText.slice(idx1 + 2, idx2).trim().replace(/\s+/g, " "));
+            options.push(optionsText.slice(idx2 + 2, idx3).trim().replace(/\s+/g, " "));
+            // Stop at footer text: "Esc to cancel" (Claude) or "Press enter" (Codex)
+            let opt3 = optionsText.slice(idx3 + 2);
+            for (const stop of ["Esc", "Press"]) {
+              const stopIdx = opt3.indexOf(stop);
+              if (stopIdx > 0) opt3 = opt3.slice(0, stopIdx);
+            }
+            options.push(opt3.trim().replace(/\s+/g, " "));
+          }
+          // Strip keyboard shortcut hints like (y), (p), (esc), (shift+tab) from options
+          for (let i = 0; i < options.length; i++) {
+            options[i] = options[i].replace(/\s*\([a-z+\-]+\)\s*$/i, "").trim().slice(0, 100);
+          }
+          // Only notify if this is a different prompt than the last one we notified about
+          // Delay slightly so the tool notification (from JSONL) arrives in Telegram first
+          if (promptText !== lastNotifiedPrompt) {
+            lastNotifiedPrompt = promptText;
+            const pollOptions = options.length >= 2 ? options : undefined;
+            setTimeout(() => onApprovalPrompt?.(promptText, pollOptions), 1000);
+          }
+        }
       },
     },
     env: {
@@ -970,10 +1012,8 @@ Edit these instructions to define what the agent should do periodically.
           }
         : undefined;
 
-      // Track pending tool calls — only notify daemon if tool is still waiting after delay
-      // (i.e. Claude is waiting for permission approval)
-      const pendingApprovals = new Map<string, ReturnType<typeof setTimeout>>();
-
+      // Track tool calls for typing indicators and notifications.
+      // Approval detection is handled by the PTY buffer (see APPROVAL_PROMPT_TEXT).
       const onToolCall = tgRemoteId
         ? (calls: ToolCallInfo[]) => {
             // Agent is working — assert typing on all target chats
@@ -982,35 +1022,12 @@ Edit these instructions to define what the agent should do periodically.
             for (const gid of subscribedGroups) tgChannel.setTyping(gid, true);
 
             for (const call of calls) {
+              lastToolCall = { name: call.name, input: call.input };
               // Send tool notification immediately (no poll)
               daemonRequest(`/remote/${tgRemoteId}/tool-call`, "POST", {
                 name: call.name,
                 input: call.input,
               }).catch(() => {});
-              // Start timer — if no tool_result within 4s, tool is waiting for approval
-              if (call.id) {
-                const timer = setTimeout(() => {
-                  pendingApprovals.delete(call.id);
-                  daemonRequest(`/remote/${tgRemoteId}/approval-needed`, "POST", {
-                    name: call.name,
-                    input: call.input,
-                  }).catch(() => {});
-                }, 4000);
-                pendingApprovals.set(call.id, timer);
-              }
-            }
-          }
-        : undefined;
-
-      // Cancel pending approval timers when tool results arrive
-      const onToolDone = tgRemoteId
-        ? (toolUseIds: string[]) => {
-            for (const id of toolUseIds) {
-              const timer = pendingApprovals.get(id);
-              if (timer) {
-                clearTimeout(timer);
-                pendingApprovals.delete(id);
-              }
             }
           }
         : undefined;
@@ -1051,7 +1068,7 @@ Edit these instructions to define what the agent should do periodically.
             }
           }
         }
-      }, onQuestion, onToolCall, onThinking, onToolResult, skipExisting, onToolDone);
+      }, onQuestion, onToolCall, onThinking, onToolResult, skipExisting);
       // Close directory watcher — locked to this session file
       if (watcherRef.dir) {
         watcherRef.dir.close();

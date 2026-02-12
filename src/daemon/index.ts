@@ -437,18 +437,25 @@ export async function startDaemon(): Promise<void> {
       // Re-assert typing — send() clears it on Telegram's side
       primaryChannel.setTyping(targetChat, true);
     },
-    handleApprovalNeeded(sessionId: string, name: string, input: Record<string, unknown>): void {
+    handleApprovalNeeded(sessionId: string, name: string, input: Record<string, unknown>, promptText?: string, pollOptions?: string[]): void {
       const remote = sessionManager.getRemote(sessionId);
       if (!remote) return;
       const targetChat = sessionManager.getBoundChat(sessionId);
       if (!targetChat) return;
       const tgChannel = primaryChannel as TelegramChannel;
-      const detail = (input.command as string) || (input.file_path as string)
-        || (input.pattern as string) || (input.query as string)
-        || (input.url as string) || (input.description as string) || "";
-      const label = detail.length > 200 ? detail.slice(0, 200) + "..." : detail;
-      const question = (label ? `${name}: ${label}` : name).slice(0, 300);
-      tgChannel.sendPoll(targetChat, question, ["Yes", "Yes, don't ask again", "No"], false).then(
+      // Use the prompt text from Claude Code's terminal if available
+      let question: string;
+      if (promptText) {
+        question = promptText.slice(0, 300);
+      } else {
+        const detail = (input.command as string) || (input.file_path as string)
+          || (input.pattern as string) || (input.query as string)
+          || (input.url as string) || (input.description as string) || "";
+        const label = detail.length > 200 ? detail.slice(0, 200) + "..." : detail;
+        question = (label ? `${name}: ${label}` : name).slice(0, 300);
+      }
+      const options = pollOptions && pollOptions.length >= 2 ? pollOptions : ["Yes", "Yes, don't ask again", "No"];
+      tgChannel.sendPoll(targetChat, question, options, false).then(
         ({ pollId, messageId }) => {
           sessionManager.registerPoll(pollId, {
             sessionId,
