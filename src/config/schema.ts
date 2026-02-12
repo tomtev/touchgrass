@@ -93,6 +93,19 @@ export function updateLinkedGroupTitle(config: TgConfig, chatId: string, title: 
   return false;
 }
 
+// Remove a linked group/topic by chatId. Returns true if removed.
+export function removeLinkedGroup(config: TgConfig, chatId: string): boolean {
+  for (const ch of Object.values(config.channels)) {
+    if (!ch.linkedGroups) continue;
+    const idx = ch.linkedGroups.findIndex((g) => g.chatId === chatId);
+    if (idx >= 0) {
+      ch.linkedGroups.splice(idx, 1);
+      return true;
+    }
+  }
+  return false;
+}
+
 // Add a linked group to the first channel that matches the type
 export function addLinkedGroup(config: TgConfig, chatId: string, title?: string): boolean {
   // Determine channel type from chatId prefix

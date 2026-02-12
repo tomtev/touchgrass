@@ -207,6 +207,7 @@ export class TelegramChannel implements Channel {
         { command: "subscribe", description: "Subscribe to session: /subscribe <id>" },
         { command: "unsubscribe", description: "Unsubscribe from session" },
         { command: "link", description: "Register this group/topic with the bot" },
+        { command: "unlink", description: "Unregister this group/topic" },
         { command: "help", description: "Show help" },
         { command: "pair", description: "Pair with code: /pair <code>" },
       ]);

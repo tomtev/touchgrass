@@ -3,7 +3,7 @@ import type { TgConfig } from "../config/schema";
 import type { SessionManager } from "../session/manager";
 import { isUserPaired } from "../security/allowlist";
 import { escapeHtml } from "../channels/telegram/formatter";
-import { addLinkedGroup, isLinkedGroup, updateLinkedGroupTitle } from "../config/schema";
+import { addLinkedGroup, removeLinkedGroup, isLinkedGroup, updateLinkedGroupTitle } from "../config/schema";
 import { saveConfig } from "../config/store";
 import { handlePair } from "./handlers/pair";
 import { handleHelp } from "./handlers/help";
@@ -129,6 +129,22 @@ export async function routeMessage(
       } else {
         await ctx.channel.send(chatId, `This group is already linked.`);
       }
+    }
+    return;
+  }
+
+  // /unlink — unregister this group/topic from the bot
+  if (text === "/unlink") {
+    if (!msg.isGroup) {
+      await ctx.channel.send(chatId, "Use /unlink in a group or topic to unregister it.");
+      return;
+    }
+    if (removeLinkedGroup(ctx.config, chatId)) {
+      await saveConfig(ctx.config);
+      const isTopic = chatId.split(":").length >= 3;
+      await ctx.channel.send(chatId, isTopic ? "Topic unlinked." : "Group unlinked.");
+    } else {
+      await ctx.channel.send(chatId, "This chat is not linked.");
     }
     return;
   }
