@@ -629,6 +629,22 @@ export async function startDaemon(): Promise<void> {
       // Re-assert typing — send() clears it on Telegram's side
       primaryChannel.setTyping(targetChat, true);
     },
+    handleTyping(sessionId: string, active: boolean): void {
+      const remote = sessionManager.getRemote(sessionId);
+      if (!remote) return;
+
+      const targets = new Set<ChannelChatId>();
+      const targetChat = sessionManager.getBoundChat(sessionId) || remote.chatId;
+      if (targetChat) targets.add(targetChat);
+      for (const groupChatId of sessionManager.getSubscribedGroups(sessionId)) {
+        targets.add(groupChatId);
+      }
+      if (targets.size === 0) return;
+
+      for (const cid of targets) {
+        primaryChannel.setTyping(cid, active);
+      }
+    },
     handleApprovalNeeded(sessionId: string, name: string, input: Record<string, unknown>, promptText?: string, pollOptions?: string[]): void {
       const remote = sessionManager.getRemote(sessionId);
       if (!remote) return;

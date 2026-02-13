@@ -1026,6 +1026,12 @@ async function runHeadlessSession(opts: HeadlessRunOptions): Promise<number> {
       isError,
     }).catch(() => {});
   };
+  let remoteTypingActive = false;
+  const postTyping = (active: boolean) => {
+    if (remoteTypingActive === active) return;
+    remoteTypingActive = active;
+    daemonRequest(`/remote/${remoteId}/typing`, "POST", { active }).catch(() => {});
+  };
 
   const emitParsedMessage = (parsed: ParsedMessage): void => {
     if (parsed.assistantText) postAssistant(parsed.assistantText);
@@ -1358,6 +1364,7 @@ async function runHeadlessSession(opts: HeadlessRunOptions): Promise<number> {
     process.stdout.write(`\r${headlessPrefix} ${frame} ${spinnerText}`);
   };
   const stopSpinner = () => {
+    postTyping(false);
     if (spinnerTimer) {
       clearInterval(spinnerTimer);
       spinnerTimer = null;
@@ -1377,6 +1384,7 @@ async function runHeadlessSession(opts: HeadlessRunOptions): Promise<number> {
   const logHeadless = (text: string) => logHeadlessLine(text, false);
   const logHeadlessErr = (text: string) => logHeadlessLine(text, true);
   const startSpinner = (text: string) => {
+    postTyping(true);
     if (!canAnimateSpinner) {
       logHeadless(`⏳ ${text}`);
       return;

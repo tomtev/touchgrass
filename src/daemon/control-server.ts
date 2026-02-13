@@ -31,6 +31,7 @@ export interface DaemonContext {
   getBoundChat: (sessionId: string) => string | null;
   handleQuestion: (sessionId: string, questions: unknown[]) => void;
   handleToolCall: (sessionId: string, name: string, input: Record<string, unknown>) => void;
+  handleTyping: (sessionId: string, active: boolean) => void;
   handleApprovalNeeded: (sessionId: string, name: string, input: Record<string, unknown>, promptText?: string, pollOptions?: string[]) => void;
   handleThinking: (sessionId: string, text: string) => void;
   handleAssistantText: (sessionId: string, text: string) => void;
@@ -130,7 +131,7 @@ export async function startControlServer(ctx: DaemonContext): Promise<void> {
       }
 
       // Match /remote/:id/* actions
-      const remoteMatch = path.match(/^\/remote\/(r-[a-f0-9]+)\/(input|exit|subscribed-groups|question|tool-call|thinking|assistant|tool-result|approval-needed|send-input|send-file)$/);
+      const remoteMatch = path.match(/^\/remote\/(r-[a-f0-9]+)\/(input|exit|subscribed-groups|question|tool-call|thinking|assistant|tool-result|approval-needed|typing|send-input|send-file)$/);
       if (remoteMatch) {
         const [, sessionId, action] = remoteMatch;
         if (action === "assistant" && req.method === "POST") {
@@ -170,6 +171,12 @@ export async function startControlServer(ctx: DaemonContext): Promise<void> {
             return Response.json({ ok: false, error: "Missing name" }, { status: 400 });
           }
           ctx.handleToolCall(sessionId, name, input);
+          return Response.json({ ok: true });
+        }
+        if (action === "typing" && req.method === "POST") {
+          const body = await readJsonBody(req);
+          const active = body.active === true;
+          ctx.handleTyping(sessionId, active);
           return Response.json({ ok: true });
         }
         if (action === "approval-needed" && req.method === "POST") {
