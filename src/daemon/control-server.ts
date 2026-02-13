@@ -33,7 +33,7 @@ export interface DaemonContext {
   handleToolCall: (sessionId: string, name: string, input: Record<string, unknown>) => void;
   handleApprovalNeeded: (sessionId: string, name: string, input: Record<string, unknown>, promptText?: string, pollOptions?: string[]) => void;
   handleThinking: (sessionId: string, text: string) => void;
-  handleToolResult: (sessionId: string, toolName: string, content: string) => void;
+  handleToolResult: (sessionId: string, toolName: string, content: string, isError?: boolean) => void;
 }
 
 async function readJsonBody(req: Request): Promise<Record<string, unknown>> {
@@ -135,10 +135,11 @@ export async function startControlServer(ctx: DaemonContext): Promise<void> {
           const body = await readJsonBody(req);
           const toolName = body.toolName as string;
           const content = body.content as string;
+          const isError = body.isError === true;
           if (!toolName || !content) {
             return Response.json({ ok: false, error: "Missing toolName or content" }, { status: 400 });
           }
-          ctx.handleToolResult(sessionId, toolName, content);
+          ctx.handleToolResult(sessionId, toolName, content, isError);
           return Response.json({ ok: true });
         }
         if (action === "thinking" && req.method === "POST") {

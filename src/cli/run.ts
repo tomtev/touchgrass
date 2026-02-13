@@ -364,6 +364,7 @@ function terminalPicker(title: string, options: string[], hint?: string, disable
     function cleanup() {
       process.stdin.removeListener("data", onData);
       if (process.stdin.isTTY) process.stdin.setRawMode(wasRaw ?? false);
+      if (totalRows > 0) process.stdout.write(`\x1b[${totalRows}A\x1b[J`);
       process.stdout.write(SHOW_CURSOR);
     }
 
@@ -418,6 +419,24 @@ function getSessionDir(command: string): string {
   // Claude: ~/.claude/projects/<encoded-cwd>/
   const encoded = cwd.replace(/\//g, "-");
   return join(homedir(), ".claude", "projects", encoded);
+}
+
+function readSessionIdsFromJsonl(filePath: string, maxLines = 80): Set<string> {
+  const ids = new Set<string>();
+  try {
+    const raw = readFileSync(filePath, "utf-8");
+    const lines = raw.split("\n");
+    const limit = Math.min(lines.length, maxLines);
+    for (let i = 0; i < limit; i++) {
+      const line = lines[i];
+      if (!line) continue;
+      try {
+        const msg = JSON.parse(line) as Record<string, unknown>;
+        if (typeof msg.sessionId === "string") ids.add(msg.sessionId);
+      } catch {}
+    }
+  } catch {}
+  return ids;
 }
 
 // Extract assistant text from a JSONL line across different formats:
@@ -771,6 +790,7 @@ function watchSessionFile(
   onToolCall?: (calls: ToolCallInfo[]) => void,
   onThinking?: (text: string) => void,
   onToolResult?: (results: ToolResultInfo[]) => void,
+  onMessageParsed?: (msg: Record<string, unknown>) => void,
   startFromEnd?: boolean,
 ): FSWatcher {
   // For resumed sessions, skip existing content — only watch new writes
@@ -840,6 +860,7 @@ function watchSessionFile(
           if (!line) continue;
           try {
             const msg = JSON.parse(line);
+            if (onMessageParsed) onMessageParsed(msg);
             const assistantText = extractAssistantText(msg);
             if (assistantText) onAssistant(assistantText);
             if (onQuestion) {
@@ -1125,18 +1146,25 @@ export async function runRun(): Promise<void> {
               "Add bot to a Telegram group and send /link to add more channels (busy channels are disabled)",
               disabled
             );
-            if (choice >= 0 && choice < options.length && options[choice].chatId) {
+            if (choice >= 0 && choice < options.length) {
               const chosen = options[choice];
-              try {
-                await daemonRequest("/remote/bind-chat", "POST", {
-                  sessionId: remoteId,
-                  chatId: chosen.chatId,
-                  ownerUserId,
-                });
-                chatId = chosen.chatId as ChannelChatId;
-                didBindChat = true;
-              } catch (bindErr) {
-                console.error(`\x1b[33m⚠ ${(bindErr as Error).message}. Keeping current channel binding.\x1b[0m`);
+              const typeLabel = chosen.type === "dm" ? "DM" : chosen.type === "group" ? "Group" : chosen.type === "topic" ? "Topic" : "";
+              const selectedLabel = chosen.type === "none" ? "No channel" : `${chosen.title} (${typeLabel})`;
+              if (!chosen.chatId) {
+                console.log(`Selected channel: ${selectedLabel}`);
+              } else {
+                try {
+                  await daemonRequest("/remote/bind-chat", "POST", {
+                    sessionId: remoteId,
+                    chatId: chosen.chatId,
+                    ownerUserId,
+                  });
+                  chatId = chosen.chatId as ChannelChatId;
+                  didBindChat = true;
+                  console.log(`Selected channel: ${selectedLabel}`);
+                } catch (bindErr) {
+                  console.error(`\x1b[33m⚠ ${(bindErr as Error).message}. Keeping current channel binding.\x1b[0m`);
+                }
               }
             }
           }
@@ -1434,12 +1462,23 @@ export async function runRun(): Promise<void> {
 
   // Watch session JSONL for assistant responses.
   const watcherRef: { current: FSWatcher | null; dir: FSWatcher | null } = { current: null, dir: null };
+  let dirScanTimer: ReturnType<typeof setInterval> | null = null;
   if (channel && chatId && projectDir) {
     const tgChannel = channel;
     const tgRemoteId = remoteId;
+    let activeSessionFile: string | null = null;
+    let activeClaudeSessionId: string | null = null;
 
-    const startFileWatch = (sessionFile: string, skipExisting = false) => {
-      if (watcherRef.current) return; // already locked to a session
+    const startFileWatch = (sessionFile: string, skipExisting = false, replaceCurrent = false) => {
+      if (activeSessionFile === sessionFile) return;
+      if (watcherRef.current) {
+        if (!replaceCurrent) return; // already locked to a session
+        watcherRef.current.close();
+        watcherRef.current = null;
+      }
+      activeSessionFile = sessionFile;
+      activeClaudeSessionId = null;
+
       // Update manifest with discovered JSONL file
       if (manifest) {
         manifest.jsonlFile = sessionFile;
@@ -1513,12 +1552,9 @@ export async function runRun(): Promise<void> {
             }
           }
         }
-      }, onQuestion, onToolCall, onThinking, onToolResult, skipExisting);
-      // Close directory watcher — locked to this session file
-      if (watcherRef.dir) {
-        watcherRef.dir.close();
-        watcherRef.dir = null;
-      }
+      }, onQuestion, onToolCall, onThinking, onToolResult, (msg) => {
+        if (typeof msg.sessionId === "string") activeClaudeSessionId = msg.sessionId;
+      }, skipExisting);
     };
 
     // If resuming, watch the existing session file — skip old content
@@ -1526,14 +1562,28 @@ export async function runRun(): Promise<void> {
       startFileWatch(resumeSessionFile, true);
     }
 
+    const maybeSwitchToRolloverSession = (sessionFile: string): void => {
+      if (cmdName !== "claude") return;
+      if (!activeClaudeSessionId) return;
+      const seenIds = readSessionIdsFromJsonl(sessionFile);
+      if (seenIds.has(activeClaudeSessionId)) {
+        startFileWatch(sessionFile, false, true);
+      }
+    };
+
     // Check for files that appeared between snapshot and now (e.g. PI creates file at startup)
     const checkForNewFiles = () => {
       try {
         for (const f of readdirSync(projectDir)) {
-          if (f.endsWith(".jsonl") && !existingFiles.has(f)) {
-            startFileWatch(join(projectDir, f));
+          if (!f.endsWith(".jsonl")) continue;
+          if (existingFiles.has(f)) continue;
+          existingFiles.add(f);
+          const filePath = join(projectDir, f);
+          if (!watcherRef.current) {
+            startFileWatch(filePath);
             return;
           }
+          maybeSwitchToRolloverSession(filePath);
         }
       } catch {}
     };
@@ -1543,21 +1593,33 @@ export async function runRun(): Promise<void> {
       watcherRef.dir = watch(projectDir, (_event, filename) => {
         if (!filename?.endsWith(".jsonl")) return;
         if (existingFiles.has(filename)) return;
-        startFileWatch(join(projectDir, filename));
+        existingFiles.add(filename);
+        const filePath = join(projectDir, filename);
+        if (!watcherRef.current) {
+          startFileWatch(filePath);
+          return;
+        }
+        maybeSwitchToRolloverSession(filePath);
       });
     } catch {}
 
     // Immediate check + periodic poll for tools that create files before watcher is ready
     checkForNewFiles();
-    const scanTimer = setInterval(() => {
+    const bootstrapScanTimer = setInterval(() => {
       if (watcherRef.current) {
-        clearInterval(scanTimer);
+        clearInterval(bootstrapScanTimer);
         return;
       }
       checkForNewFiles();
     }, 500);
-    // Stop polling after 30s
-    setTimeout(() => clearInterval(scanTimer), 30_000);
+    setTimeout(() => clearInterval(bootstrapScanTimer), 30_000);
+
+    // Keep scanning for Claude rollovers (plan-mode handoff can create a new session file).
+    if (cmdName === "claude") {
+      dirScanTimer = setInterval(() => {
+        checkForNewFiles();
+      }, 2000);
+    }
   }
 
   // Poll daemon for remote input if registered
@@ -1676,6 +1738,7 @@ export async function runRun(): Promise<void> {
   if (pollTimer) clearInterval(pollTimer);
   if (groupPollTimer) clearInterval(groupPollTimer);
   if (heartbeatTimer) clearInterval(heartbeatTimer);
+  if (dirScanTimer) clearInterval(dirScanTimer);
   if (watcherRef.current) watcherRef.current.close();
   if (watcherRef.dir) watcherRef.dir.close();
 

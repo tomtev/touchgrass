@@ -638,17 +638,19 @@ export async function startDaemon(): Promise<void> {
       const truncated = text.length > 1000 ? text.slice(0, 1000) + "..." : text;
       primaryChannel.send(targetChat, `${fmt.bold("Thinking")}\n${fmt.italic(fmt.escape(truncated))}`);
     },
-    handleToolResult(sessionId: string, toolName: string, content: string): void {
+    handleToolResult(sessionId: string, toolName: string, content: string, isError = false): void {
       const remote = sessionManager.getRemote(sessionId);
       if (!remote) return;
       const targetChat = sessionManager.getBoundChat(sessionId);
       if (!targetChat) return;
       const maxLen = 1500;
       const truncated = content.length > maxLen ? content.slice(0, maxLen) + "\n..." : content;
-      const label = toolName === "Bash" ? "Output" : `${toolName} result`;
+      const label = isError
+        ? `${toolName || "Tool"} error`
+        : (toolName === "Bash" ? "Output" : `${toolName} result`);
       primaryChannel.send(targetChat, `${fmt.bold(fmt.escape(label))}\n${fmt.pre(fmt.escape(truncated))}`);
-      // Re-assert typing — agent is still working after tool result
-      primaryChannel.setTyping(targetChat, true);
+      // Re-assert typing only for non-error results.
+      if (!isError) primaryChannel.setTyping(targetChat, true);
     },
     handleQuestion(sessionId: string, questions: unknown[]): void {
       const remote = sessionManager.getRemote(sessionId);
