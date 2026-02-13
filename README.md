@@ -267,8 +267,6 @@ When you run `tg <tool> --agent-mode`, touchgrass does this:
 
 If `HEARTBEAT.md` exists, scheduled workflow inputs are also injected on each heartbeat tick (agent mode only).
 
-Advanced per-tool protocol details are in the driver sections below.
-
 ### Heartbeat and workflows
 
 Heartbeat is supported only in `--agent-mode`. If a `HEARTBEAT.md` file exists in the working directory, touchgrass sends periodic instructions to your agent for long-running workflows and cron-style tasks.
@@ -340,57 +338,6 @@ Guidelines:
 - If the template says the context block is managed/versioned, treat `<agent-context version="...">` as release-managed content.
 - If a user asks to rename the agent, update `Your name is: "..."` in `<agent-soul>`.
 - Keep `CLAUDE.md` pointing to `@AGENTS.md`.
-
-### Advanced: Claude driver
-
-For each inbound message, touchgrass runs one Claude process per turn:
-
-```bash
-claude [your args] [--resume <session-id> | --continue] \
-  --print --input-format text --output-format stream-json "<message>"
-```
-
-Notes:
-- `--print`, `--input-format`, and `--output-format` are normalized by touchgrass for agent mode.
-- Session continuity is maintained by tracking Claude `session_id` and reusing `--resume`.
-- Interactive approval prompts are not currently supported in agent mode; use `--dangerously-skip-permissions` when needed.
-
-### Advanced: Codex driver
-
-For each inbound message, touchgrass runs Codex in JSON mode per turn:
-
-```bash
-codex exec --json [your args] "<message>"
-```
-
-After a thread is established, touchgrass resumes it on subsequent turns:
-
-```bash
-codex exec resume --json [your args] <thread-id> "<message>"
-```
-
-Notes:
-- If `--last` is requested, touchgrass resumes the most recent thread once, then keeps using the discovered thread ID.
-- Tool calls/results are parsed from Codex JSON events and forwarded to Telegram.
-- Interactive approval prompts are not currently supported in agent mode; use `--dangerously-bypass-approvals-and-sandbox` when needed.
-
-### Advanced: PI driver
-
-PI runs as one persistent RPC process:
-
-```bash
-pi [your args] --mode rpc
-```
-
-For each inbound message, touchgrass writes a prompt command to PI stdin:
-
-```json
-{"id":"prompt-1","type":"prompt","message":"<message>","streamingBehavior":"followUp"}
-```
-
-Notes:
-- The bridge waits for PI `turn_end` before completing that input cycle.
-- This keeps a single long-lived PI process while still using message-by-message control from Telegram.
 
 ### Resuming sessions
 
