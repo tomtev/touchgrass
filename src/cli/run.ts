@@ -1342,9 +1342,9 @@ async function runHeadlessSession(opts: HeadlessRunOptions): Promise<number> {
   else adapter = createCodexAdapter();
 
   const headlessPrefix = `[headless/${cmdName}]`;
-  const logHeadless = (text: string) => console.log(`${headlessPrefix} ${text}`);
-  const logHeadlessErr = (text: string) => console.error(`${headlessPrefix} ${text}`);
-  logHeadless(`bridge active for ${remoteId}. Waiting for inbound messages. Press Ctrl+C to stop.`);
+  const logHeadless = (text: string) => console.log(`${headlessPrefix} ⛳️ ${text}`);
+  const logHeadlessErr = (text: string) => console.error(`${headlessPrefix} ⚠ ${text}`);
+  logHeadless(`Bridge is live for ${remoteId}. Listening for inbound messages. Press Ctrl+C to stop.`);
 
   const subscribedGroups = new Set<ChannelChatId>();
   let boundChat: ChannelChatId | null = didBindChat ? chatId : null;
@@ -1371,9 +1371,9 @@ async function runHeadlessSession(opts: HeadlessRunOptions): Promise<number> {
   };
   await pollBinding();
   if (boundChat) {
-    logHeadless(`initial output channel: ${boundChat}`);
+    logHeadless(`Output channel linked: ${boundChat}`);
   } else {
-    logHeadless("no bound output channel selected yet");
+    logHeadless("No output channel linked yet.");
   }
   groupPollTimer = setInterval(() => {
     pollBinding().catch(() => {});
@@ -1411,7 +1411,7 @@ async function runHeadlessSession(opts: HeadlessRunOptions): Promise<number> {
       if (isHeadlessControlLine(input.line)) {
         if (!warnedControlInput) {
           warnedControlInput = true;
-          logHeadless("received interactive control input; ignoring in headless mode.");
+          logHeadless("Interactive control input received; ignoring in headless mode.");
           postAssistant("Interactive poll controls are not supported in headless mode. Send plain-text responses instead.");
         }
         continue;
@@ -1445,7 +1445,7 @@ async function runHeadlessSession(opts: HeadlessRunOptions): Promise<number> {
     try {
       const res = await daemonRequest(`/remote/${remoteId}/input`);
       if (res.unknown) {
-        logHeadless("daemon session registration lost; attempting re-register.");
+        logHeadless("Lost daemon registration. Attempting re-register...");
         reconnecting = true;
         try {
           await ensureDaemon();
@@ -1464,7 +1464,7 @@ async function runHeadlessSession(opts: HeadlessRunOptions): Promise<number> {
               ownerUserId,
             });
           }
-          logHeadless("re-registered session with daemon.");
+          logHeadless("Re-registered with daemon.");
         } catch {
           // Re-registration failed — retry on next poll.
           logHeadlessErr("re-registration failed; will retry.");
@@ -1487,7 +1487,7 @@ async function runHeadlessSession(opts: HeadlessRunOptions): Promise<number> {
         now - lastActivityAt >= idleLogIntervalMs &&
         now - lastIdleLogAt >= idleLogIntervalMs
       ) {
-        logHeadless("still running. waiting for inbound messages...");
+        logHeadless("Alive and listening. Waiting for inbound messages...");
         lastIdleLogAt = now;
       }
     } catch {
@@ -1768,7 +1768,7 @@ export async function runRun(): Promise<void> {
               const typeLabel = chosen.type === "dm" ? "DM" : chosen.type === "group" ? "Group" : chosen.type === "topic" ? "Topic" : "";
               const selectedLabel = chosen.type === "none" ? "No channel" : `${chosen.title} (${typeLabel})`;
               if (!chosen.chatId) {
-                console.log(`Selected channel: ${selectedLabel}`);
+                console.log(`⛳️ Channel linked: ${selectedLabel}`);
               } else {
                 try {
                   await daemonRequest("/remote/bind-chat", "POST", {
@@ -1778,7 +1778,7 @@ export async function runRun(): Promise<void> {
                   });
                   chatId = chosen.chatId as ChannelChatId;
                   didBindChat = true;
-                  console.log(`Selected channel: ${selectedLabel}`);
+                  console.log(`⛳️ Channel linked: ${selectedLabel}`);
                 } catch (bindErr) {
                   console.error(`\x1b[33m⚠ ${(bindErr as Error).message}. Keeping current channel binding.\x1b[0m`);
                 }

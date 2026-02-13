@@ -120,7 +120,7 @@ Session IDs support partial/substring matching — e.g. `tg peek abc` matches `r
 ## Heartbeat Automation
 
 - Use `HEARTBEAT.md` as the source of scheduled workflow instructions.
-- Heartbeat mode (auto-enabled when `HEARTBEAT.md` exists) is intended for cron-like operations while the user is away.
+- Heartbeat (auto-enabled when `HEARTBEAT.md` exists) is intended for cron-like operations while the user is away.
 - `/* ... */` comments in `HEARTBEAT.md` are ignored.
 - If `HEARTBEAT.md` is empty (or comment-only), skip that heartbeat cycle.
 - On each heartbeat cycle:

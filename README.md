@@ -29,9 +29,9 @@ tg claude    # To start a Claude Code. All --props allowed.
 tg codex     # To start Codex. All --props allowed.
 ```
 
-#### Heartbeat mode - Keep your terminals alive with workflows and cron jobs.
+#### Heartbeat - Keep your terminals alive with workflows and cron jobs.
 
-Set up autonomous workflows with **heartbeat mode** — your agent checks a `HEARTBEAT.md` file on a schedule and follows the instructions inside. Update the file from anywhere (even your phone) and the agent picks it up on the next beat.
+Set up autonomous workflows with **Heartbeat** — your agent checks a `HEARTBEAT.md` file on a schedule and follows the instructions inside. Update the file from anywhere (even your phone) and the agent picks it up on the next beat.
 
 ```bash
 tg claude    # heartbeat runs automatically when HEARTBEAT.md exists
@@ -46,7 +46,7 @@ More channels (Discord, Slack) coming soon.
 - [CLI commands](#cli-commands)
 - [Telegram commands](#telegram-commands)
 - [Connect terminal sessions to Telegram](#connect-terminal-sessions-to-telegram)
-- [Heartbeat mode](#heartbeat-mode)
+- [Heartbeat](#heartbeat)
 - [FAQ](#faq)
 - [Requirements](#requirements)
 
@@ -215,7 +215,7 @@ All group members can see responses, but only paired users can send input.
 
 **Note:** Disable "Group Privacy" in BotFather (`/setprivacy` -> Disable) so the bot can see non-command messages in groups.
 
-## Heartbeat mode
+## Heartbeat
 
 Automatically send a periodic message to the agent, prompting it to check a `HEARTBEAT.md` file for instructions. Great for long-running autonomous workflows.
 
@@ -274,7 +274,7 @@ No. It's a thin PTY wrapper — your tool runs in a real terminal and behaves id
 **How does it send messages to Telegram?**
 A lightweight file watcher reads the session JSONL files that CLI tools like Claude Code, Codex, and PI already write. When new assistant output appears, it's forwarded to Telegram via the Bot API. No hooks or plugins are injected into the tool itself.
 
-**How does heartbeat mode work?**
+**How does heartbeat work?**
 It reads `HEARTBEAT.md` on a schedule. `/* ... */` comments are ignored. If `<run>` entries are due, it loads the due `workflows/*.md` files and sends that context. If runs exist but none are due, the cycle is skipped. If there are no runs, plain `<heartbeat>` text is sent (if present). If the file is empty/comment-only, the cycle is skipped.
 
 **Can I type locally and use Telegram at the same time?**
