@@ -148,6 +148,13 @@ Session IDs support partial/substring matching — e.g. `tg peek abc` matches `r
    - `tg ls`
 9. If asked to clean up, stop only the requested sessions.
 
+## Self-Update
+
+To update `tg` to the latest release:
+
+- macOS/Linux: `curl -fsSL https://raw.githubusercontent.com/tomtev/touchgrass/main/install.sh | bash`
+- Windows: `irm https://raw.githubusercontent.com/tomtev/touchgrass/main/install.ps1 | iex`
+
 ## Guardrails
 
 - Prefer read/inspect commands before mutating commands.
