@@ -104,7 +104,7 @@ Options (for claude/codex/pi):
 
   ls       List active sessions
   channels List available channels (DM, groups, topics) with busy status
-  agents   Manage local agents (install Beekeeper, create custom agents)
+  agents   Manage local agents (install Beekeeper, create custom agents, or install from git/local source)
   send     Send text to session stdin or send file to its channel(s) (tg send <id> "msg" | tg send --file <id> <path>)
   peek     Peek at last messages from session(s) (tg peek <id>|--all [count])
   links    List and manage linked groups/topics
