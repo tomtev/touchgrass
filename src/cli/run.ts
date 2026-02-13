@@ -2,6 +2,7 @@ import { loadConfig } from "../config/store";
 import { getAllPairedUsers, type ChannelConfig, type TgConfig } from "../config/schema";
 import { createChannel } from "../channel/factory";
 import type { Channel, ChannelChatId } from "../channel/types";
+import { createInterface } from "readline/promises";
 import { daemonRequest } from "./client";
 import { ensureDaemon } from "./ensure-daemon";
 import { stripAnsiReadable } from "../utils/ansi";
@@ -903,6 +904,19 @@ function parseJsonLine(line: string): Record<string, unknown> | null {
   }
 }
 
+async function promptAgentModeForHeartbeat(heartbeatFilePath: string): Promise<boolean> {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const answer = (await rl.question(
+      `HEARTBEAT.md detected at ${heartbeatFilePath}. Run in --agent-mode to enable heartbeat? [Y/n] `
+    )).trim().toLowerCase();
+    if (!answer || answer === "y" || answer === "yes") return true;
+    return false;
+  } finally {
+    rl.close();
+  }
+}
+
 function isHeadlessControlLine(line: string): boolean {
   return line.startsWith("\x1b[POLL:");
 }
@@ -1236,13 +1250,13 @@ async function runHeadlessSession(opts: HeadlessRunOptions): Promise<number> {
           readLinesFromStream(proc.stderr, (line) => {
             if (!line.trim()) return;
             stderrLines.push(line);
-            console.error(`[claude/headless] ${line}`);
+            console.error(`[claude/agent-mode] ${line}`);
           }),
         ]);
 
         const exitCode = await proc.exited;
         if (exitCode !== 0) {
-          throw new Error(stderrLines[stderrLines.length - 1] || `Claude headless request failed (code ${exitCode ?? "unknown"})`);
+          throw new Error(stderrLines[stderrLines.length - 1] || `Claude agent-mode request failed (code ${exitCode ?? "unknown"})`);
         }
       },
       async close(): Promise<void> {
@@ -1294,11 +1308,11 @@ async function runHeadlessSession(opts: HeadlessRunOptions): Promise<number> {
     });
 
     void readLinesFromStream(proc.stderr, (line) => {
-      if (line.trim()) console.error(`[pi/headless] ${line}`);
+      if (line.trim()) console.error(`[pi/agent-mode] ${line}`);
     });
 
     proc.exited.then((code) => {
-      const err = new Error(`PI headless process exited with code ${code ?? "unknown"}`);
+      const err = new Error(`PI agent-mode process exited with code ${code ?? "unknown"}`);
       while (pendingTurns.length > 0) {
         pendingTurns.shift()?.reject(err);
       }
@@ -1405,12 +1419,12 @@ async function runHeadlessSession(opts: HeadlessRunOptions): Promise<number> {
         });
 
         void readLinesFromStream(proc.stderr, (line) => {
-          if (line.trim()) console.error(`[codex/headless] ${line}`);
+          if (line.trim()) console.error(`[codex/agent-mode] ${line}`);
         });
 
         const exitCode = await proc.exited;
         if (exitCode !== 0) {
-          throw new Error(`Codex headless request failed (code ${exitCode ?? "unknown"})`);
+          throw new Error(`Codex agent-mode request failed (code ${exitCode ?? "unknown"})`);
         }
       },
       async close(): Promise<void> {
@@ -1425,7 +1439,7 @@ async function runHeadlessSession(opts: HeadlessRunOptions): Promise<number> {
   else if (cmdName === "pi") adapter = createPiAdapter();
   else adapter = createCodexAdapter();
 
-  const headlessPrefix = `[headless/${cmdName}]`;
+  const headlessPrefix = `[agent-mode/${cmdName}]`;
   const spinnerFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
   const canAnimateSpinner = Boolean(process.stdout?.isTTY);
   let spinnerText: string | null = null;
@@ -1543,8 +1557,8 @@ async function runHeadlessSession(opts: HeadlessRunOptions): Promise<number> {
       if (isHeadlessControlLine(input.line)) {
         if (!warnedControlInput) {
           warnedControlInput = true;
-          logHeadless("Interactive control input received; ignoring in headless mode.");
-          postAssistant("Interactive poll controls are not supported in headless mode. Send plain-text responses instead.");
+          logHeadless("Interactive control input received; ignoring in agent mode.");
+          postAssistant("Interactive poll controls are not supported in agent mode. Send plain-text responses instead.");
         }
         continue;
       }
@@ -1566,7 +1580,7 @@ async function runHeadlessSession(opts: HeadlessRunOptions): Promise<number> {
         const err = e as Error;
         const label = input.source === "user" ? "user input" : "scheduled input";
         logHeadlessErr(`${label} failed: ${err.message || err}`);
-        postAssistant(`Headless input failed: ${err.message || err}`);
+        postAssistant(`Agent-mode input failed: ${err.message || err}`);
       }
     }
     drainingInputs = false;
@@ -1714,7 +1728,7 @@ export async function runRun(): Promise<void> {
 
   // Extract touchgrass-specific flags (consumed by tg, not passed to the tool)
   let heartbeatInterval = 15; // minutes
-  let headless = false;
+  let agentMode = false;
 
   if (cmdArgs.includes("--tg-heartbeat")) {
     console.error("`--tg-heartbeat` has been removed.");
@@ -1741,10 +1755,16 @@ export async function runRun(): Promise<void> {
     process.exit(1);
   }
 
-  const headlessIdx = cmdArgs.indexOf("--headless");
-  if (headlessIdx !== -1) {
-    headless = true;
-    cmdArgs = [...cmdArgs.slice(0, headlessIdx), ...cmdArgs.slice(headlessIdx + 1)];
+  const legacyHeadlessIdx = cmdArgs.indexOf("--headless");
+  if (legacyHeadlessIdx !== -1) {
+    console.error("`--headless` has been renamed to `--agent-mode`.");
+    process.exit(1);
+  }
+
+  const agentModeIdx = cmdArgs.indexOf("--agent-mode");
+  if (agentModeIdx !== -1) {
+    agentMode = true;
+    cmdArgs = [...cmdArgs.slice(0, agentModeIdx), ...cmdArgs.slice(agentModeIdx + 1)];
   }
 
   let channelFlag: string | null = null;
@@ -1760,11 +1780,28 @@ export async function runRun(): Promise<void> {
 
   const heartbeatFile = join(process.cwd(), "HEARTBEAT.md");
   let heartbeatEnabled = false;
+  let heartbeatFileExists = false;
   try {
-    heartbeatEnabled = statSync(heartbeatFile).isFile();
+    heartbeatFileExists = statSync(heartbeatFile).isFile();
   } catch {}
 
-  if (heartbeatEnabled) {
+  if (!agentMode && heartbeatFileExists) {
+    if (process.stdin.isTTY && process.stdout.isTTY) {
+      const shouldEnableAgentMode = await promptAgentModeForHeartbeat(heartbeatFile);
+      if (shouldEnableAgentMode) {
+        agentMode = true;
+        console.log("⛳️ Enabling --agent-mode for this run.");
+      } else {
+        console.log("Continuing in terminal mode (heartbeat disabled).");
+      }
+    } else {
+      console.log("HEARTBEAT.md detected. Heartbeat runs only in --agent-mode.");
+      console.log("Re-run with --agent-mode to enable heartbeat.");
+    }
+  }
+
+  if (agentMode && heartbeatFileExists) {
+    heartbeatEnabled = true;
     try {
       const raw = readFileSync(heartbeatFile, "utf-8");
       const content = getHeartbeatInstructions(raw);
@@ -1927,7 +1964,7 @@ export async function runRun(): Promise<void> {
       }
 
       // Set up channel for JSONL watching
-      if (!headless) {
+      if (!agentMode) {
         channel = createChannel(resolvedChannelName, resolvedChannelConfig);
       }
 
@@ -1951,9 +1988,9 @@ export async function runRun(): Promise<void> {
     await writeManifest(manifest);
   }
 
-  if (headless) {
+  if (agentMode) {
     if (!remoteId || !chatId || !ownerUserId) {
-      console.error("Headless mode requires a paired user and an active daemon session.");
+      console.error("Agent mode requires a paired user and an active daemon session.");
       console.error("Run `tg init` and `tg pair` first.");
       process.exit(1);
     }

@@ -97,14 +97,14 @@ Commands:
   pi       Run PI with chat bridge
 
 Options (for claude/codex/pi):
-  (Heartbeat runs automatically when HEARTBEAT.md exists)
+  (Heartbeat runs only in --agent-mode when HEARTBEAT.md exists)
   (Set heartbeat interval in HEARTBEAT.md: <heartbeat interval="15">...</heartbeat>)
   --channel <value>      Skip channel picker (use "dm", a chatId, or title substring)
-  --headless             Run in long-lived JSON headless mode (no local TTY UI)
+  --agent-mode           Run in long-lived JSON bridge mode (no local terminal interface)
 
   ls       List active sessions
   channels List available channels (DM, groups, topics) with busy status
-  agents   Manage local agents (install Beekeeper, create custom agents, or install from git/local source)
+  agents   Show agent templates and create commands
   send     Send text to session stdin or send file to its channel(s) (tg send <id> "msg" | tg send --file <id> <path>)
   peek     Peek at last messages from session(s) (tg peek <id>|--all [count])
   links    List and manage linked groups/topics
