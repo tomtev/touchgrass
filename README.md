@@ -1,13 +1,12 @@
 # ⛳️ touchgrass.sh
 
-A framework for building and running personal agents on top of Claude Code, Codex, and
-  Pi, and for managing agent sessions and coding terminals on the go via Telegram and
-  other messaging platforms.
-  
-- ✅ **Simple to run** — just prefix CLIs etc with `tg`, like `tg claude`
-- ✅ **Mange your Claude Code, Codex etc terminals on-the-go** — send input, see responses
-- ✅ **Run cron jobs and workflows** — Add a `HEARTBEAT.md` file to run schuedeled tasks.
-- ✅ **Headless mode** — run long-lived JSON bridges for Claude, Codex, and PI (no local terminal interface)
+A framework for building and running personal agents on top of Claude Code, Codex, and PI, and for managing agent sessions and coding terminals on the go via Telegram and other messaging platforms.
+
+Run mode overview:
+- ✅ **Terminal mode** — normal local CLI interface + Telegram bridge
+- ✅ **Agent mode (`--agent-mode`)** — long-lived JSON bridge for autonomous flows (no local terminal interface)
+- ✅ **Heartbeat (agent mode)** — add a `HEARTBEAT.md` file for scheduled workflows and cron-style tasks
+- ✅ **Simple to run** — prefix supported CLIs with `tg`, like `tg claude`
 
 ### Quick install
 
@@ -26,9 +25,9 @@ irm https://raw.githubusercontent.com/tomtev/touchgrass/main/install.ps1 | iex
 Add `tg` in front of any agent CLI command to bridge it to chat. See responses, send input, and manage sessions from channels like Telegram. Use it for direct sessions or autonomous agents built on Claude Code, Codex, PI, and other terminal tools.
 
 ```bash
-tg init      # To setup telegram etc.
-tg claude    # To start a Claude Code. All --props allowed.
-tg codex     # To start Codex. All --props allowed.
+tg init
+tg claude
+tg codex
 ```
 
 More channels (Discord, Slack) coming soon.
@@ -40,8 +39,9 @@ More channels (Discord, Slack) coming soon.
 - [CLI commands](#cli-commands)
 - [Telegram commands](#telegram-commands)
 - [Connect terminal sessions to Telegram](#connect-terminal-sessions-to-telegram)
+- [Terminal Mode](#terminal-mode)
 - [Heartbeat](#heartbeat)
-- [Headless Mode](#headless-mode)
+- [Agent Mode](#agent-mode)
 - [FAQ](#faq)
 - [Requirements](#requirements)
 
@@ -83,9 +83,9 @@ tg pair
 
 Send `/pair <code>` to your bot in Telegram.
 
-### 5. Run an agent
+### 5. Choose a run mode
 
-Start an agent (local terminal + Telegram bridge):
+Terminal mode (local terminal interface + Telegram bridge):
 
 ```bash
 tg claude
@@ -100,17 +100,19 @@ tg claude --dangerously-skip-permissions
 tg codex --dangerously-bypass-approvals-and-sandbox
 ```
 
-Headless mode (no local terminal interface):
+Agent mode (no local terminal interface):
 
 ```bash
-tg claude --headless
-tg codex --headless
-tg pi --headless
-tg claude --headless --dangerously-skip-permissions
-tg codex --headless --dangerously-bypass-approvals-and-sandbox
+tg claude --agent-mode
+tg codex --agent-mode
+tg pi --agent-mode
+tg claude --agent-mode --dangerously-skip-permissions
+tg codex --agent-mode --dangerously-bypass-approvals-and-sandbox
 ```
 
-Note: Headless mode currently does not support interactive approval prompts, so use permissive flags carefully.
+Note: Agent mode currently does not support interactive approval prompts, so use permissive flags carefully.
+
+If `HEARTBEAT.md` is present and you start without `--agent-mode`, `tg` prompts you to switch to agent mode for that run.
 
 Bind to a channel up front (skip picker):
 
@@ -214,9 +216,28 @@ All group members can see responses, but only paired users can send input.
 
 **Note:** Disable "Group Privacy" in BotFather (`/setprivacy` -> Disable) so the bot can see non-command messages in groups.
 
+## Terminal Mode
+
+Terminal mode runs your CLI tool with its normal local terminal interface, while also bridging input/output to Telegram.
+
+Use terminal mode when you want:
+- Full local interactive UX (TTY UI, keyboard controls, approval prompts)
+- Telegram mirroring and remote input from your phone
+
+Commands:
+
+```bash
+tg claude
+tg codex
+tg pi
+```
+
+Note: Heartbeat does not run in terminal mode.
+
 ## Heartbeat
 
-Heartbeat runs automatically for `tg` agent sessions when a `HEARTBEAT.md` file exists in the working directory. It sends periodic instructions to your agent, which is useful for long-running autonomous workflows.
+Heartbeat is supported only in `--agent-mode`. If a `HEARTBEAT.md` file exists in the working directory, touchgrass sends periodic instructions to your agent for long-running autonomous workflows.
+If you start without `--agent-mode` and `HEARTBEAT.md` is detected, `tg` asks whether to switch to agent mode.
 
 Behavior per tick:
 - If `<run>` workflows are due, touchgrass loads each due workflow file and sends that workflow context to the agent.
@@ -249,12 +270,12 @@ Notes:
 
 Update `HEARTBEAT.md` any time (even from your phone via git push) and the agent picks up new instructions on the next heartbeat.
 
-## Headless Mode
+## Agent Mode
 
-Headless mode runs a long-lived bridge process (`tg <tool> --headless`) without a local interactive terminal interface.
+Agent mode runs a long-lived bridge process (`tg <tool> --agent-mode`) without a local interactive terminal interface.
 The bridge receives input from Telegram via the daemon, executes the tool-specific driver, and forwards assistant/tool output back to Telegram.
 
-### Claude headless driver
+### Claude agent-mode driver
 
 For each inbound message, touchgrass runs one Claude process per turn:
 
@@ -264,11 +285,11 @@ claude [your args] [--resume <session-id> | --continue] \
 ```
 
 Notes:
-- `--print`, `--input-format`, and `--output-format` are normalized by touchgrass for headless mode.
+- `--print`, `--input-format`, and `--output-format` are normalized by touchgrass for agent mode.
 - Session continuity is maintained by tracking Claude `session_id` and reusing `--resume`.
-- Interactive approval prompts are not currently supported in headless mode; use `--dangerously-skip-permissions` when needed.
+- Interactive approval prompts are not currently supported in agent mode; use `--dangerously-skip-permissions` when needed.
 
-### Codex headless driver
+### Codex agent-mode driver
 
 For each inbound message, touchgrass runs Codex in JSON mode per turn:
 
@@ -285,9 +306,9 @@ codex exec resume --json [your args] <thread-id> "<message>"
 Notes:
 - If `--last` is requested, touchgrass resumes the most recent thread once, then keeps using the discovered thread ID.
 - Tool calls/results are parsed from Codex JSON events and forwarded to Telegram.
-- Interactive approval prompts are not currently supported in headless mode; use `--dangerously-bypass-approvals-and-sandbox` when needed.
+- Interactive approval prompts are not currently supported in agent mode; use `--dangerously-bypass-approvals-and-sandbox` when needed.
 
-### PI headless driver
+### PI agent-mode driver
 
 PI runs as one persistent RPC process:
 
@@ -320,13 +341,13 @@ tg pi --continue
 ## FAQ
 
 **Does `tg` change how my CLI tool works?**
-No. It's a thin PTY wrapper — your tool runs in a real terminal and behaves identically. All flags, features, and keyboard shortcuts work as normal.
+In terminal mode, no. It's a thin PTY wrapper and your tool runs in a real terminal with normal behavior. In agent mode, touchgrass runs a non-interactive bridge (no local terminal UI).
 
 **How does it send messages to Telegram?**
-A lightweight file watcher reads the session JSONL files that CLI tools like Claude Code, Codex, and PI already write. When new assistant output appears, it's forwarded to Telegram via the Bot API. No hooks or plugins are injected into the tool itself.
+Terminal mode uses a JSONL/file watcher to forward assistant output. Agent mode uses tool-specific JSON/RPC drivers and forwards events/results through the daemon to Telegram.
 
 **How does heartbeat work?**
-It reads `HEARTBEAT.md` on a schedule. `/* ... */` comments are ignored. If `<run>` entries are due, it loads the due `workflows/*.md` files and sends that context. If runs exist but none are due, the cycle is skipped. If there are no runs, plain `<heartbeat>` text is sent (if present). If the file is empty/comment-only, the cycle is skipped.
+In agent mode, it reads `HEARTBEAT.md` on a schedule. `/* ... */` comments are ignored. If `<run>` entries are due, it loads the due `workflows/*.md` files and sends that context. If runs exist but none are due, the cycle is skipped. If there are no runs, plain `<heartbeat>` text is sent (if present). If the file is empty/comment-only, the cycle is skipped.
 
 **Can I type locally and use Telegram at the same time?**
 Yes. Both work in real-time. Avoid typing in both simultaneously as keystrokes could interleave.
