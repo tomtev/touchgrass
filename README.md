@@ -1,11 +1,11 @@
 # ⛳️ touchgrass.sh
 
-Manage Claude Code, Codex & Pi terminals on-the-go.
+Manage Claude Code, Codex, and PI terminal sessions from Telegram and create autonomous agents on top of them.
 
 - ✅ **Simple to run** — just prefix terminal commands with `tg`, like `tg claude`
 - ✅ **Communicate with your terminals from Telegram** — send input, see responses
+- ✅ **Run autonomous agents** — schedule workflows and manage long-running agent behavior
 - ✅ **Connect terminal sessions to multiple groups and topics** — each session gets its own chat
-- ✅ **Heartbeat mode** — run autonomous cron jobs and workflows when `HEARTBEAT.md` exists
 
 ### Quick install
 
@@ -15,7 +15,7 @@ curl -fsSL https://raw.githubusercontent.com/tomtev/touchgrass/main/install.sh |
 
 On Windows, download `tg-windows-x64.exe` from the latest release and place it in your PATH.
 
-Add `tg` in front of any agent CLI command to bridge it to Telegram. See responses, send input, and manage sessions — all from chat. Works with Claude Code, Codex, PI, and any terminal tool.
+Add `tg` in front of any agent CLI command to bridge it to chat. See responses, send input, and manage sessions from channels like Telegram. Use it for direct sessions or autonomous agents built on Claude Code, Codex, PI, and other terminal tools.
 
 ```bash
 tg init      # To setup telegram etc.
@@ -121,12 +121,20 @@ Two processes cooperate:
 
 | Command | Description |
 |---------|-------------|
-| `tg ls` | List active sessions |
 | `tg init` | Set up bot token |
 | `tg pair` | Generate a pairing code |
 | `tg doctor` | Check system health |
 | `tg config` | View configuration |
 | `tg logs` | Tail the daemon log |
+
+### Session commands
+
+| Command | Description |
+|---------|-------------|
+| `tg ls` | List active sessions |
+| `tg send <id> <message>` | Send a message to a session |
+| `tg peek <id> [count]` | Peek at recent messages from a session (default: 10) |
+| `tg peek --all [count]` | Peek at recent messages from all sessions |
 
 ## Telegram commands
 

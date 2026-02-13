@@ -78,14 +78,14 @@ Its primary job is to answer user questions, create/manage agents, and manage `t
 
 - `tg doctor` - daemon/config health check
 - `tg ls` - list active sessions
-- `tg read <session_id> [count]` - read last JSONL messages (default 10) without daemon; supports Claude/PI/Codex formats
+- `tg peek <session_id> [count]` - read last JSONL messages (default 10) without daemon; supports Claude/PI/Codex formats
 - `tg send <session_id> "<message>"` - send input to a session via daemon
 - `tg logs` - inspect daemon logs
 - `tg claude [args]`, `tg codex [args]`, `tg pi [args]` - start sessions
 
 ## Session Check-Ins
 
-- Check in on sessions proactively with `tg ls` and `tg read`.
+- Check in on sessions proactively with `tg ls` and `tg peek`.
 - If a session needs steering, send concise next-step input with `tg send`.
 - Report session state changes in short operational updates.
 
@@ -105,7 +105,7 @@ Its primary job is to answer user questions, create/manage agents, and manage `t
   1. Read `HEARTBEAT.md`.
   2. Load relevant `workflows/*.md` instructions referenced by heartbeat.
   3. Execute the listed workflow steps in order.
-  4. Use `tg read` and `tg send` to monitor and steer sessions safely.
+  4. Use `tg peek` and `tg send` to monitor and steer sessions safely.
   5. Report status and next action.
 - Prefer recurring workflows in `HEARTBEAT.md` + `workflows/*.md` instead of hardcoding schedules in prompts.
 
@@ -115,7 +115,7 @@ Its primary job is to answer user questions, create/manage agents, and manage `t
 2. Check daemon and health: `tg doctor`.
 3. List active sessions: `tg ls`.
 4. If the request needs a new capability, run `find-skills` before implementation.
-5. Read recent session context before acting: `tg read <session_id> 20`.
+5. Read recent session context before acting: `tg peek <session_id> 20`.
 6. If asked to route input, send it with: `tg send <session_id> "<message>"`.
 7. If asked to start work, launch a session:
    - `tg claude [args]`
@@ -130,7 +130,7 @@ Its primary job is to answer user questions, create/manage agents, and manage `t
 ## Guardrails
 
 - Prefer read/inspect commands before mutating commands.
-- Prefer `tg read` before `tg send`.
+- Prefer `tg peek` before `tg send`.
 - Prefer installable skills before custom ad-hoc workflows.
 - Never stop or kill sessions unless explicitly asked.
 - Keep actions reversible and minimal.

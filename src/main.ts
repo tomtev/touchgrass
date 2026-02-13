@@ -44,9 +44,9 @@ async function main() {
       await runSend();
       break;
     }
-    case "read": {
-      const { runRead } = await import("./cli/read");
-      await runRead();
+    case "peek": {
+      const { runPeek } = await import("./cli/peek");
+      await runPeek();
       break;
     }
     case "claude":
@@ -93,7 +93,7 @@ Options (for claude/codex/pi):
 
   ls       List active sessions
   send     Send a message to a session (tg send <id> "msg")
-  read     Read last messages from session(s) (tg read <id>|--all [count])
+  peek     Peek at last messages from session(s) (tg peek <id>|--all [count])
   links    List and manage linked groups/topics
   init     Set up bot token
   pair     Generate a pairing code

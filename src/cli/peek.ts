@@ -261,10 +261,10 @@ function collectEntriesFromRaw(raw: string, count: number): DisplayEntry[] {
 }
 
 function printUsage(): void {
-  console.error("Usage: tg read <session_id> [count]");
-  console.error("   or: tg read --all [count]");
-  console.error("Example: tg read r-abc123 20");
-  console.error("Example: tg read --all 1");
+  console.error("Usage: tg peek <session_id> [count]");
+  console.error("   or: tg peek --all [count]");
+  console.error("Example: tg peek r-abc123 20");
+  console.error("Example: tg peek --all 1");
 }
 
 function sessionStartedAtMs(m: SessionManifest): number {
@@ -272,7 +272,7 @@ function sessionStartedAtMs(m: SessionManifest): number {
   return Number.isNaN(ms) ? 0 : ms;
 }
 
-export async function runRead(): Promise<void> {
+export async function runPeek(): Promise<void> {
   const args = process.argv.slice(3);
   if (args.length === 0) {
     printUsage();
