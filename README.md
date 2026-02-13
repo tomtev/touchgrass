@@ -29,6 +29,23 @@ tg claude    # To start a Claude Code. All --props allowed.
 tg codex     # To start Codex. All --props allowed.
 ```
 
+#### Headless - Run without local TTY UI.
+
+Use headless mode when you want a long-running background bridge controlled from Telegram:
+
+```bash
+tg claude --headless
+tg codex --headless
+tg pi --headless
+```
+
+Note: Headless mode currently does not support interactive approval prompts.
+For Claude tool use in headless mode, run:
+
+```bash
+tg claude --headless --dangerously-skip-permissions
+```
+
 #### Heartbeat - Keep your terminals alive with workflows and cron jobs.
 
 Set up autonomous workflows with **Heartbeat** — your agent checks a `HEARTBEAT.md` file on a schedule and follows the instructions inside. Update the file from anywhere (even your phone) and the agent picks it up on the next beat.
@@ -111,6 +128,13 @@ Headless mode (no local TTY UI):
 tg claude --headless
 tg codex --headless
 tg pi --headless
+```
+
+Note: Headless mode currently does not support interactive approval prompts.
+For Claude tool use in headless mode, run with:
+
+```bash
+tg claude --headless --dangerously-skip-permissions
 ```
 
 Bind to a channel up front (skip picker):
