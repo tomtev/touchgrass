@@ -255,6 +255,20 @@ tg codex --agent-mode --dangerously-bypass-approvals-and-sandbox
 
 Note: Agent mode currently does not support interactive approval prompts, so use permissive flags carefully.
 
+### Under the hood (simple)
+
+When you run `tg <tool> --agent-mode`, touchgrass does this:
+
+1. Starts a long-lived bridge process and links it to your selected Telegram chat/topic.
+2. Waits for inbound user messages from Telegram.
+3. For each message, forwards it to Claude/Codex/PI and waits for the result.
+4. Sends assistant output and tool events back to Telegram.
+5. Repeats until you stop the bridge (`Ctrl+C`).
+
+If `HEARTBEAT.md` exists, scheduled workflow inputs are also injected on each heartbeat tick (agent mode only).
+
+Advanced per-tool protocol details are in the driver sections below.
+
 ### Heartbeat and workflows
 
 Heartbeat is supported only in `--agent-mode`. If a `HEARTBEAT.md` file exists in the working directory, touchgrass sends periodic instructions to your agent for long-running workflows and cron-style tasks.
@@ -327,7 +341,7 @@ Guidelines:
 - If a user asks to rename the agent, update `Your name is: "..."` in `<agent-soul>`.
 - Keep `CLAUDE.md` pointing to `@AGENTS.md`.
 
-### Claude driver
+### Advanced: Claude driver
 
 For each inbound message, touchgrass runs one Claude process per turn:
 
@@ -341,7 +355,7 @@ Notes:
 - Session continuity is maintained by tracking Claude `session_id` and reusing `--resume`.
 - Interactive approval prompts are not currently supported in agent mode; use `--dangerously-skip-permissions` when needed.
 
-### Codex driver
+### Advanced: Codex driver
 
 For each inbound message, touchgrass runs Codex in JSON mode per turn:
 
@@ -360,7 +374,7 @@ Notes:
 - Tool calls/results are parsed from Codex JSON events and forwarded to Telegram.
 - Interactive approval prompts are not currently supported in agent mode; use `--dangerously-bypass-approvals-and-sandbox` when needed.
 
-### PI driver
+### Advanced: PI driver
 
 PI runs as one persistent RPC process:
 
