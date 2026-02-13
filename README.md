@@ -38,15 +38,11 @@ Use headless mode when you want a long-running background bridge controlled from
 tg claude --headless
 tg codex --headless
 tg pi --headless
-```
-
-Note: Headless mode currently does not support interactive approval prompts.
-For tool use in headless mode, run with permissive flags when needed:
-
-```bash
 tg claude --headless --dangerously-skip-permissions
 tg codex --headless --dangerously-bypass-approvals-and-sandbox
 ```
+
+Note: Headless mode currently does not support interactive approval prompts, so use permissive flags carefully.
 
 #### Heartbeat - Keep your terminals alive with workflows and cron jobs.
 
@@ -131,15 +127,11 @@ Headless mode (no local terminal interface):
 tg claude --headless
 tg codex --headless
 tg pi --headless
-```
-
-Note: Headless mode currently does not support interactive approval prompts.
-For tool use in headless mode, run with permissive flags when needed:
-
-```bash
 tg claude --headless --dangerously-skip-permissions
 tg codex --headless --dangerously-bypass-approvals-and-sandbox
 ```
+
+Note: Headless mode currently does not support interactive approval prompts, so use permissive flags carefully.
 
 Bind to a channel up front (skip picker):
 
