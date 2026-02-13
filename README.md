@@ -6,7 +6,7 @@ Create autonomous agents on top of Claude Code, Codex and PI and manage them wit
 - ✅ **Communicate with your terminals from Telegram** — send input, see responses
 - ✅ **Run autonomous agents** — schedule workflows and manage long-running agent behavior
 - ✅ **Connect terminal sessions to multiple groups and topics** — each session gets its own chat
-- [x] **Headless mode** — run long-lived JSON bridges for Claude, Codex, and PI (no local terminal interface)
+- ✅ **Headless mode** — run long-lived JSON bridges for Claude, Codex, and PI (no local terminal interface)
 
 ### Quick install
 
