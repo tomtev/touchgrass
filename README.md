@@ -4,7 +4,7 @@ Create agents with Claude Code, Codex and PI and manage them with Telegram and m
 
 - ✅ **Simple to run** — just prefix terminal commands with `tg`, like `tg claude`
 - ✅ **Mange your Claude Code, Codex etc terminals on-the-go** — send input, see responses
-- ✅ **Run autonomous agents** — schedule workflows and manage long-running agent behavior
+- ✅ **Give life to agents with HEARTBEAT.md** — schedule workflows and manage long-running agent behavior
 - ✅ **Connect terminal sessions to multiple groups and topics** — each session gets its own chat
 - ✅ **Headless mode** — run long-lived JSON bridges for Claude, Codex, and PI (no local terminal interface)
 
