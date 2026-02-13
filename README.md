@@ -1,8 +1,6 @@
 # ⛳️ touchgrass.sh
 
-A framework for building and running personal agents on top of Claude Code, Codex, and
-  Pi, and for managing agent sessions and coding terminals on the go via Telegram and
-  other messaging platforms.
+A simple framework for building and running autonomous agents on Claude Code, Codex, and Pi,   and managing agent CLIs on the go via Telegram.
   
 - ✅ **Simple to run** — just prefix CLIs etc with `tg`, like `tg claude`
 - ✅ **Mange your Claude Code, Codex etc terminals on-the-go** — send input, see responses
