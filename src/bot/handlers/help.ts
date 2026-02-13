@@ -9,10 +9,11 @@ ${fmt.bold("Sessions:")}
 Any text you send goes to the connected session.
 
 ${fmt.bold("Commands:")}
-/sessions ${fmt.escape("—")} List active sessions
-/link ${fmt.escape("—")} Add this chat as a channel
-/help ${fmt.escape("—")} Show this help
-/pair ${fmt.escape("<code> —")} Pair with a pairing code
+/sessions ${fmt.escape("or")} ${fmt.code("tg sessions")} ${fmt.escape("—")} List active sessions
+/link ${fmt.escape("or")} ${fmt.code("tg link")} ${fmt.escape("—")} Add this chat as a channel
+/unlink ${fmt.escape("or")} ${fmt.code("tg unlink")} ${fmt.escape("—")} Remove this chat as a channel
+/help ${fmt.escape("or")} ${fmt.code("tg help")} ${fmt.escape("—")} Show this help
+/pair ${fmt.escape("<code> or")} ${fmt.code("tg pair <code>")} ${fmt.escape("—")} Pair with a pairing code
 
 Run ${fmt.code(`tg pair`)} on the server to generate a code.`;
 }

@@ -1,9 +1,9 @@
 # ⛳️ touchgrass.sh
 
-A framework for building and running personal agents on top of Claude Code, Codex, and PI, and for managing agent sessions and coding terminals on the go via Telegram and other messaging platforms.
+A framework for building and running personal agents on top of Claude Code, Codex, and PI, and for managing agent sessions and coding terminals on the go via Telegram, Slack, WhatsApp, and other messaging platforms.
 
 Run mode overview:
-- ✅ **Terminal mode** — normal local CLI interface + Telegram bridge
+- ✅ **Terminal mode** — normal local CLI interface + channel bridge
 - ✅ **Agent mode (`--agent-mode`)** — long-lived JSON bridge for autonomous flows (no local terminal interface)
 - ✅ **Heartbeat (agent mode)** — add a `HEARTBEAT.md` file for scheduled workflows and cron-style tasks
 - ✅ **Simple to run** — prefix supported CLIs with `tg`, like `tg claude`
@@ -22,7 +22,7 @@ Windows (PowerShell):
 irm https://raw.githubusercontent.com/tomtev/touchgrass/main/install.ps1 | iex
 ```
 
-Add `tg` in front of any agent CLI command to bridge it to chat. See responses, send input, and manage sessions from channels like Telegram. Use it for direct sessions or autonomous agents built on Claude Code, Codex, PI, and other terminal tools.
+Add `tg` in front of any agent CLI command to bridge it to chat. See responses, send input, and manage sessions from channels like Telegram, Slack, and WhatsApp. Use it for direct sessions or autonomous agents built on Claude Code, Codex, PI, and other terminal tools.
 
 ```bash
 tg init
@@ -30,15 +30,16 @@ tg claude
 tg codex
 ```
 
-More channels (Discord, Slack) coming soon.
+Current channels: Telegram, Slack, WhatsApp. More channels coming soon.
 
 ## Table of contents
 
 - [Setup](#setup)
+- [Channel setup guides](#channel-setup-guides)
 - [How it works](#how-it-works)
 - [CLI commands](#cli-commands)
-- [Telegram commands](#telegram-commands)
-- [Connect terminal sessions to Telegram](#connect-terminal-sessions-to-telegram)
+- [Chat commands](#chat-commands)
+- [Connect terminal sessions to channels](#connect-terminal-sessions-to-channels)
 - [Terminal Mode](#terminal-mode)
 - [Agent Mode](#agent-mode)
 - [FAQ](#faq)
@@ -60,31 +61,34 @@ Windows (PowerShell):
 irm https://raw.githubusercontent.com/tomtev/touchgrass/main/install.ps1 | iex
 ```
 
-### 2. Create a Telegram bot
-
-1. Open Telegram and talk to [@BotFather](https://t.me/BotFather)
-2. Send `/newbot` and follow the prompts
-3. Copy the bot token
-
-### 3. Configure touchgrass.sh
+### 2. Configure a channel
 
 ```bash
 tg init
-# Paste your bot token when prompted
+# Choose telegram, slack, or whatsapp
 ```
 
-### 4. Pair your Telegram account
+`tg init` currently keeps one active channel config at a time.
+
+### 3. Pair your account
 
 ```bash
 tg pair
 # Shows a pairing code
 ```
 
-Send `/pair <code>` to your bot in Telegram.
+Send the code in your channel DM:
+- Telegram: `/pair <code>`
+- Slack: `tg pair <code>`
+- WhatsApp: `tg pair <code>`
+
+### 4. (Optional) Link a group/channel/thread
+
+In any group/channel/thread you want to use for output, send `/link` (or `tg link`).
 
 ### 5. Choose a run mode
 
-Terminal mode (local terminal interface + Telegram bridge):
+Terminal mode (local terminal interface + channel bridge):
 
 ```bash
 tg claude
@@ -128,14 +132,52 @@ Send a file to a session's channel(s):
 tg send r-abc123 --file ./notes.md
 ```
 
-That's it. You'll get agent responses in Telegram and can send input back from your phone.
+That's it. You'll get agent responses in your selected channel and can send input back from your phone.
+
+## Channel setup guides
+
+### Telegram
+
+1. Open Telegram and talk to [@BotFather](https://t.me/BotFather)
+2. Send `/newbot` and follow the prompts
+3. Copy the bot token
+4. Run `tg init` and choose `telegram`
+5. Run `tg pair` and send `/pair <code>` to your bot DM
+6. For groups/topics, add the bot and send `/link` in that chat
+
+Telegram group note:
+- Disable "Group Privacy" in BotFather (`/setprivacy` -> Disable) so the bot can read normal group messages.
+
+### Slack
+
+1. Create a Slack app and enable Socket Mode
+2. Install the app to your workspace
+3. Copy the bot token (`xoxb-...`) and app token (`xapp-...`)
+4. Run `tg init` and choose `slack`
+5. Run `tg pair` and send `tg pair <code>` in bot DM
+6. Invite the bot to channels you want to use
+7. Send `tg link` in a channel or thread to register it
+
+Slack note:
+- In private channels, the bot must be invited before it can read/send messages there.
+
+### WhatsApp
+
+1. Run `tg init` and choose `whatsapp`
+2. Scan the QR code from WhatsApp Linked Devices
+3. Run `tg pair` and send `tg pair <code>` in direct chat
+4. Add the linked account to any WhatsApp group you want to use
+5. Send `tg link` in that group
+
+WhatsApp note:
+- If the linked session expires or logs out, run `tg init` again to relink via QR.
 
 ## How it works
 
 ```
-Your terminal                        Telegram
+Your terminal                      Chat channel
     |                                    |
-  tg claude                         Bot receives
+  tg claude                        Bot receives
     |                               your messages
   PTY + JSONL watcher                   |
     |                                   |
@@ -146,8 +188,8 @@ Your terminal                        Telegram
 
 Two processes cooperate:
 
-1. **CLI process** (`tg claude`) — spawns a PTY for the agent, watches its JSONL output for assistant responses, sends them to Telegram
-2. **Daemon** — auto-starts when needed, polls Telegram for your messages, routes them to the right session, auto-stops after 30s of inactivity
+1. **CLI process** (`tg claude`) — spawns a PTY for the agent, watches its JSONL output for assistant responses, sends them to the selected channel
+2. **Daemon** — auto-starts when needed, polls the selected channel for your messages, routes them to the right session, auto-stops after 30s of inactivity
    Control transport is Unix socket on macOS/Linux, localhost TCP on Windows.
 
 ## CLI commands
@@ -164,7 +206,7 @@ Two processes cooperate:
 
 | Command | Description |
 |---------|-------------|
-| `tg init` | Set up bot token |
+| `tg init` | Set up channel credentials |
 | `tg pair` | Generate a pairing code |
 | `tg doctor` | Check system health |
 | `tg config` | View configuration |
@@ -181,47 +223,46 @@ Two processes cooperate:
 | `tg peek <id> [count]` | Peek at recent messages from a session (default: 10) |
 | `tg peek --all [count]` | Peek at recent messages from all sessions |
 
-## Telegram commands
+## Chat commands
 
 | Command | Description |
 |---------|-------------|
-| `/sessions` | List active sessions |
-| `/link` | Add this chat as a channel |
-| `/help` | Show help |
-| `/pair <code>` | Pair with a pairing code |
+| `/sessions` or `tg sessions` | List active sessions |
+| `/link` or `tg link` | Add this chat as a channel |
+| `/unlink` or `tg unlink` | Remove this chat as a channel |
+| `/help` or `tg help` | Show help |
+| `/pair <code>` or `tg pair <code>` | Pair with a pairing code |
 
 Any plain text you send goes to the connected session.
 
-## Connect terminal sessions to Telegram
+## Connect terminal sessions to channels
 
-When you run `tg claude`, a picker lets you choose where to send output — your DM, a group, or a forum topic.
+When you run `tg claude`, a picker lets you choose where to send output — your DM, or any linked group/channel/thread.
 
-1. Add the bot to a Telegram group (or topic)
-2. Send `/link` in the group to register it (or `/link TopicName` inside a topic)
-3. Start a session — linked groups and topics appear in the picker
+1. Link your target chat with `/link` or `tg link`
+2. Start a session with `tg claude` (or `tg codex`, `tg pi`)
+3. Pick the destination chat from the list
 
 ```
-  ⛳ Select a Telegram channel:
+  ⛳ Select a channel:
   ❯ TouchgrassBot          (DM)
     Dev Team                (Group)
       Features              (Topic)
       Bugs                  (Topic)
     Other Group             (Group)
 
-  Add bot to a Telegram group and send /link to add more channels
+  Link more chats with /link or tg link
 ```
 
 All group members can see responses, but only paired users can send input.
 
-**Note:** Disable "Group Privacy" in BotFather (`/setprivacy` -> Disable) so the bot can see non-command messages in groups.
-
 ## Terminal Mode
 
-Terminal mode runs your CLI tool with its normal local terminal interface, while also bridging input/output to Telegram.
+Terminal mode runs your CLI tool with its normal local terminal interface, while also bridging input/output to your selected channel.
 
 Use terminal mode when you want:
 - Full local interactive UX (TTY UI, keyboard controls, approval prompts)
-- Telegram mirroring and remote input from your phone
+- Channel mirroring and remote input from your phone
 
 Commands:
 
@@ -236,7 +277,7 @@ Note: Heartbeat does not run in terminal mode.
 ## Agent Mode
 
 Agent mode runs a long-lived bridge process (`tg <tool> --agent-mode`) without a local interactive terminal interface.
-The bridge receives input from Telegram via the daemon, executes the tool-specific driver, and forwards assistant/tool output back to Telegram.
+The bridge receives input from your selected channel via the daemon, executes the tool-specific driver, and forwards assistant/tool output back to that channel.
 
 Use agent mode when you want:
 - Long-running autonomous behavior
@@ -259,10 +300,10 @@ Note: Agent mode currently does not support interactive approval prompts, so use
 
 When you run `tg <tool> --agent-mode`, touchgrass does this:
 
-1. Starts a long-lived bridge process and links it to your selected Telegram chat/topic.
-2. Waits for inbound user messages from Telegram.
+1. Starts a long-lived bridge process and links it to your selected chat.
+2. Waits for inbound user messages from that channel.
 3. For each message, forwards it to Claude/Codex/PI and waits for the result.
-4. Sends assistant output and tool events back to Telegram.
+4. Sends assistant output and tool events back to the channel.
 5. Repeats until you stop the bridge (`Ctrl+C`).
 
 If `HEARTBEAT.md` exists, scheduled workflow inputs are also injected on each heartbeat tick (agent mode only).
@@ -341,7 +382,7 @@ Guidelines:
 
 ### Resuming sessions
 
-To resume an existing agent session with Telegram bridging:
+To resume an existing agent session with channel bridging:
 
 ```bash
 tg claude --resume <session-id>
@@ -349,26 +390,26 @@ tg codex resume <session-id>
 tg pi --continue
 ```
 
-**Note:** If you use `/resume` inside Claude Code (after starting with `tg claude`), the Telegram bridge stays connected to the original session. To bridge the new session, restart with `tg claude --resume <id>`.
+**Note:** If you use `/resume` inside Claude Code (after starting with `tg claude`), the bridge stays connected to the original session. To bridge the new session, restart with `tg claude --resume <id>`.
 
 ## FAQ
 
 **Does `tg` change how my CLI tool works?**
 In terminal mode, no. It's a thin PTY wrapper and your tool runs in a real terminal with normal behavior. In agent mode, touchgrass runs a non-interactive bridge (no local terminal UI).
 
-**How does it send messages to Telegram?**
-Terminal mode uses a JSONL/file watcher to forward assistant output. Agent mode uses tool-specific JSON/RPC drivers and forwards events/results through the daemon to Telegram.
+**How does it send messages to channels?**
+Terminal mode uses a JSONL/file watcher to forward assistant output. Agent mode uses tool-specific JSON/RPC drivers and forwards events/results through the daemon to the selected channel.
 
 **How does heartbeat work?**
 In agent mode, it reads `HEARTBEAT.md` on a schedule. `/* ... */` comments are ignored. If `<run>` entries are due, it loads the due `workflows/*.md` files and sends that context. If runs exist but none are due, the cycle is skipped. If there are no runs, plain `<heartbeat>` text is sent (if present). If the file is empty/comment-only, the cycle is skipped.
 
-**Can I type locally and use Telegram at the same time?**
+**Can I type locally and use chat at the same time?**
 Yes. Both work in real-time. Avoid typing in both simultaneously as keystrokes could interleave.
 
 ## Requirements
 
 - macOS/Linux (arm64 or x64), or Windows (x64)
-- A Telegram account and bot token
+- A Telegram, Slack, or WhatsApp account
 
 ## License
 

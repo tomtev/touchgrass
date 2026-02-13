@@ -2,11 +2,11 @@
 
 ## What This Project Does
 
-Manage your AI agent CLIs (Claude Code, Codex, PI) from your phone via messaging platforms. Currently supports Telegram, designed for adding Discord/Slack/WhatsApp via the `Channel` interface.
+Manage your AI agent CLIs (Claude Code, Codex, PI) from your phone via messaging platforms. Currently supports Telegram, Slack, and WhatsApp via the `Channel` interface.
 
 CLI command: `tg` (as in touchgrass).
 
-**Runtime:** Bun (not Node.js). **Language:** TypeScript (strict mode). **No framework** — raw HTTP, raw Telegram Bot API.
+**Runtime:** Bun (not Node.js). **Language:** TypeScript (strict mode). **No framework** — raw HTTP plus channel-specific APIs (Telegram Bot API, Slack Web API/Socket Mode, WhatsApp Web via Baileys).
 
 ## Quick Reference
 
@@ -22,13 +22,13 @@ CLI commands: `tg init`, `tg pair`, `tg claude [args]`, `tg codex [args]`, `tg p
 
 Two processes cooperate:
 
-1. **CLI process** (`tg claude`) — spawns a PTY, watches JSONL for assistant output, sends to Telegram, polls daemon for remote input
-2. **Daemon process** — auto-starts on demand, polls Telegram for messages, routes them to sessions, auto-stops after 30s idle
+1. **CLI process** (`tg claude`) — spawns a PTY, watches JSONL for assistant output, sends to the selected channel, polls daemon for remote input
+2. **Daemon process** — auto-starts on demand, polls the selected channel for messages, routes them to sessions, auto-stops after 30s idle
 
 ```
-User terminal                         Telegram
+User terminal                       Chat channel
     |                                     |
-  tg claude                          TelegramChannel
+  tg claude                            Channel
     |                                     |
   PTY + JSONL watcher              startReceiving() poll loop
     |                                     |
@@ -36,6 +36,8 @@ User terminal                         Telegram
     |                                     |
   SessionManager  <---  stdin-input handler
 ```
+
+Current limitation: daemon runtime supports one active channel config at a time; `tg init` keeps the selected channel and removes others.
 
 ## File Map
 
@@ -49,6 +51,13 @@ User terminal                         Telegram
 | `src/channels/telegram/telegram-formatter.ts` | `TelegramFormatter` implements `Formatter` — HTML formatting for Telegram |
 | `src/channels/telegram/api.ts` | Raw Telegram Bot API wrapper (sendMessage, editMessageText, getUpdates, getFile) |
 | `src/channels/telegram/formatter.ts` | `escapeHtml()`, `chunkText()` — Telegram-specific low-level helpers |
+| `src/channels/slack/channel.ts` | `SlackChannel` implements `Channel` — sends messages/files and receives events via Socket Mode |
+| `src/channels/slack/slack-formatter.ts` | `SlackFormatter` implements `Formatter` — mrkdwn formatting for Slack |
+| `src/channels/slack/api.ts` | Slack Web API wrapper (auth, socket open, post/update message, files, conversations) |
+| `src/channels/whatsapp/channel.ts` | `WhatsAppChannel` implements `Channel` — sends/receives via WhatsApp Web (Baileys) |
+| `src/channels/whatsapp/whatsapp-formatter.ts` | `WhatsAppFormatter` implements `Formatter` — WhatsApp-style markdown formatting |
+| `src/channels/whatsapp/auth.ts` | Baileys auth/session bootstrap, QR login, connection wait helpers |
+| `src/channels/whatsapp/normalize.ts` | WhatsApp chat/user ID normalization (`+E.164`, JIDs, `whatsapp:*` tagged IDs) |
 
 ### Bot Layer (channel-agnostic)
 | File | Purpose |
@@ -117,7 +126,7 @@ All IDs are prefixed with channel type for disambiguation:
 - Remote session IDs: `"r-abc123"` (3-byte hex, no channel prefix)
 
 ### Channel Interface + Formatter
-Handlers use `channel.fmt` (a `Formatter` instance) for all text formatting: `fmt.bold()`, `fmt.code()`, `fmt.escape()`, etc. Each channel provides its own `Formatter` implementation (e.g. `TelegramFormatter` outputs HTML, a Discord formatter would output Markdown). Handlers never write raw HTML or channel-specific markup.
+Handlers use `channel.fmt` (a `Formatter` instance) for all text formatting: `fmt.bold()`, `fmt.code()`, `fmt.escape()`, etc. Each channel provides its own `Formatter` implementation (e.g. Telegram HTML, Slack mrkdwn, WhatsApp markdown-like text). Handlers never write channel-specific markup directly.
 
 Optional channel capabilities (polls, chat validation, bot name) are expressed as optional methods on `Channel`. Check with `if (channel.sendPoll)` before calling.
 
@@ -129,10 +138,9 @@ New channel checklist:
 
 ### Group Chat Support
 - `InboundMessage.isGroup` flag — set by channel implementation
-- Bot strips `@BotUsername` mentions from text (Telegram-specific, in `TelegramChannel`)
+- Mention stripping is channel-specific (Telegram `@BotName`, Slack `<@U...>`, etc.)
 - `SessionManager.groupSubscriptions` tracks which groups receive session output
 - Groups auto-subscribe when a user routes input from a group to a session
-- `/main <id>` from a group also subscribes the group
 - Output goes to `ownerChatId` + all subscribed groups
 - `cli/run.ts` polls `GET /remote/:id/subscribed-groups` every 2s for remote session group output
 
@@ -146,10 +154,25 @@ No explicit start/stop. `ensureDaemon()` checks PID + health, forks if needed. D
 4. No connection: prompt to run CLI with `--channel`
 
 ### Bot Commands
-- `/sessions` — List active sessions
-- `/link` — Add this chat as a channel (stores in config)
-- `/help` — Show help
-- `/pair <code>` — Pair with a pairing code
+- `/sessions` or `tg sessions` — list active sessions
+- `/link` or `tg link` — add this chat as a channel (stores in config)
+- `/unlink` or `tg unlink` — remove this chat as a channel
+- `/help` or `tg help` — show help
+- `/pair <code>` or `tg pair <code>` — pair with a pairing code
+
+### Channel Setup Guides
+- Telegram:
+  - Run `tg init`, choose `telegram`, paste bot token from BotFather.
+  - Run `tg pair`, then send `/pair <code>` in bot DM.
+  - In groups/topics, use `/link` to register chat destinations.
+- Slack:
+  - Run `tg init`, choose `slack`, provide `xoxb-...` + `xapp-...` tokens.
+  - Run `tg pair`, then send `tg pair <code>` in Slack DM.
+  - In channel/thread, send `tg link` to register destination.
+- WhatsApp:
+  - Run `tg init`, choose `whatsapp`, scan QR from Linked Devices.
+  - Run `tg pair`, then send `tg pair <code>` in direct chat.
+  - In WhatsApp groups, send `tg link` to register destination.
 
 ### Agent Commands
 - `tg agents` — list installed agents; if none are installed, offer Beekeeper install (default choice: `later`)

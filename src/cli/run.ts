@@ -284,23 +284,27 @@ interface OwnerChannelResolution {
   ownerChatId: ChannelChatId;
 }
 
-function resolveOwnerChannel(config: TgConfig): OwnerChannelResolution | null {
-  const pairedUsers = getAllPairedUsers(config);
-  if (pairedUsers.length !== 1) return null;
-
-  const ownerUserId = pairedUsers[0].userId;
-  const parts = ownerUserId.split(":");
-  if (parts.length < 2) return null;
-  const channelType = parts[0];
-  const ownerChatId = `${channelType}:${parts.slice(1).join(":")}`;
-
+function resolveOwnerChannel(config: TgConfig, preferredChannelType?: string): OwnerChannelResolution | null {
+  const candidates: OwnerChannelResolution[] = [];
   for (const [channelName, channelConfig] of Object.entries(config.channels)) {
-    if (channelConfig.type !== channelType) continue;
-    if (!channelConfig.pairedUsers.some((u) => u.userId === ownerUserId)) continue;
-    return { channelName, channelConfig, ownerUserId, ownerChatId };
+    const paired = channelConfig.pairedUsers || [];
+    if (paired.length === 0) continue;
+    if (paired.length > 1) continue; // ambiguous ownership within this channel
+
+    const ownerUserId = paired[0].userId;
+    const parts = ownerUserId.split(":");
+    if (parts.length < 2) continue;
+    const channelType = parts[0];
+    if (channelType !== channelConfig.type) continue;
+    const ownerChatId = `${channelType}:${parts.slice(1).join(":")}`;
+    candidates.push({ channelName, channelConfig, ownerUserId, ownerChatId });
   }
 
-  return null;
+  if (preferredChannelType) {
+    const preferred = candidates.find((c) => c.channelConfig.type === preferredChannelType);
+    if (preferred) return preferred;
+  }
+  return candidates[0] || null;
 }
 
 // Arrow-key picker for terminal selection
@@ -1777,6 +1781,9 @@ export async function runRun(): Promise<void> {
     channelFlag = cmdArgs[channelIdx + 1];
     cmdArgs = [...cmdArgs.slice(0, channelIdx), ...cmdArgs.slice(channelIdx + 2)];
   }
+  const preferredChannelTypeFromFlag = channelFlag && channelFlag.includes(":")
+    ? channelFlag.split(":")[0]
+    : undefined;
 
   const heartbeatFile = join(process.cwd(), "HEARTBEAT.md");
   let heartbeatEnabled = false;
@@ -1826,11 +1833,15 @@ export async function runRun(): Promise<void> {
   try {
     const config = await loadConfig();
     const pairedUsers = getAllPairedUsers(config);
-    const owner = resolveOwnerChannel(config);
-    if (pairedUsers.length > 1) {
-      console.error("Security check failed: multiple paired users detected in config.");
-      console.error("Single-user mode requires exactly one paired user.");
-      console.error(`Fix by removing extra users in ${paths.config}.`);
+    const owner = resolveOwnerChannel(config, preferredChannelTypeFromFlag);
+    if (pairedUsers.length === 0) {
+      console.error("No paired owner found. Run `tg pair` first.");
+      process.exit(1);
+    }
+    if (!owner) {
+      console.error("No usable paired channel owner found.");
+      console.error("Ensure one paired user per channel in your config.");
+      console.error(`Config: ${paths.config}`);
       process.exit(1);
     }
     if (owner) {

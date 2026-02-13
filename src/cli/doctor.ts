@@ -1,9 +1,18 @@
 import { paths, useTcpControlServer } from "../config/paths";
 import { loadConfig } from "../config/store";
-import { getTelegramBotToken, getAllPairedUsers } from "../config/schema";
+import { getAllPairedUsers } from "../config/schema";
 import { readPidFile, isDaemonRunning } from "../daemon/lifecycle";
 import { daemonRequest } from "./client";
 import { TelegramApi } from "../channels/telegram/api";
+import { SlackApi } from "../channels/slack/api";
+import {
+  closeWhatsAppSocket,
+  createWhatsAppSocket,
+  defaultWhatsAppAuthDir,
+  hasWhatsAppCredentials,
+  waitForWhatsAppConnection,
+  getSocketSelfId,
+} from "../channels/whatsapp/auth";
 
 interface Check {
   name: string;
@@ -18,41 +27,132 @@ export async function runDoctor(): Promise<void> {
   // 1. Config file
   try {
     const config = await loadConfig();
-    const botToken = getTelegramBotToken(config);
-    if (botToken) {
+    if (Object.keys(config.channels).length > 0) {
       checks.push({ name: "Config", status: "ok", detail: paths.config });
     } else {
       checks.push({
         name: "Config",
         status: "warn",
-        detail: "No bot token. Run `tg init`",
+        detail: "No channels configured. Run `tg init`",
       });
     }
 
-    // 2. Bot token validity
-    if (botToken) {
-      try {
-        const api = new TelegramApi(botToken);
-        const me = await api.getMe();
-        checks.push({
-          name: "Bot API",
-          status: "ok",
-          detail: `@${me.username}`,
-        });
-      } catch {
-        checks.push({
-          name: "Bot API",
-          status: "fail",
-          detail: "Could not reach Telegram API",
-        });
+    // 2. Channel credentials validity
+    for (const [name, channel] of Object.entries(config.channels)) {
+      if (channel.type === "telegram") {
+        const botToken = channel.credentials.botToken as string | undefined;
+        if (!botToken) {
+          checks.push({
+            name: `Channel ${name}`,
+            status: "warn",
+            detail: "Telegram bot token missing",
+          });
+          continue;
+        }
+        try {
+          const api = new TelegramApi(botToken);
+          const me = await api.getMe();
+          checks.push({
+            name: `Channel ${name}`,
+            status: "ok",
+            detail: `Telegram @${me.username || me.first_name || "bot"}`,
+          });
+        } catch {
+          checks.push({
+            name: `Channel ${name}`,
+            status: "fail",
+            detail: "Could not reach Telegram API",
+          });
+        }
+        continue;
       }
+
+      if (channel.type === "slack") {
+        const botToken = channel.credentials.botToken as string | undefined;
+        const appToken = channel.credentials.appToken as string | undefined;
+        if (!botToken || !appToken) {
+          checks.push({
+            name: `Channel ${name}`,
+            status: "warn",
+            detail: "Slack bot/app token missing",
+          });
+          continue;
+        }
+        try {
+          const api = new SlackApi(botToken, appToken);
+          const me = await api.authTest();
+          await api.openSocketConnection();
+          checks.push({
+            name: `Channel ${name}`,
+            status: "ok",
+            detail: `Slack ${me.user || "bot"} (${me.team || "workspace"})`,
+          });
+        } catch {
+          checks.push({
+            name: `Channel ${name}`,
+            status: "fail",
+            detail: "Could not reach Slack API / Socket Mode",
+          });
+        }
+        continue;
+      }
+
+      if (channel.type === "whatsapp") {
+        const authDirRaw = channel.credentials.authDir as string | undefined;
+        const authDir = (authDirRaw || defaultWhatsAppAuthDir()).trim() || defaultWhatsAppAuthDir();
+        const linked = await hasWhatsAppCredentials(authDir);
+        if (!linked) {
+          checks.push({
+            name: `Channel ${name}`,
+            status: "warn",
+            detail: "WhatsApp not linked. Run `tg init` and scan QR",
+          });
+          continue;
+        }
+
+        try {
+          const sock = await createWhatsAppSocket({ authDir, printQr: false, verbose: false });
+          try {
+            const result = await waitForWhatsAppConnection(sock, 30_000);
+            if (!result.connected) {
+              checks.push({
+                name: `Channel ${name}`,
+                status: "warn",
+                detail: `WhatsApp linked but not connected (${result.error || "connection closed"})`,
+              });
+            } else {
+              const selfId = getSocketSelfId(sock) || "connected";
+              checks.push({
+                name: `Channel ${name}`,
+                status: "ok",
+                detail: `WhatsApp ${selfId}`,
+              });
+            }
+          } finally {
+            await closeWhatsAppSocket(sock);
+          }
+        } catch {
+          checks.push({
+            name: `Channel ${name}`,
+            status: "fail",
+            detail: "Could not connect to WhatsApp Web session",
+          });
+        }
+        continue;
+      }
+
+      checks.push({
+        name: `Channel ${name}`,
+        status: "warn",
+        detail: `Unknown channel type: ${channel.type}`,
+      });
     }
 
     // 3. Paired users
     const pairedUsers = getAllPairedUsers(config);
     checks.push({
       name: "Paired users",
-      status: pairedUsers.length === 1 ? "ok" : pairedUsers.length === 0 ? "warn" : "fail",
+      status: pairedUsers.length >= 1 ? "ok" : "warn",
       detail: `${pairedUsers.length} user(s)`,
     });
   } catch {

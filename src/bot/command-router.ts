@@ -22,8 +22,15 @@ export async function routeMessage(
   msg: InboundMessage,
   ctx: RouterContext
 ): Promise<void> {
-  const text = msg.text?.trim();
+  let text = msg.text?.trim();
   if (!text) return;
+
+  // Channel-agnostic command aliases for platforms where slash commands are not practical (e.g. Slack).
+  if (text === "tg help") text = "/help";
+  else if (text === "tg sessions") text = "/sessions";
+  else if (text === "tg link" || text.startsWith("tg link ")) text = `/link${text.slice("tg link".length)}`;
+  else if (text === "tg unlink") text = "/unlink";
+  else if (text === "tg pair" || text.startsWith("tg pair ")) text = `/pair${text.slice("tg pair".length)}`;
 
   const userId = msg.userId;
   const chatId = msg.chatId;
@@ -38,13 +45,13 @@ export async function routeMessage(
 
   // /pair is always available (for unpaired users)
   if (text.startsWith("/pair")) {
-    await handlePair(msg, ctx);
+    await handlePair({ ...msg, text }, ctx);
     return;
   }
 
   // /start and /help are always available
   if (text === "/start" || text === "/help") {
-    await handleHelp(msg, ctx);
+    await handleHelp({ ...msg, text }, ctx);
     return;
   }
 

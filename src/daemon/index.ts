@@ -1,5 +1,5 @@
 import { loadConfig, invalidateCache, saveConfig } from "../config/store";
-import { getTelegramBotToken, getAllLinkedGroups, getAllPairedUsers, isLinkedGroup, removeLinkedGroup } from "../config/schema";
+import { getAllLinkedGroups, getAllPairedUsers, isLinkedGroup, removeLinkedGroup } from "../config/schema";
 import { logger } from "./logger";
 import { writePidFile, installSignalHandlers, onShutdown, removeAuthToken, removeControlPortFile, removePidFile, removeSocket } from "./lifecycle";
 import { startControlServer, type ChannelInfo } from "./control-server";
@@ -32,12 +32,6 @@ export async function startDaemon(): Promise<void> {
     invalidateCache();
     config = await loadConfig();
   }
-  const botToken = getTelegramBotToken(config);
-  if (!botToken) {
-    await logger.error("No bot token configured. Run `tg init` first.");
-    console.error("No bot token configured. Run `tg init` first.");
-    process.exit(1);
-  }
 
   installSignalHandlers();
   await writePidFile();
@@ -46,8 +40,17 @@ export async function startDaemon(): Promise<void> {
   const sessionManager = new SessionManager(config.settings);
 
   // Create channel instances from config
+  const configuredChannels = Object.entries(config.channels);
+  if (configuredChannels.length > 1) {
+    await logger.error("Multiple channels configured; only one is supported right now", {
+      channels: configuredChannels.map(([name, cfg]) => `${name}:${cfg.type}`),
+    });
+    console.error("Multiple channels are configured. Keep one active channel and re-run `tg init`.");
+    process.exit(1);
+  }
+
   const channels: Channel[] = [];
-  for (const [name, cfg] of Object.entries(config.channels)) {
+  for (const [name, cfg] of configuredChannels) {
     channels.push(createChannel(name, cfg));
   }
 
@@ -151,7 +154,7 @@ export async function startDaemon(): Promise<void> {
     }
 
     const q = pending.questions[idx];
-    // Build options for poll (max 10 real options, Telegram limit is 10)
+    // Build options for poll (max 10 real options to keep UI manageable across channels)
     const optionLabels = q.options.slice(0, 9).map((o) => o.label);
     optionLabels.push("Other (type a reply)");
 
@@ -426,9 +429,7 @@ export async function startDaemon(): Promise<void> {
 
       // DM channels: one per paired user per bot
       for (const user of pairedUsers) {
-        const dmChatId = user.userId.startsWith("telegram:")
-          ? `telegram:${user.userId.split(":")[1]}`
-          : user.userId;
+        const dmChatId = user.userId;
         let title = "DM";
         for (const ch of channels) {
           if (ch.getBotName) {
@@ -602,7 +603,7 @@ export async function startDaemon(): Promise<void> {
       }
       if (!fileStats.isFile()) return { ok: false, error: `Not a file: ${filePath}` };
       if (fileStats.size <= 0) return { ok: false, error: "File is empty" };
-      if (fileStats.size > 50 * 1024 * 1024) return { ok: false, error: "File exceeds 50MB Telegram limit" };
+      if (fileStats.size > 50 * 1024 * 1024) return { ok: false, error: "File exceeds 50MB channel upload limit" };
 
       const targets = new Set<ChannelChatId>();
       const targetChat = sessionManager.getBoundChat(sessionId) || remote.chatId;
@@ -626,7 +627,7 @@ export async function startDaemon(): Promise<void> {
       const html = formatToolCall(fmt, name, input);
       if (!html) return;
       primaryChannel.send(targetChat, html);
-      // Re-assert typing — send() clears it on Telegram's side
+      // Re-assert typing for channels that support typing state.
       primaryChannel.setTyping(targetChat, true);
     },
     handleTyping(sessionId: string, active: boolean): void {

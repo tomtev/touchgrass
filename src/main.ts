@@ -108,7 +108,7 @@ Options (for claude/codex/pi):
   send     Send text to session stdin or send file to its channel(s) (tg send <id> "msg" | tg send --file <id> <path>)
   peek     Peek at last messages from session(s) (tg peek <id>|--all [count])
   links    List and manage linked groups/topics
-  init     Set up bot token
+  init     Set up channel credentials (Telegram/Slack/WhatsApp)
   pair     Generate a pairing code
   logs     Tail the daemon log
   doctor   Check system health

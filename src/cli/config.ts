@@ -16,6 +16,10 @@ export async function runConfig(): Promise<void> {
         const token = creds.botToken as string;
         creds.botToken = token.slice(0, 6) + "..." + token.slice(-4);
       }
+      if (typeof creds.appToken === "string" && creds.appToken) {
+        const token = creds.appToken as string;
+        creds.appToken = token.slice(0, 6) + "..." + token.slice(-4);
+      }
     }
     console.log(JSON.stringify(display, null, 2));
     return;
