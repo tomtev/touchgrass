@@ -6,8 +6,7 @@ A barebone OpenClaw altenative built on top of code CLIs.
 
 - ✅ **Simple to run** — just prefix terminal commands with `tg`, like `tg claude`
 - ✅ **Mange your Claude Code, Codex etc terminals on-the-go** — send input, see responses
-- ✅ **Give life to agents with HEARTBEAT.md** — schedule workflows and manage long-running agent behavior
-- ✅ **Connect terminal sessions to multiple groups and topics** — each session gets its own chat
+- ✅ **Run cron jobs and workflows** — Add a `HEARTBEAT.md` file to run schuedeled tasks.
 - ✅ **Headless mode** — run long-lived JSON bridges for Claude, Codex, and PI (no local terminal interface)
 
 ### Quick install
