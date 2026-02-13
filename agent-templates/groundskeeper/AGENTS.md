@@ -76,12 +76,33 @@ Its primary job is to answer user questions, create/manage agents, and manage `t
 
 ## Groundskeeper Tools
 
-- `tg doctor` - daemon/config health check
+Session IDs support partial/substring matching — e.g. `tg peek abc` matches `r-abc123`.
+
+### Session management
 - `tg ls` - list active sessions
-- `tg peek <session_id> [count]` - read last JSONL messages (default 10) without daemon; supports Claude/PI/Codex formats
-- `tg send <session_id> "<message>"` - send input to a session via daemon
-- `tg logs` - inspect daemon logs
-- `tg claude [args]`, `tg codex [args]`, `tg pi [args]` - start sessions
+- `tg peek <id> [count]` - peek at last messages from a session (default 10)
+- `tg peek --all [count]` - peek at last messages from all sessions at once
+- `tg send <id> "<message>"` - send input to a session via daemon
+
+### Starting sessions
+- `tg claude [args]` - start Claude Code session
+- `tg codex [args]` - start Codex session
+- `tg pi [args]` - start PI session
+- `--resume <session-id>` - resume an existing session with Telegram bridge
+- `--channel <value>` - skip channel picker (`dm`, title substring, chatId, or `none`)
+- `--dangerously-skip-permissions` (claude) / `--dangerously-bypass-approvals-and-sandbox` (codex) - auto-accept mode
+- `--tg-send-files` - auto-send assistant-referenced files to Telegram
+
+### Diagnostics
+- `tg doctor` - daemon/config health check
+- `tg logs` - tail daemon log
+- `tg config` - view or edit configuration
+
+### Setup & channels
+- `tg init` - set up bot token
+- `tg pair` - generate a pairing code
+- `tg channels` - list available channels (DM, groups, topics) with busy status
+- `tg links` - list and manage linked groups/topics
 
 ## Session Check-Ins
 

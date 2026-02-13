@@ -96,7 +96,7 @@ export async function routeMessage(
     const lines = sessions.map((s) => {
       const label = s.id;
       const isMain = label === mainId;
-      const marker = isMain ? " (subscribed)" : "";
+      const marker = isMain ? " (connected)" : "";
       return `${fmt.code(label)} ${fmt.escape(s.command)}${marker}`;
     });
     await ctx.channel.send(chatId, lines.join("\n"));
@@ -134,7 +134,7 @@ export async function routeMessage(
       const added = addLinkedGroup(ctx.config, chatId, msg.chatTitle);
       if (added) {
         await saveConfig(ctx.config);
-        await ctx.channel.send(chatId, `Group linked. Sessions can now be subscribed to this group.`);
+        await ctx.channel.send(chatId, `Group added as a channel. Use ${fmt.code("tg channels")} to see all channels.`);
       } else {
         await ctx.channel.send(chatId, `This group is already linked.`);
       }
@@ -156,59 +156,6 @@ export async function routeMessage(
     }
     return;
   }
-
-  // /subscribe <id> — subscribe this chat to a session
-  if (text.startsWith("/subscribe")) {
-    const sessionId = text.slice(10).trim();
-    if (!sessionId) {
-      await ctx.channel.send(chatId, `Usage: /subscribe ${fmt.escape("<session-id>")}\nExample: ${fmt.code("/subscribe r-abc123")}`);
-      return;
-    }
-    if (msg.isGroup && !isLinkedGroup(ctx.config, chatId)) {
-      await ctx.channel.send(chatId, `This group is not linked yet. Run ${fmt.code("/link")} first.`);
-      return;
-    }
-    if (!ctx.sessionManager.canUserAccessSession(userId, sessionId)) {
-      await ctx.channel.send(chatId, `Session ${fmt.code(fmt.escape(sessionId))} not found.`);
-      return;
-    }
-    if (ctx.sessionManager.attach(chatId, sessionId)) {
-      // Subscribe group chats to session output
-      if (msg.isGroup) {
-        ctx.sessionManager.subscribeGroup(sessionId, chatId);
-      }
-      const remote = ctx.sessionManager.getRemote(sessionId);
-      const label = remote?.cwd.split("/").pop() || sessionId;
-      let reply = `Subscribed to ${fmt.bold(fmt.escape(label))} ${fmt.italic(`(${fmt.escape(sessionId)})`)}`;
-      if (msg.isGroup) {
-        reply += `\n\n${fmt.escape("⚠️")} For plain text messages to work in groups, disable ${fmt.bold("Group Privacy")} in @BotFather (${fmt.code("/setprivacy")} ${fmt.escape("→")} Disable).`;
-      }
-      await ctx.channel.send(chatId, reply);
-    } else {
-      await ctx.channel.send(chatId, `Session ${fmt.code(fmt.escape(sessionId))} not found.`);
-    }
-    return;
-  }
-
-  // /unsubscribe — unsubscribe this chat from its session
-  if (text === "/unsubscribe") {
-    const attached = ctx.sessionManager.getAttached(chatId);
-    const attachedRemote = ctx.sessionManager.getAttachedRemote(chatId);
-    const attachedId = attached?.ownerUserId === userId ? attached.id : undefined;
-    const attachedRemoteId = attachedRemote?.ownerUserId === userId ? attachedRemote.id : undefined;
-    const sessionId = attachedId || attachedRemoteId;
-    if (sessionId) {
-      ctx.sessionManager.detach(chatId);
-      if (msg.isGroup) {
-        ctx.sessionManager.unsubscribeGroup(sessionId, chatId);
-      }
-      await ctx.channel.send(chatId, `Unsubscribed from ${fmt.italic(`(${fmt.escape(sessionId)})`)}`);
-    } else {
-      await ctx.channel.send(chatId, "Not subscribed to any session.");
-    }
-    return;
-  }
-
 
   // tg <command> - session management and spawning
   if (text.startsWith("tg ")) {

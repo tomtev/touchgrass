@@ -1,8 +1,8 @@
 import { loadConfig, invalidateCache, saveConfig } from "../config/store";
-import { getTelegramBotToken, getAllLinkedGroups, isLinkedGroup, removeLinkedGroup } from "../config/schema";
+import { getTelegramBotToken, getAllLinkedGroups, getAllPairedUsers, isLinkedGroup, removeLinkedGroup } from "../config/schema";
 import { logger } from "./logger";
 import { writePidFile, installSignalHandlers, onShutdown, removeAuthToken, removeControlPortFile, removePidFile, removeSocket } from "./lifecycle";
-import { startControlServer } from "./control-server";
+import { startControlServer, type ChannelInfo } from "./control-server";
 import { routeMessage } from "../bot/command-router";
 import { SessionManager } from "../session/manager";
 import { generatePairingCode } from "../security/pairing";
@@ -416,6 +416,50 @@ export async function startDaemon(): Promise<void> {
     },
     generatePairingCode() {
       return generatePairingCode();
+    },
+    async getChannels(): Promise<ChannelInfo[]> {
+      await refreshConfig();
+      const pairedUsers = getAllPairedUsers(config);
+      const results: ChannelInfo[] = [];
+
+      // DM channels: one per paired user per bot
+      for (const user of pairedUsers) {
+        const dmChatId = user.userId.startsWith("telegram:")
+          ? `telegram:${user.userId.split(":")[1]}`
+          : user.userId;
+        let title = "DM";
+        for (const ch of channels) {
+          if (ch.getBotName) {
+            try { title = await ch.getBotName(); } catch {}
+            break;
+          }
+        }
+        const bound = sessionManager.getAttachedRemote(dmChatId);
+        results.push({
+          chatId: dmChatId,
+          title,
+          type: "dm",
+          busy: !!bound,
+          busyLabel: bound ? sessionLabel(bound.command, bound.cwd) : null,
+        });
+      }
+
+      // Linked groups and topics
+      const rawGroups = getAllLinkedGroups(config);
+      for (const g of rawGroups) {
+        const parts = g.chatId.split(":");
+        const isTopic = parts.length >= 3;
+        const bound = sessionManager.getAttachedRemote(g.chatId);
+        results.push({
+          chatId: g.chatId,
+          title: g.title || g.chatId,
+          type: isTopic ? "topic" : "group",
+          busy: !!bound,
+          busyLabel: bound ? sessionLabel(bound.command, bound.cwd) : null,
+        });
+      }
+
+      return results;
     },
     async registerRemote(command: string, chatId: ChannelChatId, ownerUserId: ChannelUserId, cwd: string, existingId?: string, subscribedGroups?: string[]): Promise<{ sessionId: string; dmBusy: boolean; dmBusyLabel?: string; linkedGroups: Array<{ chatId: string; title?: string }>; allLinkedGroups: Array<{ chatId: string; title?: string; busyLabel?: string }> }> {
       cancelAutoStop();

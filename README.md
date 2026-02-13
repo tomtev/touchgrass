@@ -83,6 +83,10 @@ tg codex                                              # Start Codex
 tg codex --dangerously-bypass-approvals-and-sandbox   # Start Codex in auto-accept mode
 tg pi                                    # Start PI
 tg claude --tg-send-files                # Opt-in: auto-send assistant-referenced files
+tg claude --channel dm                   # Skip picker, bind to DM
+tg claude --channel "Dev Team"           # Skip picker, bind by title
+tg claude --channel telegram:-987:12     # Skip picker, bind by chatId
+tg claude --channel none                 # Skip picker, no channel binding
 ```
 
 That's it. You'll get agent responses in Telegram and can send input back from your phone.
@@ -132,6 +136,7 @@ Two processes cooperate:
 | Command | Description |
 |---------|-------------|
 | `tg ls` | List active sessions |
+| `tg channels` | List available channels (DM, groups, topics) with busy status |
 | `tg send <id> <message>` | Send a message to a session |
 | `tg peek <id> [count]` | Peek at recent messages from a session (default: 10) |
 | `tg peek --all [count]` | Peek at recent messages from all sessions |
@@ -141,13 +146,11 @@ Two processes cooperate:
 | Command | Description |
 |---------|-------------|
 | `/sessions` | List active sessions |
-| `/subscribe <id>` | Subscribe this chat to a session |
-| `/unsubscribe` | Unsubscribe from current session |
-| `/link` | Register this group/topic with the bot |
+| `/link` | Add this chat as a channel |
 | `/help` | Show help |
 | `/pair <code>` | Pair with a pairing code |
 
-Any plain text you send goes to the subscribed session.
+Any plain text you send goes to the connected session.
 
 ## Connect terminal sessions to Telegram
 
@@ -167,8 +170,6 @@ When you run `tg claude`, a picker lets you choose where to send output — your
 
   Add bot to a Telegram group and send /link to add more channels
 ```
-
-You can also subscribe from Telegram: `/subscribe <session-id>` in any linked group or topic.
 
 All group members can see responses, but only paired users can send input.
 

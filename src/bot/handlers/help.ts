@@ -6,13 +6,11 @@ function buildHelpText(fmt: Formatter): string {
   return `${fmt.bold(`${fmt.escape("⛳")} touchgrass.sh`)}
 
 ${fmt.bold("Sessions:")}
-Any text you send goes to the subscribed session.
+Any text you send goes to the connected session.
 
 ${fmt.bold("Commands:")}
 /sessions ${fmt.escape("—")} List active sessions
-/subscribe ${fmt.escape("<id> —")} Subscribe this chat to a session
-/unsubscribe ${fmt.escape("—")} Unsubscribe from current session
-/link ${fmt.escape("—")} Register this group with the bot
+/link ${fmt.escape("—")} Add this chat as a channel
 /help ${fmt.escape("—")} Show this help
 /pair ${fmt.escape("<code> —")} Pair with a pairing code
 

@@ -39,6 +39,11 @@ async function main() {
       await runLinks();
       break;
     }
+    case "channels": {
+      const { runChannels } = await import("./cli/channels");
+      await runChannels();
+      break;
+    }
     case "send": {
       const { runSend } = await import("./cli/send");
       await runSend();
@@ -90,8 +95,10 @@ Options (for claude/codex/pi):
   (Heartbeat runs automatically when HEARTBEAT.md exists)
   (Set heartbeat interval in HEARTBEAT.md: <heartbeat interval="15">...</heartbeat>)
   --tg-send-files        Allow assistant output paths to be auto-sent as Telegram files
+  --channel <value>      Skip channel picker (use "dm", a chatId, or title substring)
 
   ls       List active sessions
+  channels List available channels (DM, groups, topics) with busy status
   send     Send a message to a session (tg send <id> "msg")
   peek     Peek at last messages from session(s) (tg peek <id>|--all [count])
   links    List and manage linked groups/topics

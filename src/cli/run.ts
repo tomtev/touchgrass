@@ -523,6 +523,7 @@ interface ToolCallInfo {
 interface ToolResultInfo {
   toolName: string;
   content: string;
+  isError: boolean;
 }
 
 // Map tool_use_id/call_id → tool name so we can label tool_results
@@ -627,7 +628,8 @@ function extractToolResults(msg: Record<string, unknown>): ToolResultInfo[] {
     for (const block of content) {
       if (block.type !== "tool_result") continue;
       const toolName = toolUseIdToName.get(block.tool_use_id as string) ?? "";
-      if (!FORWARD_RESULT_TOOLS.has(toolName)) continue;
+      const isError = block.is_error === true;
+      if (!isError && !FORWARD_RESULT_TOOLS.has(toolName)) continue;
       let text = "";
       const c = block.content;
       if (typeof c === "string") {
@@ -638,7 +640,7 @@ function extractToolResults(msg: Record<string, unknown>): ToolResultInfo[] {
           .map((s) => s.text ?? "")
           .join("\n");
       }
-      if (text.trim()) results.push({ toolName, content: text.trim() });
+      if (text.trim()) results.push({ toolName: toolName || "unknown", content: text.trim(), isError });
     }
     return results;
   }
@@ -648,7 +650,8 @@ function extractToolResults(msg: Record<string, unknown>): ToolResultInfo[] {
     const m = msg.message as Record<string, unknown> | undefined;
     if (m?.role !== "toolResult") return [];
     const toolName = (m.toolName as string) || toolUseIdToName.get(m.toolCallId as string) || "";
-    if (!FORWARD_RESULT_TOOLS.has(toolName)) return [];
+    const isError = m.isError === true;
+    if (!isError && !FORWARD_RESULT_TOOLS.has(toolName)) return [];
     const content = m.content as Array<{ type: string; text?: string }> | undefined;
     if (!content || !Array.isArray(content)) return [];
     const text = content
@@ -656,7 +659,7 @@ function extractToolResults(msg: Record<string, unknown>): ToolResultInfo[] {
       .map((s) => s.text ?? "")
       .join("\n")
       .trim();
-    return text ? [{ toolName, content: text }] : [];
+    return text ? [{ toolName: toolName || "unknown", content: text, isError }] : [];
   }
 
   // Codex format: response_item with function_call_output or custom_tool_call_output
@@ -668,7 +671,7 @@ function extractToolResults(msg: Record<string, unknown>): ToolResultInfo[] {
       const toolName = toolUseIdToName.get(callId) ?? "";
       if (!FORWARD_RESULT_TOOLS.has(toolName)) return [];
       const output = (payload.output as string) ?? "";
-      return output.trim() ? [{ toolName, content: output.trim() }] : [];
+      return output.trim() ? [{ toolName: toolName || "unknown", content: output.trim(), isError: false }] : [];
     }
   }
 
@@ -888,6 +891,49 @@ function watchSessionFile(
   return watcher;
 }
 
+// Resolve --channel flag value to a chatId from available options.
+// Returns the chatId to bind, or null for "none" (no binding).
+function resolveChannelFlag(
+  value: string,
+  options: Array<{ chatId: string; title: string; type: string; busy: boolean }>,
+  ownerDmChatId: string
+): string | null {
+  const v = value.trim().toLowerCase();
+
+  // "none" — skip binding
+  if (v === "none") return null;
+
+  // "dm" keyword → owner DM
+  if (v === "dm") return ownerDmChatId;
+
+  // Exact chatId match (e.g. "telegram:-987:12")
+  const exactMatch = options.find((o) => o.chatId === value);
+  if (exactMatch) return exactMatch.chatId;
+
+  // Case-insensitive title substring match
+  const titleMatches = options.filter(
+    (o) => o.chatId && o.title.toLowerCase().includes(v)
+  );
+
+  if (titleMatches.length === 1) return titleMatches[0].chatId;
+
+  if (titleMatches.length > 1) {
+    console.error(`Ambiguous --channel "${value}". Multiple matches:`);
+    for (const m of titleMatches) {
+      const typeLabel = m.type === "dm" ? "DM" : m.type === "group" ? "Group" : "Topic";
+      const busyTag = m.busy ? ` (busy)` : "";
+      console.error(`  ${m.title}  (${typeLabel})  ${m.chatId}${busyTag}`);
+    }
+    console.error(`\nUse a more specific title or the full chatId.`);
+    process.exit(1);
+  }
+
+  // No match found
+  console.error(`Channel not found: "${value}"`);
+  console.error(`Run \`tg channels\` to see available channels.`);
+  process.exit(1);
+}
+
 export async function runRun(): Promise<void> {
   // Determine command: `tg claude [args]` or `tg codex [args]`
   const cmdName = process.argv[2];
@@ -925,6 +971,17 @@ export async function runRun(): Promise<void> {
   if (sendFilesIdx !== -1) {
     sendFilesFromAssistant = true;
     cmdArgs = [...cmdArgs.slice(0, sendFilesIdx), ...cmdArgs.slice(sendFilesIdx + 1)];
+  }
+
+  let channelFlag: string | null = null;
+  const channelIdx = cmdArgs.indexOf("--channel");
+  if (channelIdx !== -1) {
+    if (channelIdx + 1 >= cmdArgs.length) {
+      console.error("--channel requires a value (e.g. --channel dm, --channel \"Dev Team\", or --channel telegram:-123)");
+      process.exit(1);
+    }
+    channelFlag = cmdArgs[channelIdx + 1];
+    cmdArgs = [...cmdArgs.slice(0, channelIdx), ...cmdArgs.slice(channelIdx + 2)];
   }
 
   const heartbeatFile = join(process.cwd(), "HEARTBEAT.md");
@@ -987,7 +1044,9 @@ export async function runRun(): Promise<void> {
           // Build all options: DM (bot name) + all linked groups/topics (including busy from full list)
           const allGroups = (res.allLinkedGroups as Array<{ chatId: string; title?: string; busyLabel?: string }>) || groups;
           const dmBusyLabel = res.dmBusyLabel as string | undefined;
-          const options: Array<{ label: string; chatId: string; busy: boolean }> = [];
+          const options: Array<{ label: string; chatId: string; busy: boolean; title: string; type: string }> = [];
+          // Allow opting out of channel binding immediately.
+          options.push({ label: "No channel", chatId: "", busy: false, title: "No channel", type: "none" });
           let dmLabel = "DM";
           // Create channel early for bot name lookup
           const tempChannel = createChannel("telegram", { type: "telegram", credentials: { botToken }, pairedUsers: [], linkedGroups: [] });
@@ -995,7 +1054,7 @@ export async function runRun(): Promise<void> {
             if (tempChannel.getBotName) dmLabel = await tempChannel.getBotName();
           } catch {}
           const dmSuffix = dmBusy && dmBusyLabel ? `\x1b[2m(DM) ← ${dmBusyLabel}\x1b[22m` : "\x1b[2m(DM)\x1b[22m";
-          options.push({ label: `${dmLabel} ${dmSuffix}`, chatId: chatId!, busy: dmBusy });
+          options.push({ label: `${dmLabel} ${dmSuffix}`, chatId: chatId!, busy: dmBusy, title: dmLabel, type: "dm" });
 
           // Separate groups and topics, then interleave topics under their parent group
           const groupEntries: Array<{ chatId: string; title?: string; busy: boolean; busyLabel?: string }> = [];
@@ -1011,12 +1070,12 @@ export async function runRun(): Promise<void> {
           }
           for (const g of groupEntries) {
             const suffix = g.busy && g.busyLabel ? `\x1b[2m(Group) ← ${g.busyLabel}\x1b[22m` : "\x1b[2m(Group)\x1b[22m";
-            options.push({ label: `${g.title || g.chatId} ${suffix}`, chatId: g.chatId, busy: g.busy });
+            options.push({ label: `${g.title || g.chatId} ${suffix}`, chatId: g.chatId, busy: g.busy, title: g.title || g.chatId, type: "group" });
             // Insert topics belonging to this group immediately after
             for (const t of topicEntries) {
               if (t.parentChatId === g.chatId) {
                 const tSuffix = t.busy && t.busyLabel ? `\x1b[2m(Topic) ← ${t.busyLabel}\x1b[22m` : "\x1b[2m(Topic)\x1b[22m";
-                options.push({ label: `  ${t.title || "Topic"} ${tSuffix}`, chatId: t.chatId, busy: t.busy });
+                options.push({ label: `  ${t.title || "Topic"} ${tSuffix}`, chatId: t.chatId, busy: t.busy, title: t.title || "Topic", type: "topic" });
               }
             }
           }
@@ -1024,15 +1083,30 @@ export async function runRun(): Promise<void> {
           for (const t of topicEntries) {
             if (!groupEntries.some((g) => g.chatId === t.parentChatId)) {
               const tSuffix = t.busy && t.busyLabel ? `\x1b[2m(Topic) ← ${t.busyLabel}\x1b[22m` : "\x1b[2m(Topic)\x1b[22m";
-              options.push({ label: `  ${t.title || "Topic"} ${tSuffix}`, chatId: t.chatId, busy: t.busy });
+              options.push({ label: `  ${t.title || "Topic"} ${tSuffix}`, chatId: t.chatId, busy: t.busy, title: t.title || "Topic", type: "topic" });
             }
           }
 
-          // Add "None" option at the end
-          options.push({ label: `None \x1b[2m(Connect later)\x1b[22m`, chatId: "", busy: false });
-
-          if (options.length === 2 && !dmBusy) {
-            // Only DM + None, no groups — auto-bind to DM silently
+          if (channelFlag) {
+            // --channel flag: resolve to a chatId and bind directly, skip picker
+            const resolvedChatId = resolveChannelFlag(channelFlag, options, chatId!);
+            if (resolvedChatId) {
+              try {
+                await daemonRequest("/remote/bind-chat", "POST", {
+                  sessionId: remoteId,
+                  chatId: resolvedChatId,
+                  ownerUserId,
+                });
+                chatId = resolvedChatId as ChannelChatId;
+                didBindChat = true;
+              } catch (bindErr) {
+                console.error(`\x1b[33m⚠ ${(bindErr as Error).message}\x1b[0m`);
+                process.exit(1);
+              }
+            }
+            // resolvedChatId === null means "none" — skip binding
+          } else if (options.length === 2 && !dmBusy) {
+            // Only DM + No channel, no groups — auto-bind to DM silently
             await daemonRequest("/remote/bind-chat", "POST", {
               sessionId: remoteId,
               chatId,
@@ -1409,6 +1483,7 @@ export async function runRun(): Promise<void> {
               daemonRequest(`/remote/${tgRemoteId}/tool-result`, "POST", {
                 toolName: result.toolName,
                 content: result.content,
+                isError: result.isError,
               }).catch(() => {});
             }
           }

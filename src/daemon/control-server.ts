@@ -5,12 +5,21 @@ import { removeControlPortFile, removeSocket, onShutdown } from "./lifecycle";
 import { timingSafeEqual } from "crypto";
 import { chmod, writeFile } from "fs/promises";
 
+export interface ChannelInfo {
+  chatId: string;
+  title: string;
+  type: "dm" | "group" | "topic";
+  busy: boolean;
+  busyLabel: string | null;
+}
+
 export interface DaemonContext {
   authToken: string;
   startedAt: number;
   getStatus: () => Record<string, unknown>;
   shutdown: () => Promise<void>;
   generatePairingCode: () => string;
+  getChannels: () => Promise<ChannelInfo[]>;
   registerRemote: (command: string, chatId: ChannelChatId, ownerUserId: ChannelUserId, cwd: string, sessionId?: string, subscribedGroups?: string[]) => Promise<{ sessionId: string; dmBusy: boolean; linkedGroups: Array<{ chatId: string; title?: string }>; allLinkedGroups: Array<{ chatId: string; title?: string }> }>;
   bindChat: (sessionId: string, chatId: ChannelChatId) => Promise<{ ok: boolean; error?: string }>;
   canUserAccessSession: (userId: ChannelUserId, sessionId: string) => boolean;
@@ -81,6 +90,11 @@ export async function startControlServer(ctx: DaemonContext): Promise<void> {
 
       if (path === "/health") {
         return Response.json({ ok: true, pid: process.pid, startedAt: ctx.startedAt });
+      }
+
+      if (path === "/channels") {
+        const channels = await ctx.getChannels();
+        return Response.json({ ok: true, channels });
       }
 
       if (path === "/remote/register" && req.method === "POST") {

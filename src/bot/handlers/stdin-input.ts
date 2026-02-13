@@ -40,7 +40,7 @@ export async function handleStdinInput(
   // 1. Check regular attached sessions
   const session = ctx.sessionManager.getAttached(chatId);
   if (session && session.ownerUserId !== userId) {
-    await ctx.channel.send(chatId, "This chat is subscribed to another user's session.");
+    await ctx.channel.send(chatId, "This chat is connected to another user's session.");
     return;
   }
   if (session && session.ownerUserId === userId) {
@@ -53,7 +53,7 @@ export async function handleStdinInput(
   // 2. Check attached remote sessions
   const remote = ctx.sessionManager.getAttachedRemote(chatId);
   if (remote && remote.ownerUserId !== userId) {
-    await ctx.channel.send(chatId, "This chat is subscribed to another user's session.");
+    await ctx.channel.send(chatId, "This chat is connected to another user's session.");
     return;
   }
   if (remote && remote.ownerUserId === userId) {
@@ -81,7 +81,7 @@ export async function handleStdinInput(
     }).join("\n");
     await ctx.channel.send(
       chatId,
-      `${msg.isGroup ? "Use /subscribe to attach this group to a session" : "Multiple sessions active"}. Reply to a message, or prefix with session ID:\n\n${list}\n\nUse ${fmt.code(`/subscribe ${fmt.escape(remotes[0].id)}`)} to set default.`
+      `Multiple sessions active. Reply to a message, or prefix with session ID:\n\n${list}`
     );
     return;
   }

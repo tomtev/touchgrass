@@ -16,7 +16,7 @@ bun run build         # Compile to standalone binary
 bun run typecheck     # tsc --noEmit
 ```
 
-CLI commands: `tg init`, `tg pair`, `tg claude [args]`, `tg codex [args]`, `tg pi [args]`, `tg ls`, `tg doctor`, `tg config`, `tg logs`
+CLI commands: `tg init`, `tg pair`, `tg claude [args]`, `tg codex [args]`, `tg pi [args]`, `tg ls`, `tg channels`, `tg doctor`, `tg config`, `tg logs`
 
 ## Architecture Overview
 
@@ -87,6 +87,7 @@ User terminal                         Telegram
 | `src/cli/doctor.ts` | Health checks |
 | `src/cli/config.ts` | View/edit config |
 | `src/cli/ls.ts` | List sessions |
+| `src/cli/channels.ts` | List available channels (DM, groups, topics) with busy status |
 | `src/cli/client.ts` | `daemonRequest()` helper for control transport (Unix socket or localhost TCP) |
 | `src/cli/logs.ts` | Tail daemon log |
 
@@ -142,14 +143,12 @@ No explicit start/stop. `ensureDaemon()` checks PID + health, forks if needed. D
 2. Session prefix: `r-abc123 some text`
 3. Connected session (regular)
 4. Connected remote session
-5. Single remote auto-route (DMs only — groups always require explicit `/subscribe`)
-6. No connection: show session list with `/subscribe` instructions
+5. Single remote auto-route (DMs only — groups require explicit channel binding via CLI)
+6. No connection: show session list
 
 ### Bot Commands
 - `/sessions` — List active sessions
-- `/subscribe <id>` — Subscribe this chat/group to a session
-- `/unsubscribe` — Unsubscribe from current session
-- `/link` — Register this group/topic with the bot (stores in config)
+- `/link` — Add this chat as a channel (stores in config)
 - `/help` — Show help
 - `/pair <code>` — Pair with a pairing code
 
@@ -181,6 +180,7 @@ Old format (`botToken` at top level, `pairedUsers[].telegramId: number`) auto-mi
 | GET | `/health` | Liveness check (pid, startedAt) |
 | POST | `/shutdown` | Graceful shutdown |
 | POST | `/generate-code` | Generate pairing code |
+| GET | `/channels` | List all available channels with busy status |
 | POST | `/remote/register` | Register remote session (body: command, chatId, cwd, name) |
 | GET | `/remote/:id/input` | Drain remote input queue |
 | POST | `/remote/:id/exit` | Mark remote session done (body: exitCode) |
