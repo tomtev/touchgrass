@@ -637,6 +637,10 @@ const FORWARD_RESULT_TOOLS = new Set([
   "exec_command",                     // Codex
 ]);
 
+// Tool rejections the user already sees in their terminal — don't echo to Telegram
+const isToolRejection = (text: string) =>
+  text.includes("The user doesn't want to proceed with this tool use");
+
 function extractToolResults(msg: Record<string, unknown>): ToolResultInfo[] {
   // Claude format: top-level "user" with tool_result content blocks
   if (msg.type === "user") {
@@ -659,6 +663,7 @@ function extractToolResults(msg: Record<string, unknown>): ToolResultInfo[] {
           .map((s) => s.text ?? "")
           .join("\n");
       }
+      if (isError && isToolRejection(text)) continue;
       if (text.trim()) results.push({ toolName: toolName || "unknown", content: text.trim(), isError });
     }
     return results;
@@ -678,6 +683,7 @@ function extractToolResults(msg: Record<string, unknown>): ToolResultInfo[] {
       .map((s) => s.text ?? "")
       .join("\n")
       .trim();
+    if (isError && isToolRejection(text)) return [];
     return text ? [{ toolName: toolName || "unknown", content: text, isError }] : [];
   }
 
