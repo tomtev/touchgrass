@@ -97,8 +97,8 @@ Commands:
   pi       Run PI with chat bridge
 
 Options (for claude/codex/pi):
-  (Heartbeat runs only in --agent-mode when HEARTBEAT.md exists)
-  (Set heartbeat interval in HEARTBEAT.md: <heartbeat interval="15">...</heartbeat>)
+  (Heartbeat runs only in --agent-mode when AGENTS.md contains <agent-heartbeat>)
+  (Set heartbeat interval in AGENTS.md: <agent-heartbeat interval="15">...</agent-heartbeat>)
   --channel <value>      Skip channel picker (use "dm", a chatId, or title substring)
   --agent-mode           Run in long-lived JSON bridge mode (no local terminal interface)
 

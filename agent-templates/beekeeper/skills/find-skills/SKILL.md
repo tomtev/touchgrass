@@ -7,7 +7,7 @@ description: Discover and install skills for personal agent workflows (email, ca
 
 Use this skill to discover and install skills for personal assistant and life-ops automation.
 Default focus is personal agent work, not web development.
-Scheduling is handled by `HEARTBEAT.md` and `workflows/*.md`, not by finding scheduler skills.
+Scheduling is handled by `<agent-heartbeat>` in `AGENTS.md` and `workflows/*.md`, not by finding scheduler skills.
 
 ## When to Use This Skill
 
@@ -102,7 +102,7 @@ After installation:
 
 1. Add the skill path to `AGENTS.md` under `## Available Skills`
 2. Create or update `workflows/<workflow-name>.md` with concrete steps
-3. Update `HEARTBEAT.md` cadence and routing for that workflow
+3. Update `<agent-heartbeat>` in `AGENTS.md` for that workflow cadence/routing
 4. Confirm behavior with one simple test command
 
 ## Priority Domains

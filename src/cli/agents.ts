@@ -637,7 +637,7 @@ function parseProfileOptions(args: string[], defaults: AgentInstallProfile): Pro
 function printTemplatesAndUsage(): void {
   console.log("Agent templates:");
   console.log(`  - ${BEEKEEPER_ID}: ${BEEKEEPER_NAME}`);
-  console.log("      Full operational template with AGENTS.md, CLAUDE.md, HEARTBEAT.md, workflows/, and core skills.");
+  console.log("      Full operational template with AGENTS.md, CLAUDE.md, workflows/, and core skills.");
   console.log("  - custom (<agent-id>)");
   console.log("      General-purpose template for creating a new agent package.");
   console.log("");

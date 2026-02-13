@@ -3,7 +3,7 @@
 Use this folder for detailed workflow markdown files.
 
 Pattern:
-- Keep schedule/cadence in `HEARTBEAT.md`
+- Keep schedule/cadence in `<agent-heartbeat>` in `AGENTS.md`
 - Keep execution details in `workflows/*.md`
 
 Example files:

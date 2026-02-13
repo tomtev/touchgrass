@@ -26,7 +26,7 @@ const APPROVAL_PATTERNS: Record<string, { promptText: string; optionText: string
 };
 
 function stripHeartbeatComments(content: string): string {
-  // Ignore C-style block comments in HEARTBEAT.md.
+  // Ignore C-style block comments in AGENTS.md heartbeat blocks.
   return content.replace(/\/\*[\s\S]*?\*\//g, "");
 }
 
@@ -93,7 +93,8 @@ function parseDurationMinutes(value: string | undefined): number | null {
 }
 
 function parseHeartbeatConfig(content: string): HeartbeatConfig | null {
-  const hbMatch = content.match(/<heartbeat\b([^>]*)>([\s\S]*?)<\/heartbeat>/i);
+  const cleaned = getHeartbeatInstructions(content);
+  const hbMatch = cleaned.match(/<agent-heartbeat\b([^>]*)>([\s\S]*?)<\/agent-heartbeat>/i);
   if (!hbMatch) return null;
 
   const hbAttrs = parseXmlAttrs(hbMatch[1] || "");
@@ -226,12 +227,11 @@ function resolveHeartbeatTick(
   state: HeartbeatRuntimeState,
   readWorkflow: (workflowPath: string) => string | null
 ): HeartbeatTickResolution {
-  const content = getHeartbeatInstructions(rawHeartbeat);
-  if (!content) {
+  const parsed = parseHeartbeatConfig(rawHeartbeat);
+  if (!parsed) {
     return { workflows: [], plainText: null };
   }
 
-  const parsed = parseHeartbeatConfig(content);
   if (parsed && parsed.runs.length > 0) {
     const workflows: HeartbeatWorkflowTick[] = [];
     for (const run of parsed.runs) {
@@ -250,7 +250,7 @@ function resolveHeartbeatTick(
     return { workflows, plainText: null };
   }
 
-  const plainText = (parsed ? parsed.textContent : content).trim();
+  const plainText = parsed.textContent.trim();
   if (!plainText) {
     return { workflows: [], plainText: null };
   }
@@ -908,11 +908,11 @@ function parseJsonLine(line: string): Record<string, unknown> | null {
   }
 }
 
-async function promptAgentModeForHeartbeat(heartbeatFilePath: string): Promise<boolean> {
+async function promptAgentModeForHeartbeat(agentsFilePath: string): Promise<boolean> {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   try {
     const answer = (await rl.question(
-      `HEARTBEAT.md detected at ${heartbeatFilePath}. Run in --agent-mode to enable heartbeat? [Y/n] `
+      `<agent-heartbeat> detected in ${agentsFilePath}. Run in --agent-mode to enable heartbeat? [Y/n] `
     )).trim().toLowerCase();
     if (!answer || answer === "y" || answer === "yes") return true;
     return false;
@@ -1110,7 +1110,7 @@ interface HeadlessRunOptions {
   ownerUserId: string;
   didBindChat: boolean;
   heartbeatEnabled: boolean;
-  heartbeatFile: string;
+  heartbeatSourceFile: string;
   heartbeatInterval: number;
 }
 
@@ -1125,7 +1125,7 @@ async function runHeadlessSession(opts: HeadlessRunOptions): Promise<number> {
     chatId,
     didBindChat,
     heartbeatEnabled,
-    heartbeatFile,
+    heartbeatSourceFile,
     heartbeatInterval,
   } = opts;
 
@@ -1659,7 +1659,7 @@ async function runHeadlessSession(opts: HeadlessRunOptions): Promise<number> {
     heartbeatTimer = setInterval(() => {
       let raw: string;
       try {
-        raw = readFileSync(heartbeatFile, "utf-8");
+        raw = readFileSync(heartbeatSourceFile, "utf-8");
       } catch {
         return;
       }
@@ -1736,20 +1736,20 @@ export async function runRun(): Promise<void> {
 
   if (cmdArgs.includes("--tg-heartbeat")) {
     console.error("`--tg-heartbeat` has been removed.");
-    console.error("Heartbeat now runs automatically when HEARTBEAT.md exists.");
+    console.error("Heartbeat now runs automatically when AGENTS.md contains <agent-heartbeat>.");
     process.exit(1);
   }
 
   if (cmdArgs.includes("--tg-interval")) {
     console.error("`--tg-interval` has been removed.");
-    console.error("Set interval in HEARTBEAT.md: <heartbeat interval=\"15\">...</heartbeat>");
+    console.error("Set interval in AGENTS.md: <agent-heartbeat interval=\"15\">...</agent-heartbeat>");
     process.exit(1);
   }
 
   const removedHbArg = cmdArgs.find((arg) => arg === "--hb-interval" || arg.startsWith("--hb-interval="));
   if (removedHbArg) {
     console.error("`--hb-interval` has been removed.");
-    console.error("Set interval in HEARTBEAT.md: <heartbeat interval=\"15\">...</heartbeat>");
+    console.error("Set interval in AGENTS.md: <agent-heartbeat interval=\"15\">...</agent-heartbeat>");
     process.exit(1);
   }
 
@@ -1785,16 +1785,21 @@ export async function runRun(): Promise<void> {
     ? channelFlag.split(":")[0]
     : undefined;
 
-  const heartbeatFile = join(process.cwd(), "HEARTBEAT.md");
+  const heartbeatSourceFile = join(process.cwd(), "AGENTS.md");
   let heartbeatEnabled = false;
-  let heartbeatFileExists = false;
+  let heartbeatConfigured = false;
+  let heartbeatConfig: HeartbeatConfig | null = null;
   try {
-    heartbeatFileExists = statSync(heartbeatFile).isFile();
+    if (statSync(heartbeatSourceFile).isFile()) {
+      const rawAgents = readFileSync(heartbeatSourceFile, "utf-8");
+      heartbeatConfig = parseHeartbeatConfig(rawAgents);
+      heartbeatConfigured = !!heartbeatConfig;
+    }
   } catch {}
 
-  if (!agentMode && heartbeatFileExists) {
+  if (!agentMode && heartbeatConfigured) {
     if (process.stdin.isTTY && process.stdout.isTTY) {
-      const shouldEnableAgentMode = await promptAgentModeForHeartbeat(heartbeatFile);
+      const shouldEnableAgentMode = await promptAgentModeForHeartbeat(heartbeatSourceFile);
       if (shouldEnableAgentMode) {
         agentMode = true;
         console.log("⛳️ Enabling --agent-mode for this run.");
@@ -1802,21 +1807,16 @@ export async function runRun(): Promise<void> {
         console.log("Continuing in terminal mode (heartbeat disabled).");
       }
     } else {
-      console.log("HEARTBEAT.md detected. Heartbeat runs only in --agent-mode.");
+      console.log("AGENTS.md contains <agent-heartbeat>. Heartbeat runs only in --agent-mode.");
       console.log("Re-run with --agent-mode to enable heartbeat.");
     }
   }
 
-  if (agentMode && heartbeatFileExists) {
+  if (agentMode && heartbeatConfigured) {
     heartbeatEnabled = true;
-    try {
-      const raw = readFileSync(heartbeatFile, "utf-8");
-      const content = getHeartbeatInstructions(raw);
-      const hb = parseHeartbeatConfig(content);
-      if (hb?.intervalMinutes && hb.intervalMinutes > 0) {
-        heartbeatInterval = hb.intervalMinutes;
-      }
-    } catch {}
+    if (heartbeatConfig?.intervalMinutes && heartbeatConfig.intervalMinutes > 0) {
+      heartbeatInterval = heartbeatConfig.intervalMinutes;
+    }
   }
 
   const executable = SUPPORTED_COMMANDS[cmdName][0];
@@ -2016,7 +2016,7 @@ export async function runRun(): Promise<void> {
       ownerUserId,
       didBindChat,
       heartbeatEnabled,
-      heartbeatFile,
+      heartbeatSourceFile,
       heartbeatInterval,
     });
 
@@ -2261,7 +2261,7 @@ export async function runRun(): Promise<void> {
     heartbeatTimer = setInterval(() => {
       let raw: string;
       try {
-        raw = readFileSync(heartbeatFile, "utf-8");
+        raw = readFileSync(heartbeatSourceFile, "utf-8");
       } catch {
         return;
       }

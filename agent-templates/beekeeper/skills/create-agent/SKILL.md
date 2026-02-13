@@ -1,6 +1,6 @@
 ---
 name: create-agent
-description: Create or update installable agent packages with practical AGENTS/CLAUDE/HEARTBEAT scaffolds and focused skills.
+description: Create or update installable agent packages with practical AGENTS/CLAUDE/workflow scaffolds and focused skills.
 ---
 
 # Create Agent
@@ -19,7 +19,6 @@ Use the shared starter package in `agent-templates/`:
 
 - `agent-templates/new-agent/AGENTS.md`
 - `agent-templates/new-agent/CLAUDE.md`
-- `agent-templates/new-agent/HEARTBEAT.md`
 - `agent-templates/new-agent/workflows/README.md`
 - `agent-templates/new-agent/skills/find-skills/SKILL.md`
 
@@ -31,7 +30,7 @@ When creating an agent package, include:
 
 - `AGENTS.md` with owner/soul/context
 - `CLAUDE.md` pointing to `@AGENTS.md`
-- `HEARTBEAT.md` if scheduled workflows are relevant
+- `<agent-heartbeat>` block in `AGENTS.md` for scheduled workflows
 - `workflows/` folder with one or more markdown workflow files
 - `skills/<skill-name>/SKILL.md` for specialized capabilities
 - `skills/find-skills/SKILL.md` by default for capability discovery
@@ -68,7 +67,7 @@ The CLI renders dynamic placeholders in `AGENTS.md` (owner, name, description, l
    - set agent name/personality
    - define mission and guardrails
 2. Keep `CLAUDE.md` as `@AGENTS.md`.
-3. Configure cadence in `HEARTBEAT.md` only when scheduling is needed.
+3. Configure cadence in `<agent-heartbeat>` in `AGENTS.md` when scheduling is needed.
 4. Add workflow files in `<target-agent-dir>/workflows/` for detailed steps.
 5. Keep `skills/find-skills/SKILL.md` included unless explicitly removed by the user.
 
@@ -78,7 +77,6 @@ Required files before handoff:
 
 - `AGENTS.md`
 - `CLAUDE.md`
-- `HEARTBEAT.md` (or intentionally omitted with user approval)
 - `skills/find-skills/SKILL.md`
 
 ### 4) Fallback (only if CLI is unavailable)

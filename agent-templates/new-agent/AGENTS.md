@@ -24,6 +24,9 @@ Mission preference:
 - Leave clean handoffs
 </agent-soul>
 
+<agent-heartbeat interval="15">
+</agent-heartbeat>
+
 Do not edit the managed context block below. It is versioned and may be overwritten by future releases.
 
 <agent-context version="1.0">
@@ -44,9 +47,9 @@ Its primary job is to answer user questions, execute requests safely, and evolve
 
 ## Scheduling Model
 
-- Use `HEARTBEAT.md` for cadence and workflow dispatch.
+- Use `<agent-heartbeat>` in `AGENTS.md` for cadence and workflow dispatch.
 - Store detailed procedure steps in `workflows/*.md`.
-- Keep `HEARTBEAT.md` concise and operational.
+- Keep `<agent-heartbeat>` concise and operational.
 
 ## Identity Updates
 

@@ -5,7 +5,7 @@ A framework for building and running personal agents on top of Claude Code, Code
 Run mode overview:
 - ✅ **Terminal mode** — normal local CLI interface + channel bridge
 - ✅ **Agent mode (`--agent-mode`)** — long-lived JSON bridge for autonomous flows (no local terminal interface)
-- ✅ **Heartbeat (agent mode)** — add a `HEARTBEAT.md` file for scheduled workflows and cron-style tasks
+- ✅ **Heartbeat (agent mode)** — add an `<agent-heartbeat>` block in `AGENTS.md` for scheduled workflows and cron-style tasks
 - ✅ **Simple to run** — prefix supported CLIs with `tg`, like `tg claude`
 
 ### Quick install
@@ -115,7 +115,7 @@ tg codex --agent-mode --dangerously-bypass-approvals-and-sandbox
 
 Note: Agent mode currently does not support interactive approval prompts, so use permissive flags carefully.
 
-If `HEARTBEAT.md` is present and you start without `--agent-mode`, `tg` prompts you to switch to agent mode for that run.
+If `AGENTS.md` contains `<agent-heartbeat>` and you start without `--agent-mode`, `tg` prompts you to switch to agent mode for that run.
 
 Bind to a channel up front (skip picker):
 
@@ -281,7 +281,7 @@ The bridge receives input from your selected channel via the daemon, executes th
 
 Use agent mode when you want:
 - Long-running autonomous behavior
-- Heartbeat-driven workflows from `HEARTBEAT.md`
+- Heartbeat-driven workflows from `<agent-heartbeat>` in `AGENTS.md`
 - A non-interactive bridge process instead of a local terminal UI
 
 ### Starting agent mode
@@ -306,43 +306,54 @@ When you run `tg <tool> --agent-mode`, touchgrass does this:
 4. Sends assistant output and tool events back to the channel.
 5. Repeats until you stop the bridge (`Ctrl+C`).
 
-If `HEARTBEAT.md` exists, scheduled workflow inputs are also injected on each heartbeat tick (agent mode only).
+If `AGENTS.md` contains `<agent-heartbeat>`, scheduled workflow inputs are also injected on each heartbeat tick (agent mode only).
 
 ### Heartbeat and workflows
 
-Heartbeat is supported only in `--agent-mode`. If a `HEARTBEAT.md` file exists in the working directory, touchgrass sends periodic instructions to your agent for long-running workflows and cron-style tasks.
-If you start without `--agent-mode` and `HEARTBEAT.md` is detected, `tg` asks whether to switch to agent mode for that run.
+Heartbeat is supported only in `--agent-mode`. If `AGENTS.md` contains an `<agent-heartbeat>` block, touchgrass sends periodic instructions to your agent for long-running workflows and cron-style tasks.
+If you start without `--agent-mode` and `<agent-heartbeat>` is detected, `tg` asks whether to switch to agent mode for that run.
 
 Behavior per tick:
 - If `<run>` workflows are due, touchgrass loads each due workflow file and sends that workflow context to the agent.
 - If no workflows are due, the tick is skipped.
-- If there are no `<run>` entries, plain text inside `<heartbeat>` is sent (if present).
+- If there are no `<run>` entries, plain text inside `<agent-heartbeat>` is sent (if present).
 
-Create a `HEARTBEAT.md` in your project directory:
+Configure heartbeat inside your project `AGENTS.md`:
 
 ```markdown
+<agent-owner>
+Owner name: "Tommy"
+Location: "Oslo"
+Timezone: "Europe/Oslo"
+</agent-owner>
+
+<agent-soul>
+Your name is: "Ops Bot"
+Description: "Operational agent for project support."
+</agent-soul>
+
 /*
 Optional notes here.
 This comment block is ignored by heartbeat processing.
 */
 
-<heartbeat interval="15">
+<agent-heartbeat interval="15">
   <run workflow="session-checkin" always="true" />
   <run workflow="email-check" every="15m" />
   <run workflow="calendar-digest" at="09:00" on="weekdays" />
-</heartbeat>
+</agent-heartbeat>
 ```
 
 Notes:
-- Heartbeat interval is configured in `HEARTBEAT.md` via `<heartbeat interval="...">` (default `15` minutes).
+- Heartbeat interval is configured in `AGENTS.md` via `<agent-heartbeat interval="...">` (default `15` minutes).
 - `/* ... */` comments are stripped before sending content to the agent.
-- `<run>` entries are parsed from inside `<heartbeat>...</heartbeat>`.
+- `<run>` entries are parsed from inside `<agent-heartbeat>...</agent-heartbeat>`.
 - Workflow content is loaded from `workflows/<name>.md` (for example `workflows/email-check.md`).
-- Text inside `<heartbeat>` is allowed and can be used as shared context.
+- Text inside `<agent-heartbeat>` is allowed and can be used as shared context.
 - If `<run>` entries exist but none are due, that heartbeat cycle is skipped.
-- If `HEARTBEAT.md` is empty (or comment-only), that heartbeat cycle is skipped.
+- If `<agent-heartbeat>` is empty (or comment-only), that heartbeat cycle is skipped.
 
-Update `HEARTBEAT.md` any time (even from your phone via git push) and the agent picks up new instructions on the next heartbeat.
+Update `AGENTS.md` any time (even from your phone via git push) and the agent picks up new instructions on the next heartbeat.
 
 ### AGENTS.md structure and naming
 
@@ -366,6 +377,10 @@ Timezone: "Europe/Oslo"
 Your name is: "Ops Bot"
 Description: "Operational agent for project support."
 </agent-soul>
+
+<agent-heartbeat interval="15">
+  <run workflow="session-checkin" every="15m" />
+</agent-heartbeat>
 
 <agent-context version="1.0">
 ...managed instructions, guardrails, and workflow policy...
@@ -401,7 +416,7 @@ In terminal mode, no. It's a thin PTY wrapper and your tool runs in a real termi
 Terminal mode uses a JSONL/file watcher to forward assistant output. Agent mode uses tool-specific JSON/RPC drivers and forwards events/results through the daemon to the selected channel.
 
 **How does heartbeat work?**
-In agent mode, it reads `HEARTBEAT.md` on a schedule. `/* ... */` comments are ignored. If `<run>` entries are due, it loads the due `workflows/*.md` files and sends that context. If runs exist but none are due, the cycle is skipped. If there are no runs, plain `<heartbeat>` text is sent (if present). If the file is empty/comment-only, the cycle is skipped.
+In agent mode, it reads `<agent-heartbeat>` from `AGENTS.md` on a schedule. `/* ... */` comments are ignored. If `<run>` entries are due, it loads the due `workflows/*.md` files and sends that context. If runs exist but none are due, the cycle is skipped. If there are no runs, plain `<agent-heartbeat>` text is sent (if present). If the block is empty/comment-only, the cycle is skipped.
 
 **Can I type locally and use chat at the same time?**
 Yes. Both work in real-time. Avoid typing in both simultaneously as keystrokes could interleave.

@@ -24,6 +24,9 @@ Mission preference:
 - Leave clean handoffs
 </agent-soul>
 
+<agent-heartbeat interval="15">
+</agent-heartbeat>
+
 Do not edit the managed context block below. It is versioned and may be overwritten by future Beekeeper releases.
 
 <agent-context version="1.0">
@@ -41,19 +44,19 @@ Its primary job is to answer user questions, create/manage agents, and manage `t
 ## Skill-First Policy
 
 - For new capabilities or workflows, use `skills/find-skills/SKILL.md` first.
-- Example: if the user asks "check my email every 15 minutes", find a capability skill for email first, then implement the 15-minute schedule via `HEARTBEAT.md` and `workflows/*.md`.
+- Example: if the user asks "check my email every 15 minutes", find a capability skill for email first, then implement the 15-minute schedule via `<agent-heartbeat>` in `AGENTS.md` and `workflows/*.md`.
 - Only fall back to custom instructions when no suitable skill is found.
 
 ## Scheduling Model
 
 - Do not search for "cron/polling scheduler" skills as the default path.
-- Use `HEARTBEAT.md` for cadence/polling/check-in loops.
+- Use `<agent-heartbeat>` in `AGENTS.md` for cadence/polling/check-in loops.
 - Store detailed workflow steps in `workflows/*.md`.
-- Keep `HEARTBEAT.md` concise; let it reference and orchestrate workflow files.
+- Keep `<agent-heartbeat>` concise; let it reference and orchestrate workflow files.
 
 ## Heartbeat + Workflows
 
-- `HEARTBEAT.md` is the scheduler/dispatcher.
+- `<agent-heartbeat>` in `AGENTS.md` is the scheduler/dispatcher.
 - `workflows/*.md` holds the actual workflow instructions.
 - Each tick:
   1. Parse heartbeat runs.
@@ -62,11 +65,11 @@ Its primary job is to answer user questions, create/manage agents, and manage `t
   4. Use workflow content as heartbeat context.
 - If no workflow is due, skip the tick.
 - If a workflow file is missing, report it briefly and continue.
-- Set cadence in `HEARTBEAT.md` with `<heartbeat interval="...">`.
+- Set cadence in `AGENTS.md` with `<agent-heartbeat interval="...">`.
 
 ## Agent Creation
 
-- When asked to create a new agent, scaffold a minimal agent package (`AGENTS.md`, `CLAUDE.md`, optional `HEARTBEAT.md`, and needed skills).
+- When asked to create a new agent, scaffold a minimal agent package (`AGENTS.md`, `CLAUDE.md`, `workflows/`, and needed skills).
 - Keep agent behavior practical and operational, with clear owner/soul/context sections.
 - Prefer reusable templates and small, composable skills.
 
@@ -119,17 +122,17 @@ Session IDs support partial/substring matching — e.g. `tg peek abc` matches `r
 
 ## Heartbeat Automation
 
-- Use `HEARTBEAT.md` as the source of scheduled workflow instructions.
-- Heartbeat (auto-enabled when `HEARTBEAT.md` exists) is intended for cron-like operations while the user is away.
-- `/* ... */` comments in `HEARTBEAT.md` are ignored.
-- If `HEARTBEAT.md` is empty (or comment-only), skip that heartbeat cycle.
+- Use `<agent-heartbeat>` in `AGENTS.md` as the source of scheduled workflow instructions.
+- Heartbeat (auto-enabled when `<agent-heartbeat>` exists) is intended for cron-like operations while the user is away.
+- `/* ... */` comments in `AGENTS.md` are ignored for heartbeat parsing.
+- If `<agent-heartbeat>` is empty (or comment-only), skip that heartbeat cycle.
 - On each heartbeat cycle:
-  1. Read `HEARTBEAT.md`.
+  1. Read `AGENTS.md`.
   2. Load relevant `workflows/*.md` instructions referenced by heartbeat.
   3. Execute the listed workflow steps in order.
   4. Use `tg peek` and `tg send` to monitor and steer sessions safely.
   5. Report status and next action.
-- Prefer recurring workflows in `HEARTBEAT.md` + `workflows/*.md` instead of hardcoding schedules in prompts.
+- Prefer recurring workflows in `<agent-heartbeat>` + `workflows/*.md` instead of hardcoding schedules in prompts.
 
 ## Default Workflow
 
