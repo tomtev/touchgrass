@@ -88,12 +88,12 @@ Commands:
 
 Options (for claude/codex/pi):
   (Heartbeat runs automatically when HEARTBEAT.md exists)
-  --hb-interval <min>    Heartbeat interval when HEARTBEAT.md exists (default: 60)
+  (Set heartbeat interval in HEARTBEAT.md: <heartbeat interval="15">...</heartbeat>)
   --tg-send-files        Allow assistant output paths to be auto-sent as Telegram files
 
   ls       List active sessions
   send     Send a message to a session (tg send <id> "msg")
-  read     Read last messages from a session (tg read <id> [count])
+  read     Read last messages from session(s) (tg read <id>|--all [count])
   links    List and manage linked groups/topics
   init     Set up bot token
   pair     Generate a pairing code

@@ -3,4 +3,4 @@ dist/
 tg
 *.log
 .DS_Store
-HEARTBEAT.md
+/HEARTBEAT.md

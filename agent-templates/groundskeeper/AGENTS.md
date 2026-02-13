@@ -40,8 +40,28 @@ Its primary job is to answer user questions, create/manage agents, and manage `t
 ## Skill-First Policy
 
 - For new capabilities or workflows, use `skills/find-skills/SKILL.md` first.
-- Example: if the user asks "check my email every 15 minutes", first search for a relevant installable skill instead of inventing custom logic.
+- Example: if the user asks "check my email every 15 minutes", find a capability skill for email first, then implement the 15-minute schedule via `HEARTBEAT.md` and `workflows/*.md`.
 - Only fall back to custom instructions when no suitable skill is found.
+
+## Scheduling Model
+
+- Do not search for "cron/polling scheduler" skills as the default path.
+- Use `HEARTBEAT.md` for cadence/polling/check-in loops.
+- Store detailed workflow steps in `workflows/*.md`.
+- Keep `HEARTBEAT.md` concise; let it reference and orchestrate workflow files.
+
+## Heartbeat + Workflows
+
+- `HEARTBEAT.md` is the scheduler/dispatcher.
+- `workflows/*.md` holds the actual workflow instructions.
+- Each tick:
+  1. Parse heartbeat runs.
+  2. Select due workflows.
+  3. Load only due workflow markdown content.
+  4. Use workflow content as heartbeat context.
+- If no workflow is due, skip the tick.
+- If a workflow file is missing, report it briefly and continue.
+- Set cadence in `HEARTBEAT.md` with `<heartbeat interval="...">`.
 
 ## Agent Creation
 
@@ -83,10 +103,11 @@ Its primary job is to answer user questions, create/manage agents, and manage `t
 - If `HEARTBEAT.md` is empty (or comment-only), skip that heartbeat cycle.
 - On each heartbeat cycle:
   1. Read `HEARTBEAT.md`.
-  2. Execute the listed workflow steps in order.
-  3. Use `tg read` and `tg send` to monitor and steer sessions safely.
-  4. Report status and next action.
-- Prefer adding recurring workflows to `HEARTBEAT.md` instead of hardcoding schedules in agent prompts.
+  2. Load relevant `workflows/*.md` instructions referenced by heartbeat.
+  3. Execute the listed workflow steps in order.
+  4. Use `tg read` and `tg send` to monitor and steer sessions safely.
+  5. Report status and next action.
+- Prefer recurring workflows in `HEARTBEAT.md` + `workflows/*.md` instead of hardcoding schedules in prompts.
 
 ## Default Workflow
 

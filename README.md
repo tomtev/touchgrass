@@ -28,7 +28,7 @@ tg codex     # To start Codex. All --props allowed.
 Set up autonomous workflows with **heartbeat mode** — your agent checks a `HEARTBEAT.md` file on a schedule and follows the instructions inside. Update the file from anywhere (even your phone) and the agent picks it up on the next beat.
 
 ```bash
-tg claude --hb-interval 30    # check in every 30 minutes (if HEARTBEAT.md exists)
+tg claude    # heartbeat runs automatically when HEARTBEAT.md exists
 ```
 
 More channels (Discord, Slack) coming soon.
@@ -171,17 +171,15 @@ All group members can see responses, but only paired users can send input.
 Automatically send a periodic message to the agent, prompting it to check a `HEARTBEAT.md` file for instructions. Great for long-running autonomous workflows.
 
 ```bash
-tg claude                    # Heartbeat runs if HEARTBEAT.md exists (default: every 60 minutes)
-tg claude --hb-interval 30   # Every 30 minutes
+tg claude                    # Heartbeat runs if HEARTBEAT.md exists (default: every 15 minutes)
 ```
 
-Every interval, touchgrass.sh submits this to the agent's terminal:
+Behavior per tick:
+- If `<run>` workflows are due, touchgrass loads each due workflow file and sends that workflow context to the agent.
+- If no workflows are due, the tick is skipped.
+- If there are no `<run>` entries, plain text inside `<heartbeat>` is sent (if present).
 
-```
-[2025-06-15 14:30] Go check @HEARTBEAT.md file and follow instructions
-```
-
-Create a `HEARTBEAT.md` in your project directory with whatever instructions you want:
+Create a `HEARTBEAT.md` in your project directory:
 
 ```markdown
 /*
@@ -189,14 +187,20 @@ Optional notes here.
 This comment block is ignored by heartbeat processing.
 */
 
-1. Run the test suite: `bun test`
-2. If any tests fail, fix them
-3. Run `bun run typecheck` and fix any type errors
-4. Commit any changes with a descriptive message (if desired)
+<heartbeat interval="15">
+  <run workflow="session-checkin" always="true" />
+  <run workflow="email-check" every="15m" />
+  <run workflow="calendar-digest" at="09:00" on="weekdays" />
+</heartbeat>
 ```
 
 Notes:
+- Heartbeat interval is configured in `HEARTBEAT.md` via `<heartbeat interval="...">` (default `15` minutes).
 - `/* ... */` comments are stripped before sending content to the agent.
+- `<run>` entries are parsed from inside `<heartbeat>...</heartbeat>`.
+- Workflow content is loaded from `workflows/<name>.md` (for example `workflows/email-check.md`).
+- Text inside `<heartbeat>` is allowed and can be used as shared context.
+- If `<run>` entries exist but none are due, that heartbeat cycle is skipped.
 - If `HEARTBEAT.md` is empty (or comment-only), that heartbeat cycle is skipped.
 
 Update `HEARTBEAT.md` any time (even from your phone via git push) and the agent picks up new instructions on the next heartbeat.
@@ -222,7 +226,7 @@ No. It's a thin PTY wrapper — your tool runs in a real terminal and behaves id
 A lightweight file watcher reads the session JSONL files that CLI tools like Claude Code, Codex, and PI already write. When new assistant output appears, it's forwarded to Telegram via the Bot API. No hooks or plugins are injected into the tool itself.
 
 **How does heartbeat mode work?**
-It submits `HEARTBEAT.md` instructions to the agent's terminal on a schedule. `/* ... */` comments are ignored. If the file is empty (or only comments), the cycle is skipped. Update the file any time — the agent picks up changes on the next beat.
+It reads `HEARTBEAT.md` on a schedule. `/* ... */` comments are ignored. If `<run>` entries are due, it loads the due `workflows/*.md` files and sends that context. If runs exist but none are due, the cycle is skipped. If there are no runs, plain `<heartbeat>` text is sent (if present). If the file is empty/comment-only, the cycle is skipped.
 
 **Can I type locally and use Telegram at the same time?**
 Yes. Both work in real-time. Avoid typing in both simultaneously as keystrokes could interleave.

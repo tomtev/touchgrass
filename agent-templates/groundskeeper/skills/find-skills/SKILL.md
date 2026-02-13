@@ -1,22 +1,25 @@
 ---
 name: find-skills
-description: Helps users discover and install agent skills when they ask questions like "how do I do X", "find a skill for X", "is there a skill that can...", or express interest in extending capabilities. This skill should be used when the user is looking for functionality that might exist as an installable skill.
+description: Discover and install skills for personal agent workflows (email, calendar, reminders, monitoring, notifications, and recurring automation).
 ---
 
 # Find Skills
 
-This skill helps you discover and install skills from the open agent skills ecosystem.
+Use this skill to discover and install skills for personal assistant and life-ops automation.
+Default focus is personal agent work, not web development.
+Scheduling is handled by `HEARTBEAT.md` and `workflows/*.md`, not by finding scheduler skills.
 
 ## When to Use This Skill
 
 Use this skill when the user:
 
-- Asks "how do I do X" where X might be a common task with an existing skill
+- Asks for recurring personal automation
+- Asks for capabilities like email triage, reminders, scheduling, check-ins, or notifications
 - Says "find a skill for X" or "is there a skill for X"
-- Asks "can you do X" where X is a specialized capability
-- Expresses interest in extending agent capabilities
-- Wants to search for tools, templates, or workflows
-- Mentions they wish they had help with a specific domain (design, testing, deployment, etc.)
+- Wants the agent to improve itself with installable skills
+
+Do not use this skill to solve cadence itself (every 15 minutes, hourly, daily).
+Use heartbeat/workflow files for cadence.
 
 ## What is the Skills CLI?
 
@@ -35,15 +38,16 @@ The Skills CLI (`npx skills`) is the package manager for the open agent skills e
 
 ### Step 1: Understand What They Need
 
-When a user asks for help with something, identify:
+Identify:
 
-1. The domain (e.g., React, testing, design, deployment)
-2. The specific task (e.g., writing tests, creating animations, reviewing PRs)
-3. Whether this is a common enough task that a skill likely exists
+1. Task domain (email, calendar, reminders, tasks, notifications, check-ins)
+2. Trigger pattern (manual, every N minutes, daily, event-based)
+3. Provider context (Gmail, Outlook, IMAP, Google Calendar, etc.)
+4. Safety/privacy expectations (read-only vs. send/edit access)
 
 ### Step 2: Search for Skills
 
-Run the find command with a relevant query:
+Run targeted searches with both domain and behavior terms:
 
 ```bash
 npx skills find [query]
@@ -51,17 +55,17 @@ npx skills find [query]
 
 For example:
 
-- User asks "how do I make my React app faster?" -> `npx skills find react performance`
-- User asks "can you help me with PR reviews?" -> `npx skills find pr review`
-- User asks "I need to create a changelog" -> `npx skills find changelog`
+- "Check my email every 15 minutes" -> `npx skills find email inbox triage`
+- "Summarize my inbox each morning" -> `npx skills find inbox summary daily`
+- "Alert me about calendar conflicts" -> `npx skills find calendar conflict alerts`
+- "Ping me if no reply in 2 days" -> `npx skills find follow-up email automation`
 
 The command will return results like:
 
 ```text
 Install with npx skills add <owner/repo@skill>
-
-vercel-labs/agent-skills@vercel-react-best-practices
-- https://skills.sh/vercel-labs/agent-skills/vercel-react-best-practices
+owner/repo@skill-name
+https://skills.sh/<owner>/<repo>/<skill-name>
 ```
 
 ### Step 3: Present Options to the User
@@ -71,17 +75,17 @@ When you find relevant skills, present them to the user with:
 1. The skill name and what it does
 2. The install command they can run
 3. A link to learn more at skills.sh
+4. Any required accounts/permissions (email/calendar provider, API keys)
 
 Example response:
 
 ```text
-I found a skill that might help! The "vercel-react-best-practices" skill provides
-React and Next.js performance optimization guidelines from Vercel Engineering.
+I found a skill that can help with inbox automation and scheduled checks.
 
 To install it:
-npx skills add vercel-labs/agent-skills@vercel-react-best-practices
+npx skills add <owner/repo@skill-name>
 
-Learn more: https://skills.sh/vercel-labs/agent-skills/vercel-react-best-practices
+Learn more: https://skills.sh/<owner>/<repo>/<skill-name>
 ```
 
 ### Step 4: Offer to Install
@@ -94,40 +98,48 @@ npx skills add <owner/repo@skill> -g -y
 
 The `-g` flag installs globally (user-level) and `-y` skips confirmation prompts.
 
-## Common Skill Categories
+After installation:
 
-When searching, consider these common categories:
+1. Add the skill path to `AGENTS.md` under `## Available Skills`
+2. Create or update `workflows/<workflow-name>.md` with concrete steps
+3. Update `HEARTBEAT.md` cadence and routing for that workflow
+4. Confirm behavior with one simple test command
 
-| Category        | Example Queries                          |
-| --------------- | ---------------------------------------- |
-| Web Development | react, nextjs, typescript, css, tailwind |
-| Testing         | testing, jest, playwright, e2e           |
-| DevOps          | deploy, docker, kubernetes, ci-cd        |
-| Documentation   | docs, readme, changelog, api-docs        |
-| Code Quality    | review, lint, refactor, best-practices   |
-| Design          | ui, ux, design-system, accessibility     |
-| Productivity    | workflow, automation, git                |
+## Priority Domains
+
+When searching, prioritize personal agent domains:
+
+| Domain | Example Queries |
+| --- | --- |
+| Email | email triage, inbox summary, follow-up reminders, imap, gmail |
+| Calendar | calendar check, scheduling, conflict alerts, meeting prep |
+| Reminders | recurring reminders, daily digest, periodic check-ins |
+| Tasks | task capture, todo sync, project checklists |
+| Notifications | sms alerts, push notifications, digest reports |
+| Monitoring | status checks, heartbeat reports, exception alerts |
 
 ## Tips for Effective Searches
 
-1. **Use specific keywords**: "react testing" is better than just "testing"
-2. **Try alternative terms**: If "deploy" doesn't work, try "deployment" or "ci-cd"
-3. **Check popular sources**: Many skills come from `vercel-labs/agent-skills` or `ComposioHQ/awesome-claude-skills`
+1. Use domain + behavior + cadence in one query (`email + check + every 15 min`)
+   Cadence belongs in heartbeat/workflow setup, not in a scheduler skill.
+2. Try provider-specific variants (`gmail`, `outlook`, `imap`, `calendar`)
+3. Prefer least-privilege skills when multiple options exist
+4. Prefer maintained sources and transparent setup docs
 
 ## When No Skills Are Found
 
 If no relevant skills exist:
 
 1. Acknowledge that no existing skill was found
-2. Offer to help with the task directly using your general capabilities
-3. Suggest the user could create their own skill with `npx skills init`
+2. Offer a lightweight custom workflow in existing agent context
+3. Suggest creating a local skill (or use create-agent workflow)
 
 Example:
 
 ```text
-I searched for skills related to "xyz" but didn't find any matches.
-I can still help you with this task directly! Would you like me to proceed?
+I could not find a good installable skill for that exact workflow.
+I can set up a lightweight custom flow now, then we can promote it to a reusable local skill.
 
-If this is something you do often, you could create your own skill:
+If this will be used often, create a reusable skill:
 npx skills init my-xyz-skill
 ```

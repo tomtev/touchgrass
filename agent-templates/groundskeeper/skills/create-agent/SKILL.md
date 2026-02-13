@@ -20,6 +20,7 @@ When creating an agent package, include:
 - `AGENTS.md` with owner/soul/context
 - `CLAUDE.md` pointing to `@AGENTS.md`
 - `HEARTBEAT.md` if scheduled workflows are relevant
+- `workflows/` folder with one or more markdown workflow files
 - `skills/<skill-name>/SKILL.md` for specialized capabilities
 
 ## Workflow

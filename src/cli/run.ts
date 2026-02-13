@@ -9,7 +9,7 @@ import { paths, ensureDirs } from "../config/paths";
 import { watch, readdirSync, statSync, readFileSync, type FSWatcher } from "fs";
 import { chmod, open, writeFile, unlink } from "fs/promises";
 import { homedir, platform } from "os";
-import { join } from "path";
+import { isAbsolute, join } from "path";
 
 // Per-CLI patterns for detecting approval prompts in terminal output.
 // Both `promptText` and `optionText` must be present in the PTY buffer to trigger a notification.
@@ -32,6 +32,244 @@ function stripHeartbeatComments(content: string): string {
 function getHeartbeatInstructions(content: string): string {
   return stripHeartbeatComments(content).trim();
 }
+
+interface HeartbeatRunConfig {
+  workflow: string;
+  always: boolean;
+  everyMinutes: number | null;
+  at: string | null; // HH:MM (24h)
+  on: string | null; // weekdays/weekends/daily or comma-separated day names
+}
+
+interface HeartbeatConfig {
+  intervalMinutes: number | null;
+  runs: HeartbeatRunConfig[];
+  textContent: string;
+}
+
+interface HeartbeatRuntimeState {
+  lastEveryRunAtMs: Map<string, number>;
+  lastAtRunDate: Map<string, string>;
+  missingWorkflowWarned: Set<string>;
+}
+
+interface HeartbeatWorkflowTick {
+  workflow: string;
+  workflowPath: string;
+  context: string;
+}
+
+interface HeartbeatTickResolution {
+  workflows: HeartbeatWorkflowTick[];
+  plainText: string | null;
+}
+
+function parseXmlAttrs(attrBlob: string): Record<string, string> {
+  const attrs: Record<string, string> = {};
+  const re = /([a-zA-Z_][\w-]*)\s*=\s*"([^"]*)"/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(attrBlob)) !== null) {
+    attrs[m[1]] = m[2];
+  }
+  return attrs;
+}
+
+function parseDurationMinutes(value: string | undefined): number | null {
+  if (!value) return null;
+  const v = value.trim().toLowerCase();
+  if (!v) return null;
+
+  const plain = v.match(/^(\d+)$/);
+  if (plain) return parseInt(plain[1], 10);
+
+  const mins = v.match(/^(\d+)\s*(m|min|mins|minute|minutes)$/);
+  if (mins) return parseInt(mins[1], 10);
+
+  const hours = v.match(/^(\d+)\s*(h|hr|hrs|hour|hours)$/);
+  if (hours) return parseInt(hours[1], 10) * 60;
+
+  return null;
+}
+
+function parseHeartbeatConfig(content: string): HeartbeatConfig | null {
+  const hbMatch = content.match(/<heartbeat\b([^>]*)>([\s\S]*?)<\/heartbeat>/i);
+  if (!hbMatch) return null;
+
+  const hbAttrs = parseXmlAttrs(hbMatch[1] || "");
+  const intervalMinutes = parseDurationMinutes(hbAttrs.interval);
+  const body = hbMatch[2] || "";
+
+  const runs: HeartbeatRunConfig[] = [];
+  const runRe = /<run\b([^>]*?)\/?>/gi;
+  let runMatch: RegExpExecArray | null;
+  while ((runMatch = runRe.exec(body)) !== null) {
+    const attrBlob = runMatch[1] || "";
+    const attrs = parseXmlAttrs(attrBlob);
+    const workflow = (attrs.workflow || "").trim();
+    if (!workflow) continue;
+
+    const alwaysBare = /\balways\b(?!\s*=)/i.test(attrBlob);
+    let always = alwaysBare || /^(1|true|yes)$/i.test((attrs.always || "").trim());
+    const everyMinutes = parseDurationMinutes(attrs.every);
+    const at = (attrs.at || "").trim() || null;
+    const on = (attrs.on || "").trim() || null;
+
+    if (at && !/^([01]\d|2[0-3]):([0-5]\d)$/.test(at)) continue;
+    if (!always && everyMinutes === null && !at) always = true;
+
+    runs.push({
+      workflow,
+      always,
+      everyMinutes,
+      at,
+      on,
+    });
+  }
+
+  const textContent = body
+    .replace(/<run\b[\s\S]*?<\/run>/gi, "")
+    .replace(/<run\b[^>]*\/>/gi, "")
+    .trim();
+
+  return { intervalMinutes, runs, textContent };
+}
+
+function heartbeatRunKey(run: HeartbeatRunConfig): string {
+  return `${run.workflow}|a:${run.always}|e:${run.everyMinutes ?? ""}|t:${run.at ?? ""}|o:${run.on ?? ""}`;
+}
+
+function localDateKey(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function isRunDayAllowed(on: string | null, now: Date): boolean {
+  if (!on) return true;
+  const v = on.trim().toLowerCase();
+  if (!v || v === "daily" || v === "everyday" || v === "all") return true;
+  const dow = now.getDay(); // 0=sun
+  if (v === "weekdays") return dow >= 1 && dow <= 5;
+  if (v === "weekends") return dow === 0 || dow === 6;
+
+  const names: Record<string, number> = {
+    sun: 0, sunday: 0,
+    mon: 1, monday: 1,
+    tue: 2, tues: 2, tuesday: 2,
+    wed: 3, wednesday: 3,
+    thu: 4, thur: 4, thurs: 4, thursday: 4,
+    fri: 5, friday: 5,
+    sat: 6, saturday: 6,
+  };
+  const parts = v.split(",").map((p) => p.trim()).filter(Boolean);
+  if (parts.length === 0) return true;
+  return parts.some((p) => names[p] === dow);
+}
+
+function isRunDue(
+  run: HeartbeatRunConfig,
+  now: Date,
+  tickIntervalMinutes: number,
+  state: HeartbeatRuntimeState
+): boolean {
+  if (!isRunDayAllowed(run.on, now)) return false;
+
+  const key = heartbeatRunKey(run);
+  const nowMs = now.getTime();
+
+  if (run.always) return true;
+
+  if (run.everyMinutes && run.everyMinutes > 0) {
+    const everyMs = run.everyMinutes * 60 * 1000;
+    const last = state.lastEveryRunAtMs.get(key);
+    if (last === undefined || nowMs - last >= everyMs) {
+      state.lastEveryRunAtMs.set(key, nowMs);
+      return true;
+    }
+    return false;
+  }
+
+  if (run.at) {
+    const [hh, mm] = run.at.split(":").map((n) => parseInt(n, 10));
+    const scheduled = new Date(now);
+    scheduled.setHours(hh, mm, 0, 0);
+    const lagMs = nowMs - scheduled.getTime();
+    const tickMs = tickIntervalMinutes * 60 * 1000;
+    if (lagMs < 0 || lagMs >= tickMs) return false;
+
+    const runDate = `${localDateKey(now)}|${run.at}`;
+    const lastRunDate = state.lastAtRunDate.get(key);
+    if (lastRunDate === runDate) return false;
+    state.lastAtRunDate.set(key, runDate);
+    return true;
+  }
+
+  return false;
+}
+
+function resolveWorkflowPath(workflowRef: string): string {
+  const ref = workflowRef.trim();
+  if (!ref) return "";
+  if (isAbsolute(ref)) return ref;
+  if (ref.includes("/")) {
+    return join(process.cwd(), ref.endsWith(".md") ? ref : `${ref}.md`);
+  }
+  return join(process.cwd(), "workflows", ref.endsWith(".md") ? ref : `${ref}.md`);
+}
+
+function resolveHeartbeatTick(
+  rawHeartbeat: string,
+  now: Date,
+  tickIntervalMinutes: number,
+  state: HeartbeatRuntimeState,
+  readWorkflow: (workflowPath: string) => string | null
+): HeartbeatTickResolution {
+  const content = getHeartbeatInstructions(rawHeartbeat);
+  if (!content) {
+    return { workflows: [], plainText: null };
+  }
+
+  const parsed = parseHeartbeatConfig(content);
+  if (parsed && parsed.runs.length > 0) {
+    const workflows: HeartbeatWorkflowTick[] = [];
+    for (const run of parsed.runs) {
+      if (!isRunDue(run, now, tickIntervalMinutes, state)) continue;
+      const workflowPath = resolveWorkflowPath(run.workflow);
+      const workflowContent = (readWorkflow(workflowPath) || "").trim();
+      if (!workflowContent) continue;
+      const context = parsed.textContent
+        ? `${parsed.textContent}\n\n${workflowContent}`
+        : workflowContent;
+      workflows.push({ workflow: run.workflow, workflowPath, context });
+    }
+    if (workflows.length === 0) {
+      return { workflows: [], plainText: null };
+    }
+    return { workflows, plainText: null };
+  }
+
+  const plainText = (parsed ? parsed.textContent : content).trim();
+  if (!plainText) {
+    return { workflows: [], plainText: null };
+  }
+  return { workflows: [], plainText };
+}
+
+// Test-only accessors for heartbeat behavior.
+export const __heartbeatTestUtils = {
+  getHeartbeatInstructions,
+  parseHeartbeatConfig,
+  isRunDue,
+  resolveHeartbeatTick,
+  createRuntimeState(): HeartbeatRuntimeState {
+    return {
+      lastEveryRunAtMs: new Map<string, number>(),
+      lastAtRunDate: new Map<string, string>(),
+      missingWorkflowWarned: new Set<string>(),
+    };
+  },
+};
 
 // Arrow-key picker for terminal selection
 function terminalPicker(title: string, options: string[], hint?: string, disabled?: Set<number>): Promise<number> {
@@ -660,8 +898,8 @@ export async function runRun(): Promise<void> {
     process.exit(1);
   }
 
-  // Extract --tg-* flags (consumed by tg, not passed to the tool)
-  let heartbeatInterval = 60; // minutes
+  // Extract touchgrass-specific flags (consumed by tg, not passed to the tool)
+  let heartbeatInterval = 15; // minutes
   let sendFilesFromAssistant = false;
 
   if (cmdArgs.includes("--tg-heartbeat")) {
@@ -672,14 +910,15 @@ export async function runRun(): Promise<void> {
 
   if (cmdArgs.includes("--tg-interval")) {
     console.error("`--tg-interval` has been removed.");
-    console.error("Use `--hb-interval <min>` instead.");
+    console.error("Set interval in HEARTBEAT.md: <heartbeat interval=\"15\">...</heartbeat>");
     process.exit(1);
   }
 
-  const intervalIdx = cmdArgs.indexOf("--hb-interval");
-  if (intervalIdx !== -1 && intervalIdx + 1 < cmdArgs.length) {
-    heartbeatInterval = parseFloat(cmdArgs[intervalIdx + 1]) || 60;
-    cmdArgs = [...cmdArgs.slice(0, intervalIdx), ...cmdArgs.slice(intervalIdx + 2)];
+  const removedHbArg = cmdArgs.find((arg) => arg === "--hb-interval" || arg.startsWith("--hb-interval="));
+  if (removedHbArg) {
+    console.error("`--hb-interval` has been removed.");
+    console.error("Set interval in HEARTBEAT.md: <heartbeat interval=\"15\">...</heartbeat>");
+    process.exit(1);
   }
 
   const sendFilesIdx = cmdArgs.indexOf("--tg-send-files");
@@ -693,6 +932,17 @@ export async function runRun(): Promise<void> {
   try {
     heartbeatEnabled = statSync(heartbeatFile).isFile();
   } catch {}
+
+  if (heartbeatEnabled) {
+    try {
+      const raw = readFileSync(heartbeatFile, "utf-8");
+      const content = getHeartbeatInstructions(raw);
+      const hb = parseHeartbeatConfig(content);
+      if (hb?.intervalMinutes && hb.intervalMinutes > 0) {
+        heartbeatInterval = hb.intervalMinutes;
+      }
+    } catch {}
+  }
 
   const executable = SUPPORTED_COMMANDS[cmdName][0];
   const fullCommand = [executable, ...cmdArgs].join(" ");
@@ -1064,6 +1314,11 @@ export async function runRun(): Promise<void> {
 
   // Heartbeat: periodically send a message to the agent's terminal
   let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  const heartbeatState: HeartbeatRuntimeState = {
+    lastEveryRunAtMs: new Map<string, number>(),
+    lastAtRunDate: new Map<string, string>(),
+    missingWorkflowWarned: new Set<string>(),
+  };
   if (heartbeatEnabled) {
     const intervalMs = heartbeatInterval * 60 * 1000;
     heartbeatTimer = setInterval(() => {
@@ -1073,14 +1328,31 @@ export async function runRun(): Promise<void> {
       } catch {
         return;
       }
-      const content = getHeartbeatInstructions(raw);
-      if (!content) {
-        // No executable instructions in HEARTBEAT.md (empty/comment-only).
-        return;
-      }
       const now = new Date();
       const ts = now.toISOString().replace("T", " ").slice(0, 16);
-      const msg = `❤ This is a scheduled heartbeat message for workflows and cron jobs. The current time and date is: ${ts}. Follow these instructions now if time and date is relevant:\n\n${content}\n\n❤`;
+      const tick = resolveHeartbeatTick(raw, now, heartbeatInterval, heartbeatState, (workflowPath) => {
+        try {
+          return readFileSync(workflowPath, "utf-8");
+        } catch {
+          if (!heartbeatState.missingWorkflowWarned.has(workflowPath)) {
+            console.error(`[heartbeat] Missing workflow file: ${workflowPath}`);
+            heartbeatState.missingWorkflowWarned.add(workflowPath);
+          }
+          return null;
+        }
+      });
+
+      if (tick.workflows.length > 0) {
+        for (const wf of tick.workflows) {
+          const msg = `❤ Heartbeat workflow trigger. The current time and date is: ${ts}. Workflow: ${wf.workflow}. Follow these instructions now if time and date is relevant:\n\n${wf.context}\n\n❤`;
+          terminal.write(Buffer.from(msg));
+          setTimeout(() => terminal.write(Buffer.from("\r")), 100);
+        }
+        return;
+      }
+
+      if (!tick.plainText) return;
+      const msg = `❤ This is a scheduled heartbeat message for workflows and cron jobs. The current time and date is: ${ts}. Follow these instructions now if time and date is relevant:\n\n${tick.plainText}\n\n❤`;
       terminal.write(Buffer.from(msg));
       setTimeout(() => terminal.write(Buffer.from("\r")), 100);
     }, intervalMs);

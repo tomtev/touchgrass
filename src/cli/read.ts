@@ -233,36 +233,15 @@ function formatEntry(entry: DisplayEntry): string {
   }
 }
 
-export async function runRead(): Promise<void> {
-  const sessionArg = process.argv[3];
-  const countArg = process.argv[4];
-
-  if (!sessionArg) {
-    console.error("Usage: tg read <session_id> [count]");
-    console.error("Example: tg read r-abc123 20");
-    process.exit(1);
-  }
-
+function parseCount(countArg: string | undefined): number {
   const count = countArg ? parseInt(countArg, 10) : 10;
   if (isNaN(count) || count <= 0) {
-    console.error("Count must be a positive number.");
-    process.exit(1);
+    throw new Error("Count must be a positive number.");
   }
+  return count;
+}
 
-  const manifest = resolveManifest(sessionArg);
-  if (!manifest.jsonlFile) {
-    console.error(`Session ${manifest.id} has no JSONL file recorded.`);
-    process.exit(1);
-  }
-
-  let raw: string;
-  try {
-    raw = readFileSync(manifest.jsonlFile, "utf-8");
-  } catch {
-    console.error(`Cannot read JSONL file: ${manifest.jsonlFile}`);
-    process.exit(1);
-  }
-
+function collectEntriesFromRaw(raw: string, count: number): DisplayEntry[] {
   // Take last ~50 raw lines to parse (more than count since tool calls etc. produce entries)
   const rawLines = raw.trim().split("\n");
   const tail = rawLines.slice(-(count * 5));
@@ -278,7 +257,103 @@ export async function runRead(): Promise<void> {
   }
 
   // Take last `count` entries
-  const display = allEntries.slice(-count);
+  return allEntries.slice(-count);
+}
+
+function printUsage(): void {
+  console.error("Usage: tg read <session_id> [count]");
+  console.error("   or: tg read --all [count]");
+  console.error("Example: tg read r-abc123 20");
+  console.error("Example: tg read --all 1");
+}
+
+function sessionStartedAtMs(m: SessionManifest): number {
+  const ms = Date.parse(m.startedAt);
+  return Number.isNaN(ms) ? 0 : ms;
+}
+
+export async function runRead(): Promise<void> {
+  const args = process.argv.slice(3);
+  if (args.length === 0) {
+    printUsage();
+    process.exit(1);
+  }
+
+  if (args[0] === "--all") {
+    if (args.length > 2) {
+      printUsage();
+      process.exit(1);
+    }
+    let count: number;
+    try {
+      count = parseCount(args[1]);
+    } catch (err) {
+      console.error((err as Error).message);
+      process.exit(1);
+    }
+
+    const manifests = Array.from(readManifests().values()).sort(
+      (a, b) => sessionStartedAtMs(b) - sessionStartedAtMs(a)
+    );
+    if (manifests.length === 0) {
+      console.log("No session manifests found. Is a session running?");
+      return;
+    }
+
+    let shown = 0;
+    for (const manifest of manifests) {
+      if (!manifest.jsonlFile) continue;
+      let raw: string;
+      try {
+        raw = readFileSync(manifest.jsonlFile, "utf-8");
+      } catch {
+        continue;
+      }
+      const display = collectEntriesFromRaw(raw, count);
+      if (display.length === 0) continue;
+
+      if (shown > 0) console.log("");
+      console.log(`${DIM}--- ${manifest.id} (${manifest.command}) ---${RESET}\n`);
+      for (const entry of display) {
+        console.log(formatEntry(entry));
+      }
+      shown++;
+    }
+
+    if (shown === 0) {
+      console.log("No messages found for any session.");
+    }
+    return;
+  }
+
+  if (args.length > 2) {
+    printUsage();
+    process.exit(1);
+  }
+
+  const sessionArg = args[0];
+  let count: number;
+  try {
+    count = parseCount(args[1]);
+  } catch (err) {
+    console.error((err as Error).message);
+    process.exit(1);
+  }
+
+  const manifest = resolveManifest(sessionArg);
+  if (!manifest.jsonlFile) {
+    console.error(`Session ${manifest.id} has no JSONL file recorded.`);
+    process.exit(1);
+  }
+  let raw: string;
+  try {
+    raw = readFileSync(manifest.jsonlFile, "utf-8");
+  } catch {
+    console.error(`Cannot read JSONL file: ${manifest.jsonlFile}`);
+    process.exit(1);
+  }
+
+  const display = collectEntriesFromRaw(raw, count);
 
   if (display.length === 0) {
     console.log(`No messages found for session ${manifest.id}.`);
