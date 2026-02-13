@@ -1,6 +1,6 @@
 # ⛳️ touchgrass.sh
 
-Manage your Claude Code, Codex, and PI terminals on the go with Telegram. Add cron schedules and workflows to your CLI agents with a heartbeat.md. 
+Manage your Claude Code, Codex, and PI terminals on the go with Telegram. 
 
 A barebone OpenClaw altenative built on top of code CLIs.
 
