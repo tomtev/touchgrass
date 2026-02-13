@@ -40,7 +40,6 @@ More channels (Discord, Slack) coming soon.
 - [Telegram commands](#telegram-commands)
 - [Connect terminal sessions to Telegram](#connect-terminal-sessions-to-telegram)
 - [Terminal Mode](#terminal-mode)
-- [Heartbeat](#heartbeat)
 - [Agent Mode](#agent-mode)
 - [FAQ](#faq)
 - [Requirements](#requirements)
@@ -234,10 +233,32 @@ tg pi
 
 Note: Heartbeat does not run in terminal mode.
 
-## Heartbeat
+## Agent Mode
 
-Heartbeat is supported only in `--agent-mode`. If a `HEARTBEAT.md` file exists in the working directory, touchgrass sends periodic instructions to your agent for long-running autonomous workflows.
-If you start without `--agent-mode` and `HEARTBEAT.md` is detected, `tg` asks whether to switch to agent mode.
+Agent mode runs a long-lived bridge process (`tg <tool> --agent-mode`) without a local interactive terminal interface.
+The bridge receives input from Telegram via the daemon, executes the tool-specific driver, and forwards assistant/tool output back to Telegram.
+
+Use agent mode when you want:
+- Long-running autonomous behavior
+- Heartbeat-driven workflows from `HEARTBEAT.md`
+- A non-interactive bridge process instead of a local terminal UI
+
+### Starting agent mode
+
+```bash
+tg claude --agent-mode
+tg codex --agent-mode
+tg pi --agent-mode
+tg claude --agent-mode --dangerously-skip-permissions
+tg codex --agent-mode --dangerously-bypass-approvals-and-sandbox
+```
+
+Note: Agent mode currently does not support interactive approval prompts, so use permissive flags carefully.
+
+### Heartbeat and workflows
+
+Heartbeat is supported only in `--agent-mode`. If a `HEARTBEAT.md` file exists in the working directory, touchgrass sends periodic instructions to your agent for long-running workflows and cron-style tasks.
+If you start without `--agent-mode` and `HEARTBEAT.md` is detected, `tg` asks whether to switch to agent mode for that run.
 
 Behavior per tick:
 - If `<run>` workflows are due, touchgrass loads each due workflow file and sends that workflow context to the agent.
@@ -270,12 +291,43 @@ Notes:
 
 Update `HEARTBEAT.md` any time (even from your phone via git push) and the agent picks up new instructions on the next heartbeat.
 
-## Agent Mode
+### AGENTS.md structure and naming
 
-Agent mode runs a long-lived bridge process (`tg <tool> --agent-mode`) without a local interactive terminal interface.
-The bridge receives input from Telegram via the daemon, executes the tool-specific driver, and forwards assistant/tool output back to Telegram.
+Use `AGENTS.md` as the source of truth for agent identity and behavior.
 
-### Claude agent-mode driver
+Naming conventions:
+- `agent-id` (CLI/package identity): lowercase slug, numbers, `-` or `_` (example: `ops-bot`, `support_agent`).
+- Agent display name: set in `<agent-soul>` as `Your name is: "..."` (example: `"Ops Bot"`).
+- Description: set in `<agent-soul>` as `Description: "..."` and keep it short and operational.
+
+Core block structure:
+
+```markdown
+<agent-owner>
+Owner name: "Tommy"
+Location: "Oslo"
+Timezone: "Europe/Oslo"
+</agent-owner>
+
+<agent-soul>
+Your name is: "Ops Bot"
+Description: "Operational agent for project support."
+</agent-soul>
+
+<agent-context version="1.0">
+...managed instructions, guardrails, and workflow policy...
+</agent-context>
+```
+
+Guidelines:
+- Keep owner metadata in `<agent-owner>`.
+- Keep human-facing identity in `<agent-soul>`.
+- Keep durable operating policy in `<agent-context>`.
+- If the template says the context block is managed/versioned, treat `<agent-context version="...">` as release-managed content.
+- If a user asks to rename the agent, update `Your name is: "..."` in `<agent-soul>`.
+- Keep `CLAUDE.md` pointing to `@AGENTS.md`.
+
+### Claude driver
 
 For each inbound message, touchgrass runs one Claude process per turn:
 
@@ -289,7 +341,7 @@ Notes:
 - Session continuity is maintained by tracking Claude `session_id` and reusing `--resume`.
 - Interactive approval prompts are not currently supported in agent mode; use `--dangerously-skip-permissions` when needed.
 
-### Codex agent-mode driver
+### Codex driver
 
 For each inbound message, touchgrass runs Codex in JSON mode per turn:
 
@@ -308,7 +360,7 @@ Notes:
 - Tool calls/results are parsed from Codex JSON events and forwarded to Telegram.
 - Interactive approval prompts are not currently supported in agent mode; use `--dangerously-bypass-approvals-and-sandbox` when needed.
 
-### PI agent-mode driver
+### PI driver
 
 PI runs as one persistent RPC process:
 
@@ -326,7 +378,7 @@ Notes:
 - The bridge waits for PI `turn_end` before completing that input cycle.
 - This keeps a single long-lived PI process while still using message-by-message control from Telegram.
 
-## Resuming sessions
+### Resuming sessions
 
 To resume an existing agent session with Telegram bridging:
 
