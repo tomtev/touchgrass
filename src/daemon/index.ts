@@ -12,6 +12,8 @@ import { createChannel } from "../channel/factory";
 import type { Formatter } from "../channel/formatter";
 import type { Channel, ChannelChatId, ChannelUserId } from "../channel/types";
 import type { AskQuestion } from "../session/manager";
+import { stat } from "fs/promises";
+import { basename } from "path";
 
 const DAEMON_STARTED_AT = Date.now();
 
@@ -585,6 +587,37 @@ export async function startDaemon(): Promise<void> {
     getBoundChat(sessionId: string): string | null {
       return sessionManager.getBoundChat(sessionId);
     },
+    async sendFileToSession(sessionId: string, filePath: string, caption?: string): Promise<{ ok: boolean; error?: string }> {
+      const remote = sessionManager.getRemote(sessionId);
+      if (!remote) return { ok: false, error: "Session not found" };
+      if (!primaryChannel.sendDocument) {
+        return { ok: false, error: `Channel ${primaryChannel.type} does not support file sending` };
+      }
+
+      let fileStats;
+      try {
+        fileStats = await stat(filePath);
+      } catch {
+        return { ok: false, error: `File not found: ${filePath}` };
+      }
+      if (!fileStats.isFile()) return { ok: false, error: `Not a file: ${filePath}` };
+      if (fileStats.size <= 0) return { ok: false, error: "File is empty" };
+      if (fileStats.size > 50 * 1024 * 1024) return { ok: false, error: "File exceeds 50MB Telegram limit" };
+
+      const targets = new Set<ChannelChatId>();
+      const targetChat = sessionManager.getBoundChat(sessionId) || remote.chatId;
+      if (targetChat) targets.add(targetChat);
+      for (const groupChatId of sessionManager.getSubscribedGroups(sessionId)) {
+        targets.add(groupChatId);
+      }
+      if (targets.size === 0) return { ok: false, error: "No bound channel for this session" };
+
+      const finalCaption = (caption && caption.trim()) || basename(filePath);
+      for (const cid of targets) {
+        await primaryChannel.sendDocument(cid, filePath, finalCaption);
+      }
+      return { ok: true };
+    },
     handleToolCall(sessionId: string, name: string, input: Record<string, unknown>): void {
       const remote = sessionManager.getRemote(sessionId);
       if (!remote) return;
@@ -637,6 +670,24 @@ export async function startDaemon(): Promise<void> {
       if (!targetChat) return;
       const truncated = text.length > 1000 ? text.slice(0, 1000) + "..." : text;
       primaryChannel.send(targetChat, `${fmt.bold("Thinking")}\n${fmt.italic(fmt.escape(truncated))}`);
+    },
+    handleAssistantText(sessionId: string, text: string): void {
+      const remote = sessionManager.getRemote(sessionId);
+      if (!remote) return;
+
+      const targets = new Set<ChannelChatId>();
+      const targetChat = sessionManager.getBoundChat(sessionId) || remote.chatId;
+      if (targetChat) targets.add(targetChat);
+      for (const groupChatId of sessionManager.getSubscribedGroups(sessionId)) {
+        targets.add(groupChatId);
+      }
+      if (targets.size === 0) return;
+
+      const html = fmt.fromMarkdown(text);
+      for (const cid of targets) {
+        primaryChannel.setTyping(cid, false);
+        primaryChannel.send(cid, html);
+      }
     },
     handleToolResult(sessionId: string, toolName: string, content: string, isError = false): void {
       const remote = sessionManager.getRemote(sessionId);

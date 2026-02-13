@@ -16,7 +16,7 @@ bun run build         # Compile to standalone binary
 bun run typecheck     # tsc --noEmit
 ```
 
-CLI commands: `tg init`, `tg pair`, `tg claude [args]`, `tg codex [args]`, `tg pi [args]`, `tg ls`, `tg channels`, `tg doctor`, `tg config`, `tg logs`
+CLI commands: `tg init`, `tg pair`, `tg claude [args]`, `tg codex [args]`, `tg pi [args]`, `tg agents`, `tg ls`, `tg channels`, `tg doctor`, `tg config`, `tg logs`
 
 ## Architecture Overview
 
@@ -83,6 +83,7 @@ User terminal                         Telegram
 | `src/cli/run.ts` | `tg claude/codex/pi` — PTY, JSONL watcher, daemon registration, group output polling |
 | `src/cli/ensure-daemon.ts` | Auto-starts daemon if not running |
 | `src/cli/init.ts` | Interactive bot token setup |
+| `src/cli/agents.ts` | Agent installer and manager (`tg agents`, Beekeeper scaffolding) |
 | `src/cli/pair.ts` | Generate pairing codes |
 | `src/cli/doctor.ts` | Health checks |
 | `src/cli/config.ts` | View/edit config |
@@ -150,6 +151,13 @@ No explicit start/stop. `ensureDaemon()` checks PID + health, forks if needed. D
 - `/help` — Show help
 - `/pair <code>` — Pair with a pairing code
 
+### Agent Commands
+- `tg agents` — list installed agents; if none are installed, offer Beekeeper install (default choice: `later`)
+- `tg agents add beekeeper` — scaffold Beekeeper files in a target directory
+- `tg agents create <agent-id>` — scaffold a new custom agent from `agent-templates/new-agent`
+- `tg init` — after token setup, optionally installs Beekeeper (`later/install`, default `later`)
+- Install profile fields (`agent name`, `description`, `owner name`, `location`, `timezone`) are collected at setup and written into generated `AGENTS.md`
+
 ### Config Format
 ```json
 {
@@ -158,6 +166,18 @@ No explicit start/stop. `ensureDaemon()` checks PID + health, forks if needed. D
       "type": "telegram",
       "credentials": { "botToken": "..." },
       "pairedUsers": [{ "userId": "telegram:123", "pairedAt": "..." }]
+    }
+  },
+  "agents": {
+    "beekeeper": {
+      "kind": "beekeeper",
+      "displayName": "The Beekeeper 🐝",
+      "description": "Smart keeper of your touchgrass sessions.",
+      "ownerName": "Tommy",
+      "location": "",
+      "timezone": "Etc/UTC",
+      "directory": "/path/to/project",
+      "installedAt": "2026-02-13T00:00:00.000Z"
     }
   },
   "settings": {

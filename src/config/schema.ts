@@ -20,6 +20,18 @@ export interface LinkedGroup {
 export interface TgConfig {
   channels: Record<string, ChannelConfig>;
   settings: TgSettings;
+  agents?: Record<string, AgentInstall>;
+}
+
+export interface AgentInstall {
+  kind: string;
+  directory: string;
+  displayName: string;
+  description?: string;
+  ownerName?: string;
+  location?: string;
+  timezone?: string;
+  installedAt: string;
 }
 
 export interface TgSettings {
@@ -42,6 +54,7 @@ export function createDefaultConfig(): TgConfig {
   return {
     channels: {},
     settings: { ...defaultSettings },
+    agents: {},
   };
 }
 
@@ -52,7 +65,8 @@ export function validateConfig(config: unknown): config is TgConfig {
     typeof c.channels === "object" &&
     c.channels !== null &&
     typeof c.settings === "object" &&
-    c.settings !== null
+    c.settings !== null &&
+    (c.agents === undefined || (typeof c.agents === "object" && c.agents !== null))
   );
 }
 

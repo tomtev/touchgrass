@@ -33,7 +33,9 @@ export interface DaemonContext {
   handleToolCall: (sessionId: string, name: string, input: Record<string, unknown>) => void;
   handleApprovalNeeded: (sessionId: string, name: string, input: Record<string, unknown>, promptText?: string, pollOptions?: string[]) => void;
   handleThinking: (sessionId: string, text: string) => void;
+  handleAssistantText: (sessionId: string, text: string) => void;
   handleToolResult: (sessionId: string, toolName: string, content: string, isError?: boolean) => void;
+  sendFileToSession: (sessionId: string, filePath: string, caption?: string) => Promise<{ ok: boolean; error?: string }>;
 }
 
 async function readJsonBody(req: Request): Promise<Record<string, unknown>> {
@@ -128,9 +130,18 @@ export async function startControlServer(ctx: DaemonContext): Promise<void> {
       }
 
       // Match /remote/:id/* actions
-      const remoteMatch = path.match(/^\/remote\/(r-[a-f0-9]+)\/(input|exit|subscribed-groups|question|tool-call|thinking|tool-result|approval-needed|send-input)$/);
+      const remoteMatch = path.match(/^\/remote\/(r-[a-f0-9]+)\/(input|exit|subscribed-groups|question|tool-call|thinking|assistant|tool-result|approval-needed|send-input|send-file)$/);
       if (remoteMatch) {
         const [, sessionId, action] = remoteMatch;
+        if (action === "assistant" && req.method === "POST") {
+          const body = await readJsonBody(req);
+          const text = body.text as string;
+          if (!text) {
+            return Response.json({ ok: false, error: "Missing text" }, { status: 400 });
+          }
+          ctx.handleAssistantText(sessionId, text);
+          return Response.json({ ok: true });
+        }
         if (action === "tool-result" && req.method === "POST") {
           const body = await readJsonBody(req);
           const toolName = body.toolName as string;
@@ -212,6 +223,19 @@ export async function startControlServer(ctx: DaemonContext): Promise<void> {
           }
           const pushed = ctx.pushRemoteInput(sessionId, text);
           return Response.json({ ok: pushed });
+        }
+        if (action === "send-file" && req.method === "POST") {
+          const body = await readJsonBody(req);
+          const filePath = body.filePath as string;
+          const caption = body.caption as string | undefined;
+          if (!filePath) {
+            return Response.json({ ok: false, error: "Missing filePath" }, { status: 400 });
+          }
+          const result = await ctx.sendFileToSession(sessionId, filePath, caption);
+          if (!result.ok) {
+            return Response.json({ ok: false, error: result.error || "Failed to send file" }, { status: 400 });
+          }
+          return Response.json({ ok: true });
         }
       }
 

@@ -96,11 +96,14 @@ tg claude --dangerously-skip-permissions # Start Claude Code in auto-accept mode
 tg codex                                              # Start Codex
 tg codex --dangerously-bypass-approvals-and-sandbox   # Start Codex in auto-accept mode
 tg pi                                    # Start PI
-tg claude --tg-send-files                # Opt-in: auto-send assistant-referenced files
+tg claude --headless                     # Headless JSON bridge (no local TTY UI)
+tg codex --headless                      # Headless bridge (exec/resume JSON runs per inbound message)
+tg pi --headless                         # Headless RPC bridge
 tg claude --channel dm                   # Skip picker, bind to DM
 tg claude --channel "Dev Team"           # Skip picker, bind by title
 tg claude --channel telegram:-987:12     # Skip picker, bind by chatId
 tg claude --channel none                 # Skip picker, no channel binding
+tg send r-abc123 --file ./notes.md       # Send a file to that session's Telegram channel(s)
 ```
 
 That's it. You'll get agent responses in Telegram and can send input back from your phone.
@@ -152,6 +155,7 @@ Two processes cooperate:
 | `tg ls` | List active sessions |
 | `tg channels` | List available channels (DM, groups, topics) with busy status |
 | `tg send <id> <message>` | Send a message to a session |
+| `tg send --file <id> <path>` | Send a file to a session's channel(s) |
 | `tg peek <id> [count]` | Peek at recent messages from a session (default: 10) |
 | `tg peek --all [count]` | Peek at recent messages from all sessions |
 
@@ -262,3 +266,7 @@ Yes. Both work in real-time. Avoid typing in both simultaneously as keystrokes c
 ## License
 
 MIT
+
+## [WIP] Agent Management
+
+`tg agents` and Beekeeper scaffolding are under active development. Command flags and generated template fields may change.

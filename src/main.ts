@@ -44,6 +44,11 @@ async function main() {
       await runChannels();
       break;
     }
+    case "agents": {
+      const { runAgents } = await import("./cli/agents");
+      await runAgents();
+      break;
+    }
     case "send": {
       const { runSend } = await import("./cli/send");
       await runSend();
@@ -73,7 +78,7 @@ async function main() {
       break;
     default: {
       console.error(`Unknown command: ${command}`);
-      console.error("Supported commands: tg claude, tg codex, tg pi");
+      console.error("Supported commands: tg claude, tg codex, tg pi, tg agents");
       console.error(`Run "tg help" for more information.`);
       process.exit(1);
     }
@@ -94,12 +99,13 @@ Commands:
 Options (for claude/codex/pi):
   (Heartbeat runs automatically when HEARTBEAT.md exists)
   (Set heartbeat interval in HEARTBEAT.md: <heartbeat interval="15">...</heartbeat>)
-  --tg-send-files        Allow assistant output paths to be auto-sent as Telegram files
   --channel <value>      Skip channel picker (use "dm", a chatId, or title substring)
+  --headless             Run in long-lived JSON headless mode (no local TTY UI)
 
   ls       List active sessions
   channels List available channels (DM, groups, topics) with busy status
-  send     Send a message to a session (tg send <id> "msg")
+  agents   Manage local agents (install Beekeeper, create custom agents)
+  send     Send text to session stdin or send file to its channel(s) (tg send <id> "msg" | tg send --file <id> <path>)
   peek     Peek at last messages from session(s) (tg peek <id>|--all [count])
   links    List and manage linked groups/topics
   init     Set up bot token

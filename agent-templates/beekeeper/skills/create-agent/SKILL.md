@@ -15,15 +15,15 @@ Use this skill when the user wants a new agent, a new agent template, or a signi
 
 ## Included Starter Template
 
-This skill ships with a full starter package at:
+Use the shared starter package in `agent-templates/`:
 
-- `templates/new-agent/AGENTS.md`
-- `templates/new-agent/CLAUDE.md`
-- `templates/new-agent/HEARTBEAT.md`
-- `templates/new-agent/workflows/README.md`
-- `templates/new-agent/skills/find-skills/SKILL.md`
+- `agent-templates/new-agent/AGENTS.md`
+- `agent-templates/new-agent/CLAUDE.md`
+- `agent-templates/new-agent/HEARTBEAT.md`
+- `agent-templates/new-agent/workflows/README.md`
+- `agent-templates/new-agent/skills/find-skills/SKILL.md`
 
-Always start from this template when creating a new agent so every package has a consistent baseline.
+Always start from this shared template when creating a new agent so every package has a consistent baseline.
 
 ## Standard Package
 
@@ -38,16 +38,28 @@ When creating an agent package, include:
 
 ## Workflow
 
-### 1) Duplicate the starter template
+### 1) Create via CLI (default path)
 
-Use template duplication as the default path:
+Use the `tg agents` CLI command:
 
 ```bash
-mkdir -p <target-agent-dir>
-cp -R agent-templates/beekeeper/skills/create-agent/templates/new-agent/. <target-agent-dir>/
+tg agents create <agent-id> --dir <target-agent-dir>
 ```
 
-If working from another root, adjust the source path to this skill's `templates/new-agent/` directory.
+To run non-interactively and set identity fields in one command:
+
+```bash
+tg agents create <agent-id> \
+  --dir <target-agent-dir> \
+  --name "<agent-name>" \
+  --description "<description>" \
+  --owner-name "<owner>" \
+  --location "<location>" \
+  --timezone "<timezone>" \
+  --yes
+```
+
+The CLI renders dynamic placeholders in `AGENTS.md` (owner, name, description, location, timezone).
 
 ### 2) Customize identity and purpose
 
@@ -68,6 +80,13 @@ Required files before handoff:
 - `CLAUDE.md`
 - `HEARTBEAT.md` (or intentionally omitted with user approval)
 - `skills/find-skills/SKILL.md`
+
+### 4) Fallback (only if CLI is unavailable)
+
+```bash
+mkdir -p <target-agent-dir>
+cp -R agent-templates/new-agent/. <target-agent-dir>/
+```
 
 ## Quality Bar
 

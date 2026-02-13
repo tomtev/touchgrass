@@ -34,6 +34,7 @@ function migrateConfig(old: OldConfig): TgConfig {
   return {
     channels,
     settings: { ...defaultSettings, ...(old.settings || {}) } as TgConfig["settings"],
+    agents: {},
   };
 }
 
@@ -52,11 +53,23 @@ export async function loadConfig(): Promise<TgConfig> {
       return migrated;
     }
 
+    // Rename legacy "bees" key to "agents"
+    if (parsed && typeof parsed === "object") {
+      const obj = parsed as Record<string, unknown>;
+      if (obj.agents === undefined && obj.bees && typeof obj.bees === "object") {
+        obj.agents = obj.bees;
+      }
+      if (obj.bees !== undefined) {
+        delete obj.bees;
+      }
+    }
+
     if (!validateConfig(parsed)) {
       throw new Error("Invalid config format");
     }
     // Merge with defaults in case new settings were added
     parsed.settings = { ...defaultSettings, ...parsed.settings };
+    if (!parsed.agents) parsed.agents = {};
     // Ensure linkedGroups exists on all channels
     for (const ch of Object.values(parsed.channels)) {
       if (!ch.linkedGroups) ch.linkedGroups = [];

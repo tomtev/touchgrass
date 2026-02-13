@@ -1,5 +1,5 @@
 import { loadConfig } from "../config/store";
-import { getTelegramBotToken, getAllPairedUsers } from "../config/schema";
+import { getAllPairedUsers, type ChannelConfig, type TgConfig } from "../config/schema";
 import { createChannel } from "../channel/factory";
 import type { Channel, ChannelChatId } from "../channel/types";
 import { daemonRequest } from "./client";
@@ -271,6 +271,32 @@ export const __heartbeatTestUtils = {
   },
 };
 
+interface OwnerChannelResolution {
+  channelName: string;
+  channelConfig: ChannelConfig;
+  ownerUserId: string;
+  ownerChatId: ChannelChatId;
+}
+
+function resolveOwnerChannel(config: TgConfig): OwnerChannelResolution | null {
+  const pairedUsers = getAllPairedUsers(config);
+  if (pairedUsers.length !== 1) return null;
+
+  const ownerUserId = pairedUsers[0].userId;
+  const parts = ownerUserId.split(":");
+  if (parts.length < 2) return null;
+  const channelType = parts[0];
+  const ownerChatId = `${channelType}:${parts.slice(1).join(":")}`;
+
+  for (const [channelName, channelConfig] of Object.entries(config.channels)) {
+    if (channelConfig.type !== channelType) continue;
+    if (!channelConfig.pairedUsers.some((u) => u.userId === ownerUserId)) continue;
+    return { channelName, channelConfig, ownerUserId, ownerChatId };
+  }
+
+  return null;
+}
+
 // Arrow-key picker for terminal selection
 function terminalPicker(title: string, options: string[], hint?: string, disabled?: Set<number>): Promise<number> {
   return new Promise((resolve) => {
@@ -439,100 +465,10 @@ function readSessionIdsFromJsonl(filePath: string, maxLines = 80): Set<string> {
   return ids;
 }
 
-// Extract assistant text from a JSONL line across different formats:
-// - Claude: {"type":"assistant", "message":{"content":[{"type":"text","text":"..."}]}}
-// - PI:     {"type":"message", "message":{"role":"assistant","content":[{"type":"text","text":"..."}]}}
-// - Codex:  {"type":"event_msg", "payload":{"type":"agent_message","message":"..."}}
-//   or      {"type":"response_item", "payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"..."}]}}
-function extractAssistantText(msg: Record<string, unknown>): string | null {
-  // Claude format
-  if (msg.type === "assistant") {
-    const m = msg.message as Record<string, unknown> | undefined;
-    if (!m?.content) return null;
-    const texts = (m.content as Array<{ type: string; text?: string }>)
-      .filter((b) => b.type === "text")
-      .map((b) => b.text ?? "");
-    const text = texts.join("\n").trim();
-    return text || null;
-  }
+// ── Single-pass JSONL message parser ──────────────────────────────
+// Extracts assistant text, thinking, questions, tool calls, and tool results
+// in one dispatch + one loop over content blocks (instead of 5 separate passes).
 
-  // PI format
-  if (msg.type === "message") {
-    const m = msg.message as Record<string, unknown> | undefined;
-    if (m?.role !== "assistant" || !m?.content) return null;
-    const texts = (m.content as Array<{ type: string; text?: string }>)
-      .filter((b) => b.type === "text")
-      .map((b) => b.text ?? "");
-    const text = texts.join("\n").trim();
-    return text || null;
-  }
-
-  // Codex event_msg format (primary — this is what Codex uses for display)
-  if (msg.type === "event_msg") {
-    const payload = msg.payload as Record<string, unknown> | undefined;
-    if (payload?.type === "agent_message" && typeof payload.message === "string") {
-      const text = (payload.message as string).trim();
-      return text || null;
-    }
-    return null;
-  }
-
-  return null;
-}
-
-// Extract thinking text from JSONL messages
-// - Claude: content block {"type":"thinking","thinking":"..."}
-// - PI: same format inside {"type":"message","message":{"role":"assistant",...}}
-// - Codex: {"type":"event_msg","payload":{"type":"agent_reasoning","text":"..."}}
-//   or {"type":"response_item","payload":{"type":"reasoning","summary":[{"text":"..."}]}}
-function extractThinking(msg: Record<string, unknown>): string | null {
-  // Claude & PI: assistant message with thinking content blocks
-  if (msg.type === "assistant" || msg.type === "message") {
-    const m = msg.message as Record<string, unknown> | undefined;
-    if (!m?.content || !Array.isArray(m.content)) return null;
-    if (msg.type === "message" && m.role !== "assistant") return null;
-    const content = m.content as Array<{ type: string; thinking?: string }>;
-    const texts = content
-      .filter((b) => b.type === "thinking")
-      .map((b) => b.thinking ?? "");
-    const text = texts.join("\n").trim();
-    return text || null;
-  }
-
-  // Codex: event_msg with agent_reasoning
-  if (msg.type === "event_msg") {
-    const payload = msg.payload as Record<string, unknown> | undefined;
-    if (payload?.type === "agent_reasoning" && typeof payload.text === "string") {
-      return (payload.text as string).trim() || null;
-    }
-    return null;
-  }
-
-  return null;
-}
-
-// Extract AskUserQuestion tool_use from a JSONL message (Claude format)
-function extractAskUserQuestion(msg: Record<string, unknown>): unknown[] | null {
-  if (msg.type !== "assistant") return null;
-  const m = msg.message as Record<string, unknown> | undefined;
-  if (!m?.content) return null;
-  const content = m.content as Array<Record<string, unknown>>;
-  for (const block of content) {
-    if (block.type === "tool_use" && block.name === "AskUserQuestion") {
-      const input = block.input as Record<string, unknown> | undefined;
-      if (input?.questions && Array.isArray(input.questions)) {
-        return input.questions as unknown[];
-      }
-    }
-  }
-  return null;
-}
-
-// Extract tool calls from JSONL messages across all formats
-// - Claude: content block {"type":"tool_use","name":"...","input":{...},"id":"..."}
-// - PI: content block {"type":"toolCall","name":"...","arguments":{...},"id":"..."}
-// - Codex: {"type":"response_item","payload":{"type":"function_call","name":"...","arguments":"JSON string","call_id":"..."}}
-//   or {"type":"response_item","payload":{"type":"custom_tool_call","name":"...","input":"..."}}
 interface ToolCallInfo {
   id: string; // tool_use_id for matching with results
   name: string;
@@ -545,90 +481,16 @@ interface ToolResultInfo {
   isError: boolean;
 }
 
+interface ParsedMessage {
+  assistantText: string | null;
+  thinking: string | null;
+  questions: unknown[] | null;
+  toolCalls: ToolCallInfo[];
+  toolResults: ToolResultInfo[];
+}
+
 // Map tool_use_id/call_id → tool name so we can label tool_results
 const toolUseIdToName = new Map<string, string>();
-
-function extractToolCalls(msg: Record<string, unknown>): ToolCallInfo[] {
-  // Claude format: top-level type "assistant"
-  if (msg.type === "assistant") {
-    const m = msg.message as Record<string, unknown> | undefined;
-    if (!m?.content || !Array.isArray(m.content)) return [];
-    const content = m.content as Array<Record<string, unknown>>;
-    const calls: ToolCallInfo[] = [];
-    for (const block of content) {
-      if (block.type === "tool_use" && typeof block.name === "string") {
-        const toolId = (block.id as string) || "";
-        if (toolId) toolUseIdToName.set(toolId, block.name);
-        if (block.name === "AskUserQuestion") continue; // handled by polls
-        calls.push({
-          id: toolId,
-          name: block.name,
-          input: (block.input as Record<string, unknown>) || {},
-        });
-      }
-    }
-    capIdMap();
-    return calls;
-  }
-
-  // PI format: top-level type "message", role "assistant", content block type "toolCall"
-  if (msg.type === "message") {
-    const m = msg.message as Record<string, unknown> | undefined;
-    if (m?.role !== "assistant" || !m?.content || !Array.isArray(m.content)) return [];
-    const content = m.content as Array<Record<string, unknown>>;
-    const calls: ToolCallInfo[] = [];
-    for (const block of content) {
-      if (block.type === "toolCall" && typeof block.name === "string") {
-        const toolId = (block.id as string) || "";
-        if (toolId) toolUseIdToName.set(toolId, block.name);
-        calls.push({
-          id: toolId,
-          name: block.name,
-          input: (block.arguments as Record<string, unknown>) || {},
-        });
-      }
-    }
-    capIdMap();
-    return calls;
-  }
-
-  // Codex format: response_item with function_call or custom_tool_call payload
-  if (msg.type === "response_item") {
-    const payload = msg.payload as Record<string, unknown> | undefined;
-    if (!payload) return [];
-
-    if (payload.type === "function_call" && typeof payload.name === "string") {
-      const callId = (payload.call_id as string) || "";
-      if (callId) toolUseIdToName.set(callId, payload.name);
-      let input: Record<string, unknown> = {};
-      if (typeof payload.arguments === "string") {
-        try { input = JSON.parse(payload.arguments); } catch {}
-      }
-      capIdMap();
-      return [{ id: callId, name: payload.name, input }];
-    }
-
-    if (payload.type === "custom_tool_call" && typeof payload.name === "string") {
-      const callId = (payload.call_id as string) || "";
-      if (callId) toolUseIdToName.set(callId, payload.name);
-      // custom_tool_call has "input" as a string (e.g. patch content)
-      const input: Record<string, unknown> = typeof payload.input === "string"
-        ? { content: payload.input }
-        : {};
-      capIdMap();
-      return [{ id: callId, name: payload.name, input }];
-    }
-  }
-
-  return [];
-}
-
-function capIdMap() {
-  if (toolUseIdToName.size > 200) {
-    const first = toolUseIdToName.keys().next().value!;
-    toolUseIdToName.delete(first);
-  }
-}
 
 // Only forward results for tools where the output is useful to see on Telegram
 const FORWARD_RESULT_TOOLS = new Set([
@@ -641,13 +503,109 @@ const FORWARD_RESULT_TOOLS = new Set([
 const isToolRejection = (text: string) =>
   text.includes("The user doesn't want to proceed with this tool use");
 
-function extractToolResults(msg: Record<string, unknown>): ToolResultInfo[] {
-  // Claude format: top-level "user" with tool_result content blocks
+const EMPTY_PARSED: ParsedMessage = {
+  assistantText: null, thinking: null, questions: null, toolCalls: [], toolResults: [],
+};
+
+function parseJsonlMessage(msg: Record<string, unknown>): ParsedMessage {
+  // Claude assistant — text, thinking, tool calls, and questions in one loop
+  if (msg.type === "assistant") {
+    const m = msg.message as Record<string, unknown> | undefined;
+    if (!m?.content || !Array.isArray(m.content)) return EMPTY_PARSED;
+    const content = m.content as Array<Record<string, unknown>>;
+    const texts: string[] = [];
+    const thinkings: string[] = [];
+    let questions: unknown[] | null = null;
+    const toolCalls: ToolCallInfo[] = [];
+    for (const block of content) {
+      switch (block.type) {
+        case "text":
+          if (block.text) texts.push(block.text as string);
+          break;
+        case "thinking":
+          if (block.thinking) thinkings.push(block.thinking as string);
+          break;
+        case "tool_use": {
+          const name = block.name as string;
+          if (!name) break;
+          const toolId = (block.id as string) || "";
+          if (toolId) toolUseIdToName.set(toolId, name);
+          if (name === "AskUserQuestion") {
+            const input = block.input as Record<string, unknown> | undefined;
+            if (input?.questions && Array.isArray(input.questions)) {
+              questions = input.questions as unknown[];
+            }
+          } else {
+            toolCalls.push({ id: toolId, name, input: (block.input as Record<string, unknown>) || {} });
+          }
+          break;
+        }
+      }
+    }
+    capIdMap();
+    const assistantText = texts.join("\n").trim() || null;
+    const thinking = thinkings.join("\n").trim() || null;
+    return { assistantText, thinking, questions, toolCalls, toolResults: [] };
+  }
+
+  // PI format — role determines assistant vs tool result
+  if (msg.type === "message") {
+    const m = msg.message as Record<string, unknown> | undefined;
+    if (!m?.content || !Array.isArray(m.content)) return EMPTY_PARSED;
+
+    if (m.role === "assistant") {
+      const content = m.content as Array<Record<string, unknown>>;
+      const texts: string[] = [];
+      const thinkings: string[] = [];
+      const toolCalls: ToolCallInfo[] = [];
+      for (const block of content) {
+        switch (block.type) {
+          case "text":
+            if (block.text) texts.push(block.text as string);
+            break;
+          case "thinking":
+            if (block.thinking) thinkings.push(block.thinking as string);
+            break;
+          case "toolCall": {
+            const name = block.name as string;
+            if (!name) break;
+            const toolId = (block.id as string) || "";
+            if (toolId) toolUseIdToName.set(toolId, name);
+            toolCalls.push({ id: toolId, name, input: (block.arguments as Record<string, unknown>) || {} });
+            break;
+          }
+        }
+      }
+      capIdMap();
+      const assistantText = texts.join("\n").trim() || null;
+      const thinking = thinkings.join("\n").trim() || null;
+      return { assistantText, thinking, questions: null, toolCalls, toolResults: [] };
+    }
+
+    if (m.role === "toolResult") {
+      const toolName = (m.toolName as string) || toolUseIdToName.get(m.toolCallId as string) || "";
+      const isError = m.isError === true;
+      if (!isError && !FORWARD_RESULT_TOOLS.has(toolName)) return EMPTY_PARSED;
+      const content = m.content as Array<{ type: string; text?: string }>;
+      const text = content
+        .filter((s) => s.type === "text")
+        .map((s) => s.text ?? "")
+        .join("\n")
+        .trim();
+      if (isError && isToolRejection(text)) return EMPTY_PARSED;
+      if (!text) return EMPTY_PARSED;
+      return { ...EMPTY_PARSED, toolResults: [{ toolName: toolName || "unknown", content: text, isError }] };
+    }
+
+    return EMPTY_PARSED;
+  }
+
+  // Claude tool results
   if (msg.type === "user") {
     const m = msg.message as Record<string, unknown> | undefined;
-    if (!m?.content || !Array.isArray(m.content)) return [];
+    if (!m?.content || !Array.isArray(m.content)) return EMPTY_PARSED;
     const content = m.content as Array<Record<string, unknown>>;
-    const results: ToolResultInfo[] = [];
+    const toolResults: ToolResultInfo[] = [];
     for (const block of content) {
       if (block.type !== "tool_result") continue;
       const toolName = toolUseIdToName.get(block.tool_use_id as string) ?? "";
@@ -664,89 +622,71 @@ function extractToolResults(msg: Record<string, unknown>): ToolResultInfo[] {
           .join("\n");
       }
       if (isError && isToolRejection(text)) continue;
-      if (text.trim()) results.push({ toolName: toolName || "unknown", content: text.trim(), isError });
+      if (text.trim()) toolResults.push({ toolName: toolName || "unknown", content: text.trim(), isError });
     }
-    return results;
+    if (toolResults.length === 0) return EMPTY_PARSED;
+    return { ...EMPTY_PARSED, toolResults };
   }
 
-  // PI format: top-level "message" with role "toolResult"
-  if (msg.type === "message") {
-    const m = msg.message as Record<string, unknown> | undefined;
-    if (m?.role !== "toolResult") return [];
-    const toolName = (m.toolName as string) || toolUseIdToName.get(m.toolCallId as string) || "";
-    const isError = m.isError === true;
-    if (!isError && !FORWARD_RESULT_TOOLS.has(toolName)) return [];
-    const content = m.content as Array<{ type: string; text?: string }> | undefined;
-    if (!content || !Array.isArray(content)) return [];
-    const text = content
-      .filter((s) => s.type === "text")
-      .map((s) => s.text ?? "")
-      .join("\n")
-      .trim();
-    if (isError && isToolRejection(text)) return [];
-    return text ? [{ toolName: toolName || "unknown", content: text, isError }] : [];
+  // Codex event_msg — assistant text or reasoning
+  if (msg.type === "event_msg") {
+    const payload = msg.payload as Record<string, unknown> | undefined;
+    if (!payload) return EMPTY_PARSED;
+    if (payload.type === "agent_message" && typeof payload.message === "string") {
+      const t = (payload.message as string).trim();
+      return t ? { ...EMPTY_PARSED, assistantText: t } : EMPTY_PARSED;
+    }
+    if (payload.type === "agent_reasoning" && typeof payload.text === "string") {
+      const t = (payload.text as string).trim();
+      return t ? { ...EMPTY_PARSED, thinking: t } : EMPTY_PARSED;
+    }
+    return EMPTY_PARSED;
   }
 
-  // Codex format: response_item with function_call_output or custom_tool_call_output
+  // Codex response_item — tool calls or tool results
   if (msg.type === "response_item") {
     const payload = msg.payload as Record<string, unknown> | undefined;
-    if (!payload) return [];
+    if (!payload) return EMPTY_PARSED;
+
+    if (payload.type === "function_call" && typeof payload.name === "string") {
+      const callId = (payload.call_id as string) || "";
+      if (callId) toolUseIdToName.set(callId, payload.name);
+      let input: Record<string, unknown> = {};
+      if (typeof payload.arguments === "string") {
+        try { input = JSON.parse(payload.arguments); } catch {}
+      }
+      capIdMap();
+      return { ...EMPTY_PARSED, toolCalls: [{ id: callId, name: payload.name, input }] };
+    }
+
+    if (payload.type === "custom_tool_call" && typeof payload.name === "string") {
+      const callId = (payload.call_id as string) || "";
+      if (callId) toolUseIdToName.set(callId, payload.name);
+      const input: Record<string, unknown> = typeof payload.input === "string"
+        ? { content: payload.input }
+        : {};
+      capIdMap();
+      return { ...EMPTY_PARSED, toolCalls: [{ id: callId, name: payload.name, input }] };
+    }
+
     if (payload.type === "function_call_output" || payload.type === "custom_tool_call_output") {
       const callId = payload.call_id as string;
       const toolName = toolUseIdToName.get(callId) ?? "";
-      if (!FORWARD_RESULT_TOOLS.has(toolName)) return [];
+      if (!FORWARD_RESULT_TOOLS.has(toolName)) return EMPTY_PARSED;
       const output = (payload.output as string) ?? "";
-      return output.trim() ? [{ toolName: toolName || "unknown", content: output.trim(), isError: false }] : [];
+      if (!output.trim()) return EMPTY_PARSED;
+      return { ...EMPTY_PARSED, toolResults: [{ toolName: toolName || "unknown", content: output.trim(), isError: false }] };
     }
   }
 
-  return [];
+  return EMPTY_PARSED;
 }
 
-// Detect absolute file paths in assistant text that exist on disk and are within the project directory
-const MAX_ATTACHMENT_SIZE = 50 * 1024 * 1024; // 50 MB (Telegram limit)
-const SENSITIVE_FILES = new Set([
-  ".env", ".env.local", ".env.production", ".env.development", ".env.staging", ".env.test",
-  ".npmrc", ".pypirc", ".netrc", ".pgpass", ".my.cnf",
-  "credentials.json", "service-account.json", "keyfile.json",
-  "id_rsa", "id_ed25519", "id_ecdsa", "id_dsa",
-]);
-const SENSITIVE_EXTENSIONS = new Set([
-  ".pem", ".key", ".p12", ".pfx", ".jks", ".keystore",
-]);
-
-function isSensitiveFile(filePath: string): boolean {
-  const name = filePath.split("/").pop() || "";
-  if (SENSITIVE_FILES.has(name)) return true;
-  if (name.startsWith(".env")) return true;
-  for (const ext of SENSITIVE_EXTENSIONS) {
-    if (name.endsWith(ext)) return true;
+function capIdMap() {
+  if (toolUseIdToName.size > 200) {
+    const first = toolUseIdToName.keys().next().value!;
+    toolUseIdToName.delete(first);
   }
-  return false;
-}
-
-function extractFilePaths(text: string, cwd: string): string[] {
-  // Match absolute file paths with extensions — allow backticks, parens, etc. before the path
-  const regex = /(?:^|[\s`"'(])(\/[^\s<>"'`)\]]+\.[a-zA-Z0-9]+)/gm;
-  const paths: string[] = [];
-  const seen = new Set<string>();
-  let match;
-  while ((match = regex.exec(text)) !== null) {
-    const p = match[1];
-    if (seen.has(p)) continue;
-    seen.add(p);
-    // Must be under project directory
-    if (!p.startsWith(cwd + "/")) continue;
-    // Never send sensitive files
-    if (isSensitiveFile(p)) continue;
-    try {
-      const s = statSync(p);
-      if (s.isFile() && s.size > 0 && s.size < MAX_ATTACHMENT_SIZE) {
-        paths.push(p);
-      }
-    } catch {}
-  }
-  return paths;
 }
 
 // Write poll keypresses to the terminal to simulate user selection
@@ -867,23 +807,12 @@ function watchSessionFile(
           try {
             const msg = JSON.parse(line);
             if (onMessageParsed) onMessageParsed(msg);
-            const assistantText = extractAssistantText(msg);
-            if (assistantText) onAssistant(assistantText);
-            if (onQuestion) {
-              const questions = extractAskUserQuestion(msg);
-              if (questions) onQuestion(questions);
-            }
-            // Always run extractToolCalls to populate toolUseIdToName map
-            const calls = extractToolCalls(msg);
-            if (onToolCall && calls.length > 0) onToolCall(calls);
-            if (onToolResult) {
-              const results = extractToolResults(msg);
-              if (results.length > 0) onToolResult(results);
-            }
-            if (onThinking) {
-              const thinking = extractThinking(msg);
-              if (thinking) onThinking(thinking);
-            }
+            const parsed = parseJsonlMessage(msg);
+            if (parsed.assistantText) onAssistant(parsed.assistantText);
+            if (onQuestion && parsed.questions) onQuestion(parsed.questions);
+            if (onToolCall && parsed.toolCalls.length > 0) onToolCall(parsed.toolCalls);
+            if (onToolResult && parsed.toolResults.length > 0) onToolResult(parsed.toolResults);
+            if (onThinking && parsed.thinking) onThinking(parsed.thinking);
           } catch {} // skip malformed JSONL lines
         }
 
@@ -961,6 +890,614 @@ function resolveChannelFlag(
   process.exit(1);
 }
 
+function parseJsonLine(line: string): Record<string, unknown> | null {
+  try {
+    return JSON.parse(line) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+function isHeadlessControlLine(line: string): boolean {
+  return line.startsWith("\x1b[POLL:");
+}
+
+function stripClaudeHeadlessArgs(args: string[]): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === "-p" || arg === "--print" || arg === "--include-partial-messages") continue;
+    if (arg === "--input-format" || arg === "--output-format") {
+      i++;
+      continue;
+    }
+    if (arg.startsWith("--input-format=") || arg.startsWith("--output-format=")) continue;
+    out.push(arg);
+  }
+  return out;
+}
+
+function stripPiHeadlessArgs(args: string[]): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === "--mode") {
+      i++;
+      continue;
+    }
+    if (arg.startsWith("--mode=")) continue;
+    if (arg === "-p" || arg === "--print") continue;
+    out.push(arg);
+  }
+  return out;
+}
+
+function stripCodexJsonArgs(args: string[]): string[] {
+  const out: string[] = [];
+  for (const arg of args) {
+    if (arg === "--json") continue;
+    out.push(arg);
+  }
+  return out;
+}
+
+async function readLinesFromStream(
+  stream: ReadableStream<Uint8Array> | null | undefined,
+  onLine: (line: string) => void
+): Promise<void> {
+  if (!stream) return;
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let idx = buffer.indexOf("\n");
+      while (idx >= 0) {
+        const line = buffer.slice(0, idx).replace(/\r$/, "");
+        buffer = buffer.slice(idx + 1);
+        if (line) onLine(line);
+        idx = buffer.indexOf("\n");
+      }
+    }
+    buffer += decoder.decode();
+    const final = buffer.trim();
+    if (final) onLine(final);
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+interface HeadlessAdapter {
+  sendText(text: string): Promise<void>;
+  close(): Promise<void>;
+  exited: Promise<number | null>;
+}
+
+interface HeadlessRunOptions {
+  cmdName: string;
+  executable: string;
+  cmdArgs: string[];
+  remoteId: string;
+  fullCommand: string;
+  chatId: ChannelChatId;
+  ownerUserId: string;
+  didBindChat: boolean;
+  heartbeatEnabled: boolean;
+  heartbeatFile: string;
+  heartbeatInterval: number;
+}
+
+async function runHeadlessSession(opts: HeadlessRunOptions): Promise<number> {
+  const {
+    cmdName,
+    executable,
+    cmdArgs,
+    remoteId,
+    fullCommand,
+    ownerUserId,
+    chatId,
+    didBindChat,
+    heartbeatEnabled,
+    heartbeatFile,
+    heartbeatInterval,
+  } = opts;
+
+  const postAssistant = (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    daemonRequest(`/remote/${remoteId}/assistant`, "POST", { text: trimmed }).catch(() => {});
+  };
+  const postQuestion = (questions: unknown[]) => {
+    daemonRequest(`/remote/${remoteId}/question`, "POST", { questions }).catch(() => {});
+  };
+  const postThinking = (text: string) => {
+    daemonRequest(`/remote/${remoteId}/thinking`, "POST", { text }).catch(() => {});
+  };
+  const postToolCall = (name: string, input: Record<string, unknown>) => {
+    daemonRequest(`/remote/${remoteId}/tool-call`, "POST", { name, input }).catch(() => {});
+  };
+  const postToolResult = (toolName: string, content: string, isError: boolean) => {
+    daemonRequest(`/remote/${remoteId}/tool-result`, "POST", {
+      toolName,
+      content,
+      isError,
+    }).catch(() => {});
+  };
+
+  const emitParsedMessage = (parsed: ParsedMessage): void => {
+    if (parsed.assistantText) postAssistant(parsed.assistantText);
+    if (parsed.questions) postQuestion(parsed.questions);
+    if (parsed.thinking) postThinking(parsed.thinking);
+    for (const call of parsed.toolCalls) {
+      postToolCall(call.name, call.input);
+    }
+    for (const result of parsed.toolResults) {
+      postToolResult(result.toolName, result.content, result.isError);
+    }
+  };
+
+  const createClaudeAdapter = (): HeadlessAdapter => {
+    const filteredArgs = stripClaudeHeadlessArgs(cmdArgs);
+    const proc = Bun.spawn(
+      [
+        executable,
+        ...filteredArgs,
+        "--print",
+        "--input-format",
+        "stream-json",
+        "--output-format",
+        "stream-json",
+      ],
+      {
+        stdin: "pipe",
+        stdout: "pipe",
+        stderr: "pipe",
+        env: { ...process.env },
+      }
+    );
+
+    const pendingTurns: Array<{ resolve: () => void; reject: (error: Error) => void }> = [];
+
+    void readLinesFromStream(proc.stdout, (line) => {
+      const msg = parseJsonLine(line);
+      if (!msg) return;
+
+      const parsed = parseJsonlMessage(msg);
+      emitParsedMessage(parsed);
+
+      if (msg.type === "result") {
+        const pending = pendingTurns.shift();
+        if (pending) pending.resolve();
+
+        const denials = msg.permission_denials;
+        if (Array.isArray(denials) && denials.length > 0) {
+          const labels = denials
+            .map((d) => {
+              if (!d || typeof d !== "object") return "tool";
+              const record = d as Record<string, unknown>;
+              const name = (record.name as string) || (record.tool_name as string);
+              return name || "tool";
+            })
+            .join(", ");
+          postAssistant(`Permission denied for ${labels}. Re-run with a more permissive Claude permission mode if needed.`);
+        }
+      }
+    });
+
+    void readLinesFromStream(proc.stderr, (line) => {
+      if (line.trim()) console.error(`[claude/headless] ${line}`);
+    });
+
+    proc.exited.then((code) => {
+      const err = new Error(`Claude headless process exited with code ${code ?? "unknown"}`);
+      while (pendingTurns.length > 0) {
+        pendingTurns.shift()?.reject(err);
+      }
+    }).catch(() => {});
+
+    return {
+      async sendText(text: string): Promise<void> {
+        if (!proc.stdin) throw new Error("Claude stdin is unavailable.");
+        const payload = {
+          type: "user",
+          message: {
+            role: "user",
+            content: [{ type: "text", text }],
+          },
+        };
+
+        await new Promise<void>((resolve, reject) => {
+          pendingTurns.push({ resolve, reject });
+          try {
+            proc.stdin!.write(`${JSON.stringify(payload)}\n`);
+          } catch (e) {
+            pendingTurns.pop();
+            reject(e as Error);
+          }
+        });
+      },
+      async close(): Promise<void> {
+        try {
+          proc.kill();
+        } catch {}
+      },
+      exited: proc.exited,
+    };
+  };
+
+  const createPiAdapter = (): HeadlessAdapter => {
+    const filteredArgs = stripPiHeadlessArgs(cmdArgs);
+    const proc = Bun.spawn([executable, ...filteredArgs, "--mode", "rpc"], {
+      stdin: "pipe",
+      stdout: "pipe",
+      stderr: "pipe",
+      env: { ...process.env },
+    });
+
+    let nextId = 1;
+    const pendingTurns: Array<{ resolve: () => void; reject: (error: Error) => void }> = [];
+
+    void readLinesFromStream(proc.stdout, (line) => {
+      const msg = parseJsonLine(line);
+      if (!msg) return;
+
+      if (msg.type === "message_end" && msg.message && typeof msg.message === "object") {
+        const parsed = parseJsonlMessage({
+          type: "message",
+          message: msg.message as Record<string, unknown>,
+        });
+        emitParsedMessage(parsed);
+      }
+
+      if (
+        msg.type === "response" &&
+        msg.command === "prompt" &&
+        msg.success === false
+      ) {
+        const pending = pendingTurns.shift();
+        if (pending) {
+          pending.reject(new Error((msg.error as string) || "PI prompt failed"));
+        }
+      }
+
+      if (msg.type === "turn_end") {
+        const pending = pendingTurns.shift();
+        if (pending) pending.resolve();
+      }
+    });
+
+    void readLinesFromStream(proc.stderr, (line) => {
+      if (line.trim()) console.error(`[pi/headless] ${line}`);
+    });
+
+    proc.exited.then((code) => {
+      const err = new Error(`PI headless process exited with code ${code ?? "unknown"}`);
+      while (pendingTurns.length > 0) {
+        pendingTurns.shift()?.reject(err);
+      }
+    }).catch(() => {});
+
+    return {
+      async sendText(text: string): Promise<void> {
+        if (!proc.stdin) throw new Error("PI stdin is unavailable.");
+
+        await new Promise<void>((resolve, reject) => {
+          pendingTurns.push({ resolve, reject });
+          const command = {
+            id: `prompt-${nextId++}`,
+            type: "prompt",
+            message: text,
+            streamingBehavior: "followUp",
+          };
+          try {
+            proc.stdin!.write(`${JSON.stringify(command)}\n`);
+          } catch (e) {
+            pendingTurns.pop();
+            reject(e as Error);
+          }
+        });
+      },
+      async close(): Promise<void> {
+        try {
+          proc.kill();
+        } catch {}
+      },
+      exited: proc.exited,
+    };
+  };
+
+  const createCodexAdapter = (): HeadlessAdapter => {
+    let threadId: string | null = null;
+    let useResumeLast = false;
+    let baseArgs = stripCodexJsonArgs(cmdArgs);
+
+    if (baseArgs[0] === "exec") {
+      baseArgs = baseArgs.slice(1);
+    }
+
+    if (baseArgs[0] === "resume") {
+      baseArgs = baseArgs.slice(1);
+      if (baseArgs[0] && !baseArgs[0].startsWith("-")) {
+        threadId = baseArgs[0];
+        baseArgs = baseArgs.slice(1);
+      } else if (baseArgs.includes("--last")) {
+        useResumeLast = true;
+        baseArgs = baseArgs.filter((a) => a !== "--last");
+      }
+    }
+
+    const resumeIdx = baseArgs.indexOf("--resume");
+    if (resumeIdx !== -1) {
+      if (resumeIdx + 1 < baseArgs.length) {
+        threadId = baseArgs[resumeIdx + 1];
+      }
+      baseArgs = [...baseArgs.slice(0, resumeIdx), ...baseArgs.slice(resumeIdx + 2)];
+    }
+
+    const lastIdx = baseArgs.indexOf("--last");
+    if (lastIdx !== -1 && !threadId) {
+      useResumeLast = true;
+      baseArgs = [...baseArgs.slice(0, lastIdx), ...baseArgs.slice(lastIdx + 1)];
+    }
+
+    return {
+      async sendText(text: string): Promise<void> {
+        const invocation: string[] = ["exec"];
+        if (threadId || useResumeLast) {
+          invocation.push("resume");
+          invocation.push("--json");
+          invocation.push(...baseArgs);
+          if (threadId) {
+            invocation.push(threadId);
+          } else {
+            invocation.push("--last");
+            useResumeLast = false;
+          }
+          invocation.push(text);
+        } else {
+          invocation.push("--json");
+          invocation.push(...baseArgs);
+          invocation.push(text);
+        }
+
+        const proc = Bun.spawn([executable, ...invocation], {
+          stdin: "ignore",
+          stdout: "pipe",
+          stderr: "pipe",
+          env: { ...process.env },
+        });
+
+        void readLinesFromStream(proc.stdout, (line) => {
+          const msg = parseJsonLine(line);
+          if (!msg) return;
+
+          if (msg.type === "thread.started" && typeof msg.thread_id === "string") {
+            threadId = msg.thread_id;
+            return;
+          }
+
+          if (msg.type === "item.started" && msg.item && typeof msg.item === "object") {
+            const item = msg.item as Record<string, unknown>;
+            if (item.type === "command_execution" && typeof item.command === "string") {
+              postToolCall("exec_command", { cmd: item.command });
+            }
+            return;
+          }
+
+          if (msg.type === "item.completed" && msg.item && typeof msg.item === "object") {
+            const item = msg.item as Record<string, unknown>;
+            if (item.type === "agent_message" && typeof item.text === "string") {
+              postAssistant(item.text);
+              return;
+            }
+            if (item.type === "reasoning" && typeof item.text === "string") {
+              postThinking(item.text);
+              return;
+            }
+            if (item.type === "command_execution") {
+              const content = (item.aggregated_output as string) || "";
+              const isError = typeof item.exit_code === "number" && item.exit_code !== 0;
+              if (content.trim()) {
+                postToolResult("exec_command", content, isError);
+              }
+              return;
+            }
+          }
+        });
+
+        void readLinesFromStream(proc.stderr, (line) => {
+          if (line.trim()) console.error(`[codex/headless] ${line}`);
+        });
+
+        const exitCode = await proc.exited;
+        if (exitCode !== 0) {
+          throw new Error(`Codex headless request failed (code ${exitCode ?? "unknown"})`);
+        }
+      },
+      async close(): Promise<void> {
+        // One-process-per-turn driver; no persistent process to stop.
+      },
+      exited: new Promise<number | null>(() => {}),
+    };
+  };
+
+  let adapter: HeadlessAdapter;
+  if (cmdName === "claude") adapter = createClaudeAdapter();
+  else if (cmdName === "pi") adapter = createPiAdapter();
+  else adapter = createCodexAdapter();
+
+  const subscribedGroups = new Set<ChannelChatId>();
+  let boundChat: ChannelChatId | null = didBindChat ? chatId : null;
+  let nullBoundPolls = 0;
+  let groupPollTimer: ReturnType<typeof setInterval> | null = null;
+  const pollBinding = async () => {
+    try {
+      const res = await daemonRequest(`/remote/${remoteId}/subscribed-groups`);
+      const chatIds = res.chatIds as string[] | undefined;
+      if (chatIds) {
+        subscribedGroups.clear();
+        for (const id of chatIds) subscribedGroups.add(id);
+      }
+      if (typeof res.boundChat === "string") {
+        boundChat = res.boundChat as ChannelChatId;
+        nullBoundPolls = 0;
+      } else if (boundChat === null) {
+        nullBoundPolls = 0;
+      } else if (++nullBoundPolls >= 3) {
+        boundChat = null;
+        nullBoundPolls = 0;
+      }
+    } catch {}
+  };
+  await pollBinding();
+  groupPollTimer = setInterval(() => {
+    pollBinding().catch(() => {});
+  }, 500);
+
+  let stopping = false;
+  let warnedControlInput = false;
+  const pendingInputs: string[] = [];
+  let drainingInputs = false;
+  const enqueueInput = (line: string) => {
+    pendingInputs.push(line);
+    void drainInputQueue();
+  };
+  const drainInputQueue = async () => {
+    if (drainingInputs || stopping) return;
+    drainingInputs = true;
+    while (!stopping && pendingInputs.length > 0) {
+      const line = pendingInputs.shift();
+      if (!line) continue;
+      if (isHeadlessControlLine(line)) {
+        if (!warnedControlInput) {
+          warnedControlInput = true;
+          postAssistant("Interactive poll controls are not supported in headless mode. Send plain-text responses instead.");
+        }
+        continue;
+      }
+      try {
+        await adapter.sendText(line);
+      } catch (e) {
+        const err = e as Error;
+        postAssistant(`Headless input failed: ${err.message || err}`);
+      }
+    }
+    drainingInputs = false;
+  };
+
+  let pollTimer: ReturnType<typeof setInterval> | null = null;
+  let processingInput = false;
+  let reconnecting = false;
+  pollTimer = setInterval(async () => {
+    if (stopping || processingInput || reconnecting) return;
+    try {
+      const res = await daemonRequest(`/remote/${remoteId}/input`);
+      if (res.unknown) {
+        reconnecting = true;
+        try {
+          await ensureDaemon();
+          const regRes = await daemonRequest("/remote/register", "POST", {
+            command: fullCommand,
+            chatId,
+            ownerUserId,
+            cwd: process.cwd(),
+            sessionId: remoteId,
+            subscribedGroups: Array.from(subscribedGroups),
+          });
+          if (regRes.ok && boundChat) {
+            await daemonRequest("/remote/bind-chat", "POST", {
+              sessionId: remoteId,
+              chatId: boundChat,
+              ownerUserId,
+            });
+          }
+        } catch {
+          // Re-registration failed — retry on next poll.
+        }
+        reconnecting = false;
+        return;
+      }
+
+      const lines = res.lines as string[] | undefined;
+      if (lines && lines.length > 0) {
+        processingInput = true;
+        for (const line of lines) enqueueInput(line);
+        processingInput = false;
+      }
+    } catch {
+      processingInput = false;
+    }
+  }, 200);
+
+  let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  const heartbeatState: HeartbeatRuntimeState = {
+    lastEveryRunAtMs: new Map<string, number>(),
+    lastAtRunDate: new Map<string, string>(),
+    missingWorkflowWarned: new Set<string>(),
+  };
+  if (heartbeatEnabled) {
+    const intervalMs = heartbeatInterval * 60 * 1000;
+    heartbeatTimer = setInterval(() => {
+      let raw: string;
+      try {
+        raw = readFileSync(heartbeatFile, "utf-8");
+      } catch {
+        return;
+      }
+
+      const now = new Date();
+      const ts = now.toISOString().replace("T", " ").slice(0, 16);
+      const tick = resolveHeartbeatTick(raw, now, heartbeatInterval, heartbeatState, (workflowPath) => {
+        try {
+          return readFileSync(workflowPath, "utf-8");
+        } catch {
+          if (!heartbeatState.missingWorkflowWarned.has(workflowPath)) {
+            console.error(`[heartbeat] Missing workflow file: ${workflowPath}`);
+            heartbeatState.missingWorkflowWarned.add(workflowPath);
+          }
+          return null;
+        }
+      });
+
+      if (tick.workflows.length > 0) {
+        for (const wf of tick.workflows) {
+          enqueueInput(
+            `❤ Heartbeat workflow trigger. The current time and date is: ${ts}. Workflow: ${wf.workflow}. Follow these instructions now if time and date is relevant:\n\n${wf.context}\n\n❤`
+          );
+        }
+        return;
+      }
+
+      if (!tick.plainText) return;
+      enqueueInput(
+        `❤ This is a scheduled heartbeat message for workflows and cron jobs. The current time and date is: ${ts}. Follow these instructions now if time and date is relevant:\n\n${tick.plainText}\n\n❤`
+      );
+    }, intervalMs);
+  }
+
+  const signalPromise = new Promise<number>((resolve) => {
+    const onSigInt = () => resolve(130);
+    const onSigTerm = () => resolve(143);
+    process.once("SIGINT", onSigInt);
+    process.once("SIGTERM", onSigTerm);
+  });
+
+  const exitCode = await Promise.race([
+    adapter.exited.then((code) => code ?? 1),
+    signalPromise,
+  ]);
+
+  stopping = true;
+  await adapter.close().catch(() => {});
+  if (pollTimer) clearInterval(pollTimer);
+  if (groupPollTimer) clearInterval(groupPollTimer);
+  if (heartbeatTimer) clearInterval(heartbeatTimer);
+  return exitCode;
+}
+
 export async function runRun(): Promise<void> {
   // Determine command: `tg claude [args]` or `tg codex [args]`
   const cmdName = process.argv[2];
@@ -973,7 +1510,7 @@ export async function runRun(): Promise<void> {
 
   // Extract touchgrass-specific flags (consumed by tg, not passed to the tool)
   let heartbeatInterval = 15; // minutes
-  let sendFilesFromAssistant = false;
+  let headless = false;
 
   if (cmdArgs.includes("--tg-heartbeat")) {
     console.error("`--tg-heartbeat` has been removed.");
@@ -994,10 +1531,16 @@ export async function runRun(): Promise<void> {
     process.exit(1);
   }
 
-  const sendFilesIdx = cmdArgs.indexOf("--tg-send-files");
-  if (sendFilesIdx !== -1) {
-    sendFilesFromAssistant = true;
-    cmdArgs = [...cmdArgs.slice(0, sendFilesIdx), ...cmdArgs.slice(sendFilesIdx + 1)];
+  if (cmdArgs.includes("--tg-send-files")) {
+    console.error("`--tg-send-files` has been removed.");
+    console.error("Use `tg send --file <session_id> <path>` to send files to session channel(s).");
+    process.exit(1);
+  }
+
+  const headlessIdx = cmdArgs.indexOf("--headless");
+  if (headlessIdx !== -1) {
+    headless = true;
+    cmdArgs = [...cmdArgs.slice(0, headlessIdx), ...cmdArgs.slice(headlessIdx + 1)];
   }
 
   let channelFlag: string | null = null;
@@ -1042,18 +1585,18 @@ export async function runRun(): Promise<void> {
   try {
     const config = await loadConfig();
     const pairedUsers = getAllPairedUsers(config);
-    const botToken = getTelegramBotToken(config);
+    const owner = resolveOwnerChannel(config);
     if (pairedUsers.length > 1) {
       console.error("Security check failed: multiple paired users detected in config.");
-      console.error("Single-user mode requires exactly one paired Telegram user.");
+      console.error("Single-user mode requires exactly one paired user.");
       console.error(`Fix by removing extra users in ${paths.config}.`);
       process.exit(1);
     }
-    if (pairedUsers.length > 0 && botToken) {
-      ownerUserId = pairedUsers[0].userId;
-      chatId = pairedUsers[0].userId.startsWith("telegram:")
-        ? `telegram:${pairedUsers[0].userId.split(":")[1]}`
-        : pairedUsers[0].userId;
+    if (owner) {
+      const resolvedChannelName = owner.channelName;
+      const resolvedChannelConfig = owner.channelConfig;
+      ownerUserId = owner.ownerUserId;
+      chatId = owner.ownerChatId;
 
       try {
         await ensureDaemon();
@@ -1076,7 +1619,7 @@ export async function runRun(): Promise<void> {
           options.push({ label: "No channel", chatId: "", busy: false, title: "No channel", type: "none" });
           let dmLabel = "DM";
           // Create channel early for bot name lookup
-          const tempChannel = createChannel("telegram", { type: "telegram", credentials: { botToken }, pairedUsers: [], linkedGroups: [] });
+          const tempChannel = createChannel(resolvedChannelName, resolvedChannelConfig);
           try {
             if (tempChannel.getBotName) dmLabel = await tempChannel.getBotName();
           } catch {}
@@ -1147,9 +1690,9 @@ export async function runRun(): Promise<void> {
               if (o.busy && o.chatId) disabled.add(idx);
             });
             const choice = await terminalPicker(
-              "⛳ Select a Telegram channel:",
+              "⛳ Select a channel:",
               labels,
-              "Add bot to a Telegram group and send /link to add more channels (busy channels are disabled)",
+              "Use `tg links` to manage linked channels (busy channels are disabled)",
               disabled
             );
             if (choice >= 0 && choice < options.length) {
@@ -1180,7 +1723,9 @@ export async function runRun(): Promise<void> {
       }
 
       // Set up channel for JSONL watching
-      channel = createChannel("telegram", { type: "telegram", credentials: { botToken }, pairedUsers: [], linkedGroups: [] });
+      if (!headless) {
+        channel = createChannel(resolvedChannelName, resolvedChannelConfig);
+      }
 
     }
   } catch {
@@ -1200,6 +1745,36 @@ export async function runRun(): Promise<void> {
     : null;
   if (manifest) {
     await writeManifest(manifest);
+  }
+
+  if (headless) {
+    if (!remoteId || !chatId || !ownerUserId) {
+      console.error("Headless mode requires a paired user and an active daemon session.");
+      console.error("Run `tg init` and `tg pair` first.");
+      process.exit(1);
+    }
+
+    const exitCode = await runHeadlessSession({
+      cmdName,
+      executable,
+      cmdArgs,
+      remoteId,
+      fullCommand,
+      chatId,
+      ownerUserId,
+      didBindChat,
+      heartbeatEnabled,
+      heartbeatFile,
+      heartbeatInterval,
+    });
+
+    try {
+      await daemonRequest(`/remote/${remoteId}/exit`, "POST", {
+        exitCode: exitCode ?? null,
+      });
+    } catch {}
+    await removeManifest(remoteId);
+    process.exit(exitCode ?? 1);
   }
 
   // Detect resume flags to find existing session JSONL file
@@ -1547,16 +2122,6 @@ export async function runRun(): Promise<void> {
         const formatted = tgChannel.fmt.fromMarkdown(text);
         for (const cid of targets) {
           tgChannel.send(cid, formatted).catch(() => {});
-        }
-        // Detect file paths in the text and send as attachments
-        if (sendFilesFromAssistant && tgChannel.sendDocument) {
-          const files = extractFilePaths(text, process.cwd());
-          for (const fp of files) {
-            const fileName = fp.split("/").pop() || "file";
-            for (const cid of targets) {
-              tgChannel.sendDocument!(cid, fp, fileName).catch(() => {});
-            }
-          }
         }
       }, onQuestion, onToolCall, onThinking, onToolResult, (msg) => {
         if (typeof msg.sessionId === "string") activeClaudeSessionId = msg.sessionId;

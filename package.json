@@ -1,11 +1,12 @@
 {
   "name": "touchgrass",
-  "version": "0.1.21",
+  "version": "0.1.45",
   "description": "touchgrass.sh — manage your AI agent CLIs from your phone",
   "type": "module",
   "scripts": {
     "dev": "bun run src/main.ts",
-    "build": "bun build src/main.ts --compile --outfile tg",
+    "gen:templates": "bun run scripts/generate-embedded-templates.ts",
+    "build": "bun run gen:templates && bun build src/main.ts --compile --outfile tg",
     "typecheck": "tsc --noEmit",
     "test": "bun test"
   },
