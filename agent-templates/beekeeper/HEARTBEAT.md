@@ -1,5 +1,5 @@
 /*
-Groundskeeper heartbeat template.
+Beekeeper heartbeat template.
 
 - This comment block is ignored by heartbeat processing.
 - HEARTBEAT.md should define cadence and workflow dispatch only.
