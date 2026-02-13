@@ -3,14 +3,8 @@ import { TelegramApi } from "../channels/telegram/api";
 import { loadConfig, saveConfig } from "../config/store";
 import { getTelegramBotToken } from "../config/schema";
 import { paths } from "../config/paths";
-import { createDefaultBeekeeperInstallProfile, installBeekeeper } from "./agents";
 
 type ChannelName = "telegram";
-
-function isInstallChoice(answer: string): boolean {
-  const normalized = answer.trim().toLowerCase();
-  return normalized === "install" || normalized === "i" || normalized === "y" || normalized === "yes";
-}
 
 function parseChannelChoice(answer: string): ChannelName | null {
   const normalized = answer.trim().toLowerCase();
@@ -45,12 +39,6 @@ function parseTokenAction(answer: string): "use" | "overwrite" | "abort" {
     return "abort";
   }
   return "use";
-}
-
-async function questionWithDefault(rl: Interface, label: string, fallback: string): Promise<string> {
-  const prompt = fallback ? `${label} [${fallback}]: ` : `${label}: `;
-  const answer = (await rl.question(prompt)).trim();
-  return answer || fallback;
 }
 
 async function promptTelegramToken(rl: Interface): Promise<string> {
@@ -143,37 +131,6 @@ export async function runInit(): Promise<void> {
 
     await saveConfig(config);
     console.log(`\n✅ Config saved to ${paths.config}`);
-
-    if (config.agents?.beekeeper) {
-      console.log(`\nBeekeeper already installed at ${config.agents.beekeeper.directory}`);
-    } else {
-      console.log("\nOptional: install The Beekeeper 🐝");
-      console.log("It scaffolds AGENTS.md, CLAUDE.md, HEARTBEAT.md, workflows/, and core skills.");
-      const choice = await rl.question(
-        "Install now or later? [later/install] (default: later) "
-      );
-
-      if (isInstallChoice(choice)) {
-        const defaults = createDefaultBeekeeperInstallProfile(process.cwd());
-        const profile = {
-          targetDir: await questionWithDefault(rl, "Install directory", defaults.targetDir),
-          agentName: await questionWithDefault(rl, "Agent name", defaults.agentName),
-          description: await questionWithDefault(rl, "Agent description", defaults.description),
-          ownerName: await questionWithDefault(rl, "Owner name", defaults.ownerName),
-          location: await questionWithDefault(rl, "Location", defaults.location),
-          timezone: await questionWithDefault(rl, "Timezone", defaults.timezone),
-        };
-
-        try {
-          const installDir = await installBeekeeper(config, profile);
-          console.log(`✅ Installed ${profile.agentName} in ${installDir}`);
-        } catch (err) {
-          console.error(`Beekeeper install failed: ${(err as Error).message}`);
-        }
-      } else {
-        console.log("Beekeeper install set to later.");
-      }
-    }
 
     console.log("\nNext steps:");
     console.log("  1. tg pair      Generate a pairing code");
