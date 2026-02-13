@@ -1,4 +1,4 @@
-import { paths } from "../config/paths";
+import { paths, useTcpControlServer } from "../config/paths";
 import { loadConfig } from "../config/store";
 import { getTelegramBotToken, getAllPairedUsers } from "../config/schema";
 import { readPidFile, isDaemonRunning } from "../daemon/lifecycle";
@@ -64,17 +64,17 @@ export async function runDoctor(): Promise<void> {
   if (pid && isDaemonRunning(pid)) {
     checks.push({ name: "Daemon", status: "ok", detail: `PID ${pid}` });
 
-    // 5. Control socket
+    // 5. Control server
     try {
-      const status = await daemonRequest("/health");
+      await daemonRequest("/health");
       checks.push({
-        name: "Control socket",
+        name: "Control server",
         status: "ok",
-        detail: "Responding",
+        detail: useTcpControlServer() ? "Responding (localhost TCP)" : "Responding (Unix socket)",
       });
     } catch {
       checks.push({
-        name: "Control socket",
+        name: "Control server",
         status: "fail",
         detail: "Not responding",
       });

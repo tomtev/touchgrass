@@ -35,9 +35,23 @@ export class TelegramChannel implements Channel {
   // Cache forum topic names: key = "chatId:threadId", value = topic name
   private topicNames: Map<string, string> = new Map();
   onPollAnswer: PollAnswerHandler | null = null;
+  onDeadChat: ((chatId: ChannelChatId, error: Error) => void) | null = null;
 
   constructor(botToken: string) {
     this.api = new TelegramApi(botToken);
+  }
+
+  private isDeadChatError(msg: string): boolean {
+    const lower = msg.toLowerCase();
+    return (
+      lower.includes("chat not found") ||
+      lower.includes("bot was blocked") ||
+      lower.includes("forbidden") ||
+      lower.includes("group chat was deactivated") ||
+      lower.includes("bot was kicked") ||
+      lower.includes("chat_write_forbidden") ||
+      lower.includes("not enough rights")
+    );
   }
 
   setTyping(chatId: ChannelChatId, active: boolean): void {
@@ -70,7 +84,9 @@ export class TelegramChannel implements Channel {
       await this.api.sendMessage(numChatId, html, "HTML", threadId);
       this.lastMessage.delete(chatId);
     } catch (e) {
-      await logger.error("Failed to send message", { chatId, error: (e as Error).message });
+      const err = e as Error;
+      await logger.error("Failed to send message", { chatId, error: err.message });
+      if (this.isDeadChatError(err.message)) this.onDeadChat?.(chatId, err);
     }
   }
 
@@ -117,7 +133,9 @@ export class TelegramChannel implements Channel {
           text: chunk,
         });
       } catch (e) {
-        await logger.error("Failed to send output", { chatId, error: (e as Error).message });
+        const err = e as Error;
+        await logger.error("Failed to send output", { chatId, error: err.message });
+        if (this.isDeadChatError(err.message)) this.onDeadChat?.(chatId, err);
       }
     }
   }
@@ -127,7 +145,9 @@ export class TelegramChannel implements Channel {
     try {
       await this.api.sendDocument(numChatId, filePath, caption, threadId);
     } catch (e) {
-      await logger.error("Failed to send document", { chatId, filePath, error: (e as Error).message });
+      const err = e as Error;
+      await logger.error("Failed to send document", { chatId, filePath, error: err.message });
+      if (this.isDeadChatError(err.message)) this.onDeadChat?.(chatId, err);
     }
   }
 

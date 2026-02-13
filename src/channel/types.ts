@@ -37,6 +37,8 @@ export interface Channel {
   startReceiving(onMessage: (msg: InboundMessage) => Promise<void>): Promise<void>;
   stopReceiving(): void;
   setTyping(chatId: ChannelChatId, active: boolean): void;
+  // Callback for permanent send failures (chat deleted, bot removed, etc.)
+  onDeadChat?: ((chatId: ChannelChatId, error: Error) => void) | null;
   // Optional capabilities — not all channels support these
   sendPoll?(chatId: ChannelChatId, question: string, options: string[], multiSelect: boolean): Promise<PollResult>;
   closePoll?(chatId: ChannelChatId, messageId: string): Promise<void>;

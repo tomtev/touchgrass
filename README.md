@@ -5,13 +5,15 @@ Manage Claude Code, Codex & Pi terminals on-the-go.
 - ✅ **Simple to run** — just prefix terminal commands with `tg`, like `tg claude`
 - ✅ **Communicate with your terminals from Telegram** — send input, see responses
 - ✅ **Connect terminal sessions to multiple groups and topics** — each session gets its own chat
-- ✅ **Heartbeat mode** — run autonomous cron jobs and workflows with `--tg-heartbeat`
+- ✅ **Heartbeat mode** — run autonomous cron jobs and workflows when `HEARTBEAT.md` exists
 
 ### Quick install
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/tomtev/touchgrass/main/install.sh | bash
 ```
+
+On Windows, download `tg-windows-x64.exe` from the latest release and place it in your PATH.
 
 Add `tg` in front of any agent CLI command to bridge it to Telegram. See responses, send input, and manage sessions — all from chat. Works with Claude Code, Codex, PI, and any terminal tool.
 
@@ -26,7 +28,7 @@ tg codex     # To start Codex. All --props allowed.
 Set up autonomous workflows with **heartbeat mode** — your agent checks a `HEARTBEAT.md` file on a schedule and follows the instructions inside. Update the file from anywhere (even your phone) and the agent picks it up on the next beat.
 
 ```bash
-tg claude --tg-heartbeat --tg-interval 30    # check in every 30 minutes
+tg claude --hb-interval 30    # check in every 30 minutes (if HEARTBEAT.md exists)
 ```
 
 More channels (Discord, Slack) coming soon.
@@ -103,6 +105,7 @@ Two processes cooperate:
 
 1. **CLI process** (`tg claude`) — spawns a PTY for the agent, watches its JSONL output for assistant responses, sends them to Telegram
 2. **Daemon** — auto-starts when needed, polls Telegram for your messages, routes them to the right session, auto-stops after 30s of inactivity
+   Control transport is Unix socket on macOS/Linux, localhost TCP on Windows.
 
 ## CLI commands
 
@@ -168,8 +171,8 @@ All group members can see responses, but only paired users can send input.
 Automatically send a periodic message to the agent, prompting it to check a `HEARTBEAT.md` file for instructions. Great for long-running autonomous workflows.
 
 ```bash
-tg claude --tg-heartbeat                       # Default: every 60 minutes
-tg claude --tg-heartbeat --tg-interval 30      # Every 30 minutes
+tg claude                    # Heartbeat runs if HEARTBEAT.md exists (default: every 60 minutes)
+tg claude --hb-interval 30   # Every 30 minutes
 ```
 
 Every interval, touchgrass.sh submits this to the agent's terminal:
@@ -181,13 +184,20 @@ Every interval, touchgrass.sh submits this to the agent's terminal:
 Create a `HEARTBEAT.md` in your project directory with whatever instructions you want:
 
 ```markdown
-# Heartbeat Instructions
+/*
+Optional notes here.
+This comment block is ignored by heartbeat processing.
+*/
 
 1. Run the test suite: `bun test`
 2. If any tests fail, fix them
 3. Run `bun run typecheck` and fix any type errors
-4. Commit any changes with a descriptive message
+4. Commit any changes with a descriptive message (if desired)
 ```
+
+Notes:
+- `/* ... */` comments are stripped before sending content to the agent.
+- If `HEARTBEAT.md` is empty (or comment-only), that heartbeat cycle is skipped.
 
 Update `HEARTBEAT.md` any time (even from your phone via git push) and the agent picks up new instructions on the next heartbeat.
 
@@ -212,14 +222,14 @@ No. It's a thin PTY wrapper — your tool runs in a real terminal and behaves id
 A lightweight file watcher reads the session JSONL files that CLI tools like Claude Code, Codex, and PI already write. When new assistant output appears, it's forwarded to Telegram via the Bot API. No hooks or plugins are injected into the tool itself.
 
 **How does heartbeat mode work?**
-It submits the contents of a `HEARTBEAT.md` file to the agent's terminal on a schedule. Write whatever instructions you want in the file, and the agent follows them on each heartbeat. Update the file any time — the agent picks up changes on the next beat.
+It submits `HEARTBEAT.md` instructions to the agent's terminal on a schedule. `/* ... */` comments are ignored. If the file is empty (or only comments), the cycle is skipped. Update the file any time — the agent picks up changes on the next beat.
 
 **Can I type locally and use Telegram at the same time?**
 Yes. Both work in real-time. Avoid typing in both simultaneously as keystrokes could interleave.
 
 ## Requirements
 
-- macOS or Linux (arm64 or x64)
+- macOS/Linux (arm64 or x64), or Windows (x64)
 - A Telegram account and bot token
 
 ## License

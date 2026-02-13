@@ -39,6 +39,16 @@ async function main() {
       await runLinks();
       break;
     }
+    case "send": {
+      const { runSend } = await import("./cli/send");
+      await runSend();
+      break;
+    }
+    case "read": {
+      const { runRead } = await import("./cli/read");
+      await runRead();
+      break;
+    }
     case "claude":
     case "codex":
     case "pi": {
@@ -77,11 +87,13 @@ Commands:
   pi       Run PI with chat bridge
 
 Options (for claude/codex/pi):
-  --tg-heartbeat         Send periodic heartbeat to agent
-  --tg-interval <min>    Heartbeat interval (default: 60)
+  (Heartbeat runs automatically when HEARTBEAT.md exists)
+  --hb-interval <min>    Heartbeat interval when HEARTBEAT.md exists (default: 60)
   --tg-send-files        Allow assistant output paths to be auto-sent as Telegram files
 
   ls       List active sessions
+  send     Send a message to a session (tg send <id> "msg")
+  read     Read last messages from a session (tg read <id> [count])
   links    List and manage linked groups/topics
   init     Set up bot token
   pair     Generate a pairing code

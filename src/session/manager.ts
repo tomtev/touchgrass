@@ -12,6 +12,7 @@ export interface RemoteSession {
   chatId: ChannelChatId;
   ownerUserId: ChannelUserId;
   inputQueue: string[];
+  lastSeenAt: number;
 }
 
 export interface PendingPoll {
@@ -225,7 +226,7 @@ export class SessionManager {
       if (existing) return existing;
     }
     const id = existingId || "r-" + randomBytes(3).toString("hex");
-    const remote: RemoteSession = { id, command, cwd, chatId, ownerUserId, inputQueue: [] };
+    const remote: RemoteSession = { id, command, cwd, chatId, ownerUserId, inputQueue: [], lastSeenAt: Date.now() };
     this.remotes.set(id, remote);
     // Only auto-attach if no existing attachment (don't overwrite)
     if (!this.attachments.has(chatId)) {
@@ -241,6 +242,7 @@ export class SessionManager {
   drainRemoteInput(id: string): string[] {
     const remote = this.remotes.get(id);
     if (!remote) return [];
+    remote.lastSeenAt = Date.now();
     const lines = remote.inputQueue.splice(0);
     return lines;
   }
@@ -347,6 +349,18 @@ export class SessionManager {
       if (poll.sessionId === sessionId) return { pollId, poll };
     }
     return undefined;
+  }
+
+  reapStaleRemotes(maxAgeMs: number): RemoteSession[] {
+    const now = Date.now();
+    const reaped: RemoteSession[] = [];
+    for (const remote of this.remotes.values()) {
+      if (now - remote.lastSeenAt > maxAgeMs) {
+        reaped.push({ ...remote });
+        this.removeRemote(remote.id);
+      }
+    }
+    return reaped;
   }
 
 }

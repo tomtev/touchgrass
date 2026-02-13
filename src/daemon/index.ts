@@ -1,7 +1,7 @@
 import { loadConfig, invalidateCache, saveConfig } from "../config/store";
 import { getTelegramBotToken, getAllLinkedGroups, isLinkedGroup, removeLinkedGroup } from "../config/schema";
 import { logger } from "./logger";
-import { writePidFile, installSignalHandlers, onShutdown, removeAuthToken, removePidFile, removeSocket } from "./lifecycle";
+import { writePidFile, installSignalHandlers, onShutdown, removeAuthToken, removeControlPortFile, removePidFile, removeSocket } from "./lifecycle";
 import { startControlServer } from "./control-server";
 import { routeMessage } from "../bot/command-router";
 import { SessionManager } from "../session/manager";
@@ -76,6 +76,7 @@ export async function startDaemon(): Promise<void> {
         await removeAuthToken();
         await removePidFile();
         await removeSocket();
+        await removeControlPortFile();
         process.exit(0);
       }
     }, AUTO_STOP_DELAY);
@@ -84,6 +85,26 @@ export async function startDaemon(): Promise<void> {
   // Use the first channel for sending notifications (daemon-initiated messages)
   const primaryChannel = channels[0];
   const fmt = primaryChannel.fmt;
+
+  // Wire dead chat detection — clean up subscriptions and linked groups when sends fail permanently
+  for (const channel of channels) {
+    if ("onDeadChat" in channel) {
+      channel.onDeadChat = async (deadChatId, error) => {
+        await logger.info("Dead chat detected", { chatId: deadChatId, error: error.message });
+        // Unsubscribe dead chat from all sessions
+        for (const session of sessionManager.list()) {
+          sessionManager.unsubscribeGroup(session.id, deadChatId);
+        }
+        // Detach from any bound session
+        sessionManager.detach(deadChatId);
+        // Remove from linked groups config
+        await refreshConfig();
+        if (removeLinkedGroup(config, deadChatId)) {
+          await saveConfig(config);
+        }
+      };
+    }
+  }
 
   // Wire session event handlers
   sessionManager.setEventHandlers({
@@ -346,7 +367,23 @@ export async function startDaemon(): Promise<void> {
     }
   }
 
+  // Reap orphaned remote sessions whose CLI crashed without calling /exit
+  const REAP_INTERVAL = 60_000;
+  const REAP_MAX_AGE = 30_000;
+  const reaperTimer = setInterval(async () => {
+    const reaped = sessionManager.reapStaleRemotes(REAP_MAX_AGE);
+    for (const remote of reaped) {
+      await logger.info("Reaped stale remote session", { id: remote.id, command: remote.command });
+      const msg = `${fmt.escape("⛳️")} ${fmt.bold(fmt.escape(sessionLabel(remote.command, remote.cwd)))} disconnected (CLI stopped responding)`;
+      primaryChannel.send(remote.chatId, msg);
+    }
+    if (reaped.length > 0 && sessionManager.remoteCount() === 0 && sessionManager.runningCount() === 0) {
+      scheduleAutoStop();
+    }
+  }, REAP_INTERVAL);
+
   onShutdown(async () => {
+    clearInterval(reaperTimer);
     cancelAutoStop();
     for (const ch of channels) ch.stopReceiving();
     sessionManager.killAll();
@@ -374,14 +411,28 @@ export async function startDaemon(): Promise<void> {
       await removeAuthToken();
       await removePidFile();
       await removeSocket();
+      await removeControlPortFile();
       process.exit(0);
     },
     generatePairingCode() {
       return generatePairingCode();
     },
-    async registerRemote(command: string, chatId: ChannelChatId, ownerUserId: ChannelUserId, cwd: string, existingId?: string): Promise<{ sessionId: string; dmBusy: boolean; dmBusyLabel?: string; linkedGroups: Array<{ chatId: string; title?: string }>; allLinkedGroups: Array<{ chatId: string; title?: string; busyLabel?: string }> }> {
+    async registerRemote(command: string, chatId: ChannelChatId, ownerUserId: ChannelUserId, cwd: string, existingId?: string, subscribedGroups?: string[]): Promise<{ sessionId: string; dmBusy: boolean; dmBusyLabel?: string; linkedGroups: Array<{ chatId: string; title?: string }>; allLinkedGroups: Array<{ chatId: string; title?: string; busyLabel?: string }> }> {
       cancelAutoStop();
+      const isReconnect = !!existingId && !sessionManager.getRemote(existingId);
       const remote = sessionManager.registerRemote(command, chatId, ownerUserId, cwd, existingId);
+
+      // Restore group subscriptions (e.g. after daemon restart, CLI re-registers with saved groups)
+      if (subscribedGroups) {
+        for (const groupId of subscribedGroups) {
+          sessionManager.subscribeGroup(remote.id, groupId);
+        }
+      }
+
+      if (isReconnect) {
+        const label = sessionLabel(command, cwd);
+        primaryChannel.send(chatId, `${fmt.escape("⛳️")} ${fmt.bold(fmt.escape(label))} reconnected after daemon restart. Messages sent during restart may have been lost.`);
+      }
 
       const existingBound = sessionManager.getAttachedRemote(chatId);
       const dmBusy = !!existingBound && existingBound.id !== remote.id;
@@ -459,6 +510,12 @@ export async function startDaemon(): Promise<void> {
     },
     drainRemoteInput(sessionId: string): string[] {
       return sessionManager.drainRemoteInput(sessionId);
+    },
+    pushRemoteInput(sessionId: string, text: string): boolean {
+      const remote = sessionManager.getRemote(sessionId);
+      if (!remote) return false;
+      remote.inputQueue.push(text);
+      return true;
     },
     hasRemote(sessionId: string): boolean {
       return !!sessionManager.getRemote(sessionId);

@@ -34,6 +34,14 @@ export async function removeSocket(): Promise<void> {
   }
 }
 
+export async function removeControlPortFile(): Promise<void> {
+  try {
+    await unlink(paths.controlPortFile);
+  } catch {
+    // Ignore if already removed
+  }
+}
+
 export async function removeAuthToken(): Promise<void> {
   try {
     await unlink(paths.authToken);
@@ -74,6 +82,7 @@ export function installSignalHandlers(): void {
     }
     await removePidFile();
     await removeSocket();
+    await removeControlPortFile();
     await removeAuthToken();
     process.exit(0);
   };

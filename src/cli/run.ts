@@ -8,7 +8,7 @@ import { stripAnsiReadable } from "../utils/ansi";
 import { paths, ensureDirs } from "../config/paths";
 import { watch, readdirSync, statSync, readFileSync, type FSWatcher } from "fs";
 import { chmod, open, writeFile, unlink } from "fs/promises";
-import { homedir } from "os";
+import { homedir, platform } from "os";
 import { join } from "path";
 
 // Per-CLI patterns for detecting approval prompts in terminal output.
@@ -23,6 +23,15 @@ const APPROVAL_PATTERNS: Record<string, { promptText: string; optionText: string
   codex: { promptText: "Would you like to run the following command", optionText: "1. Yes, proceed" },
   // pi: { promptText: "...", optionText: "..." },
 };
+
+function stripHeartbeatComments(content: string): string {
+  // Ignore C-style block comments in HEARTBEAT.md.
+  return content.replace(/\/\*[\s\S]*?\*\//g, "");
+}
+
+function getHeartbeatInstructions(content: string): string {
+  return stripHeartbeatComments(content).trim();
+}
 
 // Arrow-key picker for terminal selection
 function terminalPicker(title: string, options: string[], hint?: string, disabled?: Set<number>): Promise<number> {
@@ -652,17 +661,22 @@ export async function runRun(): Promise<void> {
   }
 
   // Extract --tg-* flags (consumed by tg, not passed to the tool)
-  let heartbeatEnabled = false;
   let heartbeatInterval = 60; // minutes
   let sendFilesFromAssistant = false;
 
-  const heartbeatIdx = cmdArgs.indexOf("--tg-heartbeat");
-  if (heartbeatIdx !== -1) {
-    heartbeatEnabled = true;
-    cmdArgs = [...cmdArgs.slice(0, heartbeatIdx), ...cmdArgs.slice(heartbeatIdx + 1)];
+  if (cmdArgs.includes("--tg-heartbeat")) {
+    console.error("`--tg-heartbeat` has been removed.");
+    console.error("Heartbeat now runs automatically when HEARTBEAT.md exists.");
+    process.exit(1);
   }
 
-  const intervalIdx = cmdArgs.indexOf("--tg-interval");
+  if (cmdArgs.includes("--tg-interval")) {
+    console.error("`--tg-interval` has been removed.");
+    console.error("Use `--hb-interval <min>` instead.");
+    process.exit(1);
+  }
+
+  const intervalIdx = cmdArgs.indexOf("--hb-interval");
   if (intervalIdx !== -1 && intervalIdx + 1 < cmdArgs.length) {
     heartbeatInterval = parseFloat(cmdArgs[intervalIdx + 1]) || 60;
     cmdArgs = [...cmdArgs.slice(0, intervalIdx), ...cmdArgs.slice(intervalIdx + 2)];
@@ -674,37 +688,11 @@ export async function runRun(): Promise<void> {
     cmdArgs = [...cmdArgs.slice(0, sendFilesIdx), ...cmdArgs.slice(sendFilesIdx + 1)];
   }
 
-  if (heartbeatEnabled) {
-    const heartbeatFile = join(process.cwd(), "HEARTBEAT.md");
-    try {
-      statSync(heartbeatFile);
-    } catch {
-      console.log("No HEARTBEAT.md found in current directory.");
-      process.stdout.write("Create a default one? (y/n) ");
-      const response = await new Promise<string>((resolve) => {
-        process.stdin.once("data", (data: Buffer) => resolve(data.toString().trim().toLowerCase()));
-      });
-      if (response === "y" || response === "yes") {
-        const template = `# Heartbeat Instructions
-
-## What is this?
-This file is read by your agent on every heartbeat interval.
-Edit these instructions to define what the agent should do periodically.
-
-## Instructions
-
-1. Run the test suite and fix any failing tests
-2. Check for type errors and fix them
-3. Commit any changes with a descriptive message
-`;
-        await writeFile(heartbeatFile, template, "utf-8");
-        console.log("Created HEARTBEAT.md — edit it with your instructions.");
-      } else {
-        console.error("Cannot use --tg-heartbeat without a HEARTBEAT.md file.");
-        process.exit(1);
-      }
-    }
-  }
+  const heartbeatFile = join(process.cwd(), "HEARTBEAT.md");
+  let heartbeatEnabled = false;
+  try {
+    heartbeatEnabled = statSync(heartbeatFile).isFile();
+  } catch {}
 
   const executable = SUPPORTED_COMMANDS[cmdName][0];
   const fullCommand = [executable, ...cmdArgs].join(" ");
@@ -1018,6 +1006,17 @@ Edit these instructions to define what the agent should do periodically.
 
   const terminal = proc.terminal!;
 
+  // Prevent idle sleep on macOS while the agent is running
+  let caffeinateProc: { kill(): void } | null = null;
+  if (platform() === "darwin") {
+    try {
+      caffeinateProc = Bun.spawn(["caffeinate", "-i", "-w", String(proc.pid)], {
+        stdout: "ignore",
+        stderr: "ignore",
+      });
+    } catch {}
+  }
+
   // Forward stdin to the PTY
   process.stdin.on("data", (data: Buffer) => {
     terminal.write(data);
@@ -1060,7 +1059,7 @@ Edit these instructions to define what the agent should do periodically.
     await pollBinding();
     groupPollTimer = setInterval(() => {
       pollBinding().catch(() => {});
-    }, 2000);
+    }, 500);
   }
 
   // Heartbeat: periodically send a message to the agent's terminal
@@ -1068,12 +1067,16 @@ Edit these instructions to define what the agent should do periodically.
   if (heartbeatEnabled) {
     const intervalMs = heartbeatInterval * 60 * 1000;
     heartbeatTimer = setInterval(() => {
-      const heartbeatFile = join(process.cwd(), "HEARTBEAT.md");
-      let content: string;
+      let raw: string;
       try {
-        content = readFileSync(heartbeatFile, "utf-8").trim();
+        raw = readFileSync(heartbeatFile, "utf-8");
       } catch {
-        content = "No HEARTBEAT.md found in project directory.";
+        return;
+      }
+      const content = getHeartbeatInstructions(raw);
+      if (!content) {
+        // No executable instructions in HEARTBEAT.md (empty/comment-only).
+        return;
       }
       const now = new Date();
       const ts = now.toISOString().replace("T", " ").slice(0, 16);
@@ -1151,7 +1154,7 @@ Edit these instructions to define what the agent should do periodically.
 
         const formatted = tgChannel.fmt.fromMarkdown(text);
         for (const cid of targets) {
-          tgChannel.send(cid, formatted);
+          tgChannel.send(cid, formatted).catch(() => {});
         }
         // Detect file paths in the text and send as attachments
         if (sendFilesFromAssistant && tgChannel.sendDocument) {
@@ -1159,7 +1162,7 @@ Edit these instructions to define what the agent should do periodically.
           for (const fp of files) {
             const fileName = fp.split("/").pop() || "file";
             for (const cid of targets) {
-              tgChannel.sendDocument!(cid, fp, fileName);
+              tgChannel.sendDocument!(cid, fp, fileName).catch(() => {});
             }
           }
         }
@@ -1231,6 +1234,7 @@ Edit these instructions to define what the agent should do periodically.
               ownerUserId,
               cwd: process.cwd(),
               sessionId: remoteId,
+              subscribedGroups: Array.from(subscribedGroups),
             });
             if (regRes.ok) {
               // Restore the chat binding
@@ -1321,6 +1325,7 @@ Edit these instructions to define what the agent should do periodically.
   const exitCode = await proc.exited;
 
   // Cleanup
+  if (caffeinateProc) caffeinateProc.kill();
   if (pollTimer) clearInterval(pollTimer);
   if (groupPollTimer) clearInterval(groupPollTimer);
   if (heartbeatTimer) clearInterval(heartbeatTimer);

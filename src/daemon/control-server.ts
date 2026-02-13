@@ -1,9 +1,9 @@
 import type { ChannelChatId, ChannelUserId } from "../channel/types";
-import { paths } from "../config/paths";
+import { CONTROL_HOST, paths, useTcpControlServer } from "../config/paths";
 import { logger } from "./logger";
-import { removeSocket, onShutdown } from "./lifecycle";
+import { removeControlPortFile, removeSocket, onShutdown } from "./lifecycle";
 import { timingSafeEqual } from "crypto";
-import { chmod } from "fs/promises";
+import { chmod, writeFile } from "fs/promises";
 
 export interface DaemonContext {
   authToken: string;
@@ -11,10 +11,11 @@ export interface DaemonContext {
   getStatus: () => Record<string, unknown>;
   shutdown: () => Promise<void>;
   generatePairingCode: () => string;
-  registerRemote: (command: string, chatId: ChannelChatId, ownerUserId: ChannelUserId, cwd: string, sessionId?: string) => Promise<{ sessionId: string; dmBusy: boolean; linkedGroups: Array<{ chatId: string; title?: string }>; allLinkedGroups: Array<{ chatId: string; title?: string }> }>;
+  registerRemote: (command: string, chatId: ChannelChatId, ownerUserId: ChannelUserId, cwd: string, sessionId?: string, subscribedGroups?: string[]) => Promise<{ sessionId: string; dmBusy: boolean; linkedGroups: Array<{ chatId: string; title?: string }>; allLinkedGroups: Array<{ chatId: string; title?: string }> }>;
   bindChat: (sessionId: string, chatId: ChannelChatId) => Promise<{ ok: boolean; error?: string }>;
   canUserAccessSession: (userId: ChannelUserId, sessionId: string) => boolean;
   drainRemoteInput: (sessionId: string) => string[];
+  pushRemoteInput: (sessionId: string, text: string) => boolean;
   hasRemote: (sessionId: string) => boolean;
   endRemote: (sessionId: string, exitCode: number | null) => void;
   getSubscribedGroups: (sessionId: string) => string[];
@@ -45,12 +46,15 @@ function isAuthorized(req: Request, expectedToken: string): boolean {
 }
 
 export async function startControlServer(ctx: DaemonContext): Promise<void> {
-  // Remove stale socket
+  // Remove stale control endpoints
   await removeSocket();
+  await removeControlPortFile();
 
-  const server = Bun.serve({
-    unix: paths.socket,
-    async fetch(req) {
+  const handlers: {
+    fetch(req: Request): Promise<Response>;
+    error(err: Error): Response;
+  } = {
+    async fetch(req: Request) {
       const url = new URL(req.url, "http://localhost");
       const path = url.pathname;
 
@@ -86,10 +90,11 @@ export async function startControlServer(ctx: DaemonContext): Promise<void> {
         const ownerUserId = body.ownerUserId as string;
         const cwd = (body.cwd as string) || "";
         const sessionId = (body.sessionId as string) || undefined;
+        const subscribedGroups = Array.isArray(body.subscribedGroups) ? body.subscribedGroups as string[] : undefined;
         if (!command || !chatId || !ownerUserId) {
           return Response.json({ ok: false, error: "Missing command, chatId, or ownerUserId" }, { status: 400 });
         }
-        const result = await ctx.registerRemote(command, chatId, ownerUserId, cwd, sessionId || undefined);
+        const result = await ctx.registerRemote(command, chatId, ownerUserId, cwd, sessionId || undefined, subscribedGroups);
         return Response.json({ ok: true, sessionId: result.sessionId, dmBusy: result.dmBusy, linkedGroups: result.linkedGroups, allLinkedGroups: result.allLinkedGroups });
       }
 
@@ -109,7 +114,7 @@ export async function startControlServer(ctx: DaemonContext): Promise<void> {
       }
 
       // Match /remote/:id/* actions
-      const remoteMatch = path.match(/^\/remote\/(r-[a-f0-9]+)\/(input|exit|subscribed-groups|question|tool-call|thinking|tool-result|approval-needed)$/);
+      const remoteMatch = path.match(/^\/remote\/(r-[a-f0-9]+)\/(input|exit|subscribed-groups|question|tool-call|thinking|tool-result|approval-needed|send-input)$/);
       if (remoteMatch) {
         const [, sessionId, action] = remoteMatch;
         if (action === "tool-result" && req.method === "POST") {
@@ -181,17 +186,47 @@ export async function startControlServer(ctx: DaemonContext): Promise<void> {
           const boundChat = ctx.getBoundChat(sessionId);
           return Response.json({ ok: true, chatIds, boundChat });
         }
+        if (action === "send-input" && req.method === "POST") {
+          if (!ctx.hasRemote(sessionId)) {
+            return Response.json({ ok: false, error: "Session not found" }, { status: 404 });
+          }
+          const body = await readJsonBody(req);
+          const text = body.text as string;
+          if (!text) {
+            return Response.json({ ok: false, error: "Missing text" }, { status: 400 });
+          }
+          const pushed = ctx.pushRemoteInput(sessionId, text);
+          return Response.json({ ok: pushed });
+        }
       }
 
       return Response.json({ ok: false, error: "Not found" }, { status: 404 });
     },
-    error(err) {
+    error(err: Error) {
       logger.error("Control server error", err.message);
       return Response.json({ ok: false, error: "Internal error" }, { status: 500 });
     },
-  });
+  };
 
-  await chmod(paths.socket, 0o600).catch(() => {});
+  const server = useTcpControlServer()
+    ? Bun.serve({
+        hostname: CONTROL_HOST,
+        port: 0,
+        ...handlers,
+      })
+    : Bun.serve({
+        unix: paths.socket,
+        ...handlers,
+      });
+
+  if (useTcpControlServer()) {
+    const port = Number(server.port);
+    await writeFile(paths.controlPortFile, String(port), { encoding: "utf-8", mode: 0o600 });
+    await chmod(paths.controlPortFile, 0o600).catch(() => {});
+    await logger.info("Control server listening", { host: CONTROL_HOST, port });
+  } else {
+    await chmod(paths.socket, 0o600).catch(() => {});
+    await logger.info("Control server listening", { socket: paths.socket });
+  }
   onShutdown(() => server.stop());
-  await logger.info("Control server listening", { socket: paths.socket });
 }

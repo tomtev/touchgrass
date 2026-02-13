@@ -63,7 +63,7 @@ async function spawnDaemon(): Promise<void> {
 
   proc.unref();
 
-  // Poll until socket responds (20 × 250ms = 5s max)
+  // Poll until control server responds (20 × 250ms = 5s max)
   for (let i = 0; i < 20; i++) {
     await Bun.sleep(250);
     try {

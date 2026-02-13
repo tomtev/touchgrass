@@ -32,7 +32,7 @@ User terminal                         Telegram
     |                                     |
   PTY + JSONL watcher              startReceiving() poll loop
     |                                     |
-  daemon (Unix socket)  <-------->  command-router
+  daemon (control server)  <------>  command-router
     |                                     |
   SessionManager  <---  stdin-input handler
 ```
@@ -72,7 +72,7 @@ User terminal                         Telegram
 | File | Purpose |
 |------|---------|
 | `src/daemon/index.ts` | Entry point — creates channels from config, wires SessionManager + router, auto-stop timer |
-| `src/daemon/control-server.ts` | Unix socket HTTP server (`~/.touchgrass/daemon.sock`) — register/input/exit/track-message/subscribed-groups endpoints |
+| `src/daemon/control-server.ts` | Control HTTP server (Unix socket on macOS/Linux, localhost TCP on Windows) — register/input/exit/track-message/subscribed-groups endpoints |
 | `src/daemon/lifecycle.ts` | PID file, signal handlers, shutdown callbacks |
 | `src/daemon/logger.ts` | JSON logger → `~/.touchgrass/logs/daemon.log` |
 
@@ -87,7 +87,7 @@ User terminal                         Telegram
 | `src/cli/doctor.ts` | Health checks |
 | `src/cli/config.ts` | View/edit config |
 | `src/cli/ls.ts` | List sessions |
-| `src/cli/client.ts` | `daemonRequest()` helper for Unix socket |
+| `src/cli/client.ts` | `daemonRequest()` helper for control transport (Unix socket or localhost TCP) |
 | `src/cli/logs.ts` | Tail daemon log |
 
 ### Config & Security
@@ -189,27 +189,28 @@ Old format (`botToken` at top level, `pairedUsers[].telegramId: number`) auto-mi
 
 ## Releasing
 
-Releases include prebuilt binaries for 4 targets. The install script (`install.sh`) downloads these from GitHub releases.
+Releases include prebuilt binaries for 5 targets. The install script (`install.sh`) downloads macOS/Linux binaries from GitHub releases.
 
 ### Steps
 
 1. Bump version tag: `git tag v0.X.Y`
 2. Push with tags: `git push origin main --tags`
-3. Build all 4 binaries:
+3. Build all 5 binaries:
    ```bash
    bun build src/main.ts --compile --target=bun-darwin-arm64 --outfile tg-darwin-arm64
    bun build src/main.ts --compile --target=bun-darwin-x64 --outfile tg-darwin-x64
    bun build src/main.ts --compile --target=bun-linux-arm64 --outfile tg-linux-arm64
    bun build src/main.ts --compile --target=bun-linux-x64 --outfile tg-linux-x64
+   bun build src/main.ts --compile --target=bun-windows-x64 --outfile tg-windows-x64.exe
    ```
 4. Create release and upload binaries:
    ```bash
    gh release create v0.X.Y --title "v0.X.Y" --notes "Release notes here"
-   gh release upload v0.X.Y tg-darwin-arm64 tg-darwin-x64 tg-linux-arm64 tg-linux-x64
+   gh release upload v0.X.Y tg-darwin-arm64 tg-darwin-x64 tg-linux-arm64 tg-linux-x64 tg-windows-x64.exe
    ```
-5. Clean up: `rm tg-darwin-arm64 tg-darwin-x64 tg-linux-arm64 tg-linux-x64`
+5. Clean up: `rm tg-darwin-arm64 tg-darwin-x64 tg-linux-arm64 tg-linux-x64 tg-windows-x64.exe`
 
-**Important:** The release **must** have all 4 binary assets or `install.sh` will fail. Always upload binaries — don't create tag-only releases.
+**Important:** The release **must** include all platform binaries (including `tg-windows-x64.exe`). Always upload binaries — don't create tag-only releases.
 
 ## Common Pitfalls
 

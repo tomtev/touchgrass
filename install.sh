@@ -30,7 +30,7 @@ OS="$(uname -s)"
 case "$OS" in
   Darwin) OS="darwin" ;;
   Linux)  OS="linux" ;;
-  *)      error "Unsupported OS: $OS" ;;
+  *)      error "Unsupported OS: $OS (on Windows, download tg-windows-x64.exe from GitHub releases)" ;;
 esac
 
 # Detect architecture
