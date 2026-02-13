@@ -1041,90 +1041,102 @@ async function runHeadlessSession(opts: HeadlessRunOptions): Promise<number> {
 
   const createClaudeAdapter = (): HeadlessAdapter => {
     const filteredArgs = stripClaudeHeadlessArgs(cmdArgs);
-    const proc = Bun.spawn(
-      [
-        executable,
-        ...filteredArgs,
-        "--print",
-        "--input-format",
-        "stream-json",
-        "--output-format",
-        "stream-json",
-      ],
-      {
-        stdin: "pipe",
-        stdout: "pipe",
-        stderr: "pipe",
-        env: { ...process.env },
-      }
-    );
+    let sessionId: string | null = null;
+    let useContinue = false;
+    const commonArgs: string[] = [];
 
-    const pendingTurns: Array<{ resolve: () => void; reject: (error: Error) => void }> = [];
-
-    void readLinesFromStream(proc.stdout, (line) => {
-      const msg = parseJsonLine(line);
-      if (!msg) return;
-
-      const parsed = parseJsonlMessage(msg);
-      emitParsedMessage(parsed);
-
-      if (msg.type === "result") {
-        const pending = pendingTurns.shift();
-        if (pending) pending.resolve();
-
-        const denials = msg.permission_denials;
-        if (Array.isArray(denials) && denials.length > 0) {
-          const labels = denials
-            .map((d) => {
-              if (!d || typeof d !== "object") return "tool";
-              const record = d as Record<string, unknown>;
-              const name = (record.name as string) || (record.tool_name as string);
-              return name || "tool";
-            })
-            .join(", ");
-          postAssistant(`Permission denied for ${labels}. Re-run with a more permissive Claude permission mode if needed.`);
+    for (let i = 0; i < filteredArgs.length; i++) {
+      const arg = filteredArgs[i];
+      if (arg === "--resume" || arg === "-r") {
+        if (i + 1 < filteredArgs.length && !filteredArgs[i + 1].startsWith("-")) {
+          sessionId = filteredArgs[i + 1];
+          i++;
         }
+        continue;
       }
-    });
-
-    void readLinesFromStream(proc.stderr, (line) => {
-      if (line.trim()) console.error(`[claude/headless] ${line}`);
-    });
-
-    proc.exited.then((code) => {
-      const err = new Error(`Claude headless process exited with code ${code ?? "unknown"}`);
-      while (pendingTurns.length > 0) {
-        pendingTurns.shift()?.reject(err);
+      if (arg.startsWith("--resume=")) {
+        sessionId = arg.slice("--resume=".length);
+        continue;
       }
-    }).catch(() => {});
+      if (arg === "--session-id") {
+        if (i + 1 < filteredArgs.length && !filteredArgs[i + 1].startsWith("-")) {
+          sessionId = filteredArgs[i + 1];
+          i++;
+        }
+        continue;
+      }
+      if (arg.startsWith("--session-id=")) {
+        sessionId = arg.slice("--session-id=".length);
+        continue;
+      }
+      if (arg === "--continue" || arg === "-c") {
+        useContinue = true;
+        continue;
+      }
+      commonArgs.push(arg);
+    }
 
     return {
       async sendText(text: string): Promise<void> {
-        if (!proc.stdin) throw new Error("Claude stdin is unavailable.");
-        const payload = {
-          type: "user",
-          message: {
-            role: "user",
-            content: [{ type: "text", text }],
-          },
-        };
+        const invocation: string[] = [executable, ...commonArgs];
+        if (sessionId) {
+          invocation.push("--resume", sessionId);
+        } else if (useContinue) {
+          invocation.push("--continue");
+          useContinue = false;
+        }
+        invocation.push("--print", "--input-format", "text", "--output-format", "stream-json", text);
 
-        await new Promise<void>((resolve, reject) => {
-          pendingTurns.push({ resolve, reject });
-          try {
-            proc.stdin!.write(`${JSON.stringify(payload)}\n`);
-          } catch (e) {
-            pendingTurns.pop();
-            reject(e as Error);
-          }
+        const proc = Bun.spawn(invocation, {
+          stdin: "ignore",
+          stdout: "pipe",
+          stderr: "pipe",
+          env: { ...process.env },
         });
+
+        const stderrLines: string[] = [];
+        await Promise.all([
+          readLinesFromStream(proc.stdout, (line) => {
+            const msg = parseJsonLine(line);
+            if (!msg) return;
+            if (typeof msg.session_id === "string") {
+              sessionId = msg.session_id;
+            }
+
+            const parsed = parseJsonlMessage(msg);
+            emitParsedMessage(parsed);
+
+            if (msg.type === "result") {
+              const denials = msg.permission_denials;
+              if (Array.isArray(denials) && denials.length > 0) {
+                const labels = denials
+                  .map((d) => {
+                    if (!d || typeof d !== "object") return "tool";
+                    const record = d as Record<string, unknown>;
+                    const name = (record.name as string) || (record.tool_name as string);
+                    return name || "tool";
+                  })
+                  .join(", ");
+                postAssistant(`Permission denied for ${labels}. Re-run with a more permissive Claude permission mode if needed.`);
+              }
+            }
+          }),
+          readLinesFromStream(proc.stderr, (line) => {
+            if (!line.trim()) return;
+            stderrLines.push(line);
+            console.error(`[claude/headless] ${line}`);
+          }),
+        ]);
+
+        const exitCode = await proc.exited;
+        if (exitCode !== 0) {
+          throw new Error(stderrLines[stderrLines.length - 1] || `Claude headless request failed (code ${exitCode ?? "unknown"})`);
+        }
       },
       async close(): Promise<void> {
-        try {
-          proc.kill();
-        } catch {}
+        // One-process-per-turn adapter; nothing persistent to stop.
       },
-      exited: proc.exited,
+      exited: new Promise<number | null>(() => {}),
     };
   };
 
@@ -1329,6 +1341,11 @@ async function runHeadlessSession(opts: HeadlessRunOptions): Promise<number> {
   else if (cmdName === "pi") adapter = createPiAdapter();
   else adapter = createCodexAdapter();
 
+  const headlessPrefix = `[headless/${cmdName}]`;
+  const logHeadless = (text: string) => console.log(`${headlessPrefix} ${text}`);
+  const logHeadlessErr = (text: string) => console.error(`${headlessPrefix} ${text}`);
+  logHeadless(`bridge active for ${remoteId}. Waiting for inbound messages. Press Ctrl+C to stop.`);
+
   const subscribedGroups = new Set<ChannelChatId>();
   let boundChat: ChannelChatId | null = didBindChat ? chatId : null;
   let nullBoundPolls = 0;
@@ -1353,35 +1370,67 @@ async function runHeadlessSession(opts: HeadlessRunOptions): Promise<number> {
     } catch {}
   };
   await pollBinding();
+  if (boundChat) {
+    logHeadless(`initial output channel: ${boundChat}`);
+  } else {
+    logHeadless("no bound output channel selected yet");
+  }
   groupPollTimer = setInterval(() => {
     pollBinding().catch(() => {});
   }, 500);
 
   let stopping = false;
+  let userInputCount = 0;
+  const idleLogIntervalMs = 60_000;
+  let lastActivityAt = Date.now();
+  let lastIdleLogAt = 0;
+  const markActivity = () => {
+    lastActivityAt = Date.now();
+    lastIdleLogAt = 0;
+  };
+  type PendingInput = { line: string; source: "user" | "heartbeat" };
+  const formatUserInputPreview = (line: string): string => {
+    const cleaned = stripAnsiReadable(line).replace(/\s+/g, " ").trim();
+    if (!cleaned) return "<empty>";
+    const max = 220;
+    return cleaned.length > max ? `${cleaned.slice(0, max - 3)}...` : cleaned;
+  };
   let warnedControlInput = false;
-  const pendingInputs: string[] = [];
+  const pendingInputs: PendingInput[] = [];
   let drainingInputs = false;
-  const enqueueInput = (line: string) => {
-    pendingInputs.push(line);
+  const enqueueInput = (line: string, source: PendingInput["source"]) => {
+    pendingInputs.push({ line, source });
     void drainInputQueue();
   };
   const drainInputQueue = async () => {
     if (drainingInputs || stopping) return;
     drainingInputs = true;
     while (!stopping && pendingInputs.length > 0) {
-      const line = pendingInputs.shift();
-      if (!line) continue;
-      if (isHeadlessControlLine(line)) {
+      const input = pendingInputs.shift();
+      if (!input) continue;
+      if (isHeadlessControlLine(input.line)) {
         if (!warnedControlInput) {
           warnedControlInput = true;
+          logHeadless("received interactive control input; ignoring in headless mode.");
           postAssistant("Interactive poll controls are not supported in headless mode. Send plain-text responses instead.");
         }
         continue;
       }
       try {
-        await adapter.sendText(line);
+        if (input.source === "user") {
+          userInputCount++;
+          logHeadless(`inbound user input #${userInputCount}: ${formatUserInputPreview(input.line)}`);
+          logHeadless(`dispatching user input #${userInputCount}`);
+        }
+        await adapter.sendText(input.line);
+        if (input.source === "user") {
+          logHeadless(`completed user input #${userInputCount}`);
+        }
+        markActivity();
       } catch (e) {
         const err = e as Error;
+        const label = input.source === "user" ? "user input" : "scheduled input";
+        logHeadlessErr(`${label} failed: ${err.message || err}`);
         postAssistant(`Headless input failed: ${err.message || err}`);
       }
     }
@@ -1396,6 +1445,7 @@ async function runHeadlessSession(opts: HeadlessRunOptions): Promise<number> {
     try {
       const res = await daemonRequest(`/remote/${remoteId}/input`);
       if (res.unknown) {
+        logHeadless("daemon session registration lost; attempting re-register.");
         reconnecting = true;
         try {
           await ensureDaemon();
@@ -1414,8 +1464,10 @@ async function runHeadlessSession(opts: HeadlessRunOptions): Promise<number> {
               ownerUserId,
             });
           }
+          logHeadless("re-registered session with daemon.");
         } catch {
           // Re-registration failed — retry on next poll.
+          logHeadlessErr("re-registration failed; will retry.");
         }
         reconnecting = false;
         return;
@@ -1423,9 +1475,20 @@ async function runHeadlessSession(opts: HeadlessRunOptions): Promise<number> {
 
       const lines = res.lines as string[] | undefined;
       if (lines && lines.length > 0) {
+        markActivity();
         processingInput = true;
-        for (const line of lines) enqueueInput(line);
+        for (const line of lines) enqueueInput(line, "user");
         processingInput = false;
+      }
+
+      const now = Date.now();
+      if (
+        pendingInputs.length === 0 &&
+        now - lastActivityAt >= idleLogIntervalMs &&
+        now - lastIdleLogAt >= idleLogIntervalMs
+      ) {
+        logHeadless("still running. waiting for inbound messages...");
+        lastIdleLogAt = now;
       }
     } catch {
       processingInput = false;
@@ -1464,16 +1527,20 @@ async function runHeadlessSession(opts: HeadlessRunOptions): Promise<number> {
 
       if (tick.workflows.length > 0) {
         for (const wf of tick.workflows) {
+          logHeadless(`heartbeat trigger: workflow "${wf.workflow}"`);
           enqueueInput(
-            `❤ Heartbeat workflow trigger. The current time and date is: ${ts}. Workflow: ${wf.workflow}. Follow these instructions now if time and date is relevant:\n\n${wf.context}\n\n❤`
+            `❤ Heartbeat workflow trigger. The current time and date is: ${ts}. Workflow: ${wf.workflow}. Follow these instructions now if time and date is relevant:\n\n${wf.context}\n\n❤`,
+            "heartbeat"
           );
         }
         return;
       }
 
       if (!tick.plainText) return;
+      logHeadless("heartbeat trigger: plain heartbeat instructions");
       enqueueInput(
-        `❤ This is a scheduled heartbeat message for workflows and cron jobs. The current time and date is: ${ts}. Follow these instructions now if time and date is relevant:\n\n${tick.plainText}\n\n❤`
+        `❤ This is a scheduled heartbeat message for workflows and cron jobs. The current time and date is: ${ts}. Follow these instructions now if time and date is relevant:\n\n${tick.plainText}\n\n❤`,
+        "heartbeat"
       );
     }, intervalMs);
   }
@@ -1489,6 +1556,7 @@ async function runHeadlessSession(opts: HeadlessRunOptions): Promise<number> {
     adapter.exited.then((code) => code ?? 1),
     signalPromise,
   ]);
+  logHeadless(`stopping (exit code ${exitCode ?? 1}).`);
 
   stopping = true;
   await adapter.close().catch(() => {});

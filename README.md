@@ -90,20 +90,42 @@ Send `/pair <code>` to your bot in Telegram.
 
 ### 5. Run an agent
 
+Start an agent (local terminal + Telegram bridge):
+
 ```bash
-tg claude                                # Start Claude Code
-tg claude --dangerously-skip-permissions # Start Claude Code in auto-accept mode
-tg codex                                              # Start Codex
-tg codex --dangerously-bypass-approvals-and-sandbox   # Start Codex in auto-accept mode
-tg pi                                    # Start PI
-tg claude --headless                     # Headless JSON bridge (no local TTY UI)
-tg codex --headless                      # Headless bridge (exec/resume JSON runs per inbound message)
-tg pi --headless                         # Headless RPC bridge
-tg claude --channel dm                   # Skip picker, bind to DM
-tg claude --channel "Dev Team"           # Skip picker, bind by title
-tg claude --channel telegram:-987:12     # Skip picker, bind by chatId
-tg claude --channel none                 # Skip picker, no channel binding
-tg send r-abc123 --file ./notes.md       # Send a file to that session's Telegram channel(s)
+tg claude
+tg codex
+tg pi
+```
+
+Auto-accept mode (optional):
+
+```bash
+tg claude --dangerously-skip-permissions
+tg codex --dangerously-bypass-approvals-and-sandbox
+```
+
+Headless mode (no local TTY UI):
+
+```bash
+tg claude --headless
+tg codex --headless
+tg pi --headless
+```
+
+Bind to a channel up front (skip picker):
+
+```bash
+tg claude --channel dm
+tg claude --channel "Dev Team"
+tg claude --channel telegram:-987:12
+tg claude --channel none
+```
+
+Send a file to a session's channel(s):
+
+```bash
+tg send r-abc123 --file ./notes.md
 ```
 
 That's it. You'll get agent responses in Telegram and can send input back from your phone.

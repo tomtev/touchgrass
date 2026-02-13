@@ -14,6 +14,7 @@ NC='\033[0m'
 
 info() { echo -e "  ${DIM}$1${NC}"; }
 success() { echo -e "  ${GREEN}$1${NC}"; }
+warn() { echo -e "  ${DIM}⚠ $1${NC}"; }
 error() { echo -e "  ❌ ${BOLD}$1${NC}" >&2; exit 1; }
 
 EXISTING_INSTALL=false
@@ -85,11 +86,17 @@ chmod +x "${INSTALL_DIR}/${BINARY_NAME}"
 
 # Restart daemon if running so next command uses the new binary
 if [ -f "$HOME/.touchgrass/daemon.pid" ]; then
-  kill "$(cat "$HOME/.touchgrass/daemon.pid")" 2>/dev/null
+  DAEMON_PID="$(cat "$HOME/.touchgrass/daemon.pid" 2>/dev/null || true)"
+  if [ -n "${DAEMON_PID}" ] && kill -0 "${DAEMON_PID}" 2>/dev/null; then
+    kill "${DAEMON_PID}" 2>/dev/null || true
+    info "Stopped old daemon (${DAEMON_PID})"
+  else
+    warn "Ignoring stale daemon PID file"
+  fi
   rm -f "$HOME/.touchgrass/daemon.pid"
   # Start the new daemon immediately so active CLI sessions reconnect
   "${INSTALL_DIR}/${BINARY_NAME}" ls &>/dev/null &
-  info "Daemon restarted"
+  info "Daemon restart requested"
 fi
 
 echo ""
