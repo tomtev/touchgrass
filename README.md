@@ -2,8 +2,6 @@
 
 Manage your Claude Code, Codex, and PI terminals on the go with Telegram. 
 
-A barebone OpenClaw altenative built on top of code CLIs.
-
 - ✅ **Simple to run** — just prefix terminal commands with `tg`, like `tg claude`
 - ✅ **Mange your Claude Code, Codex etc terminals on-the-go** — send input, see responses
 - ✅ **Run cron jobs and workflows** — Add a `HEARTBEAT.md` file to run schuedeled tasks.
