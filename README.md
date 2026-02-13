@@ -1,7 +1,8 @@
 # ⛳️ touchgrass.sh
 
 Create agents with Claude Code, Codex and PI and manage them with Telegram and more.
-A very barebone OpenClaw altenative built on top of code CLIs.
+
+A barebone OpenClaw altenative built on top of code CLIs.
 
 - ✅ **Simple to run** — just prefix terminal commands with `tg`, like `tg claude`
 - ✅ **Mange your Claude Code, Codex etc terminals on-the-go** — send input, see responses
