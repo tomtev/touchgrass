@@ -139,12 +139,10 @@ New channel checklist:
 No explicit start/stop. `ensureDaemon()` checks PID + health, forks if needed. Daemon auto-stops after 30s with no sessions.
 
 ### Smart Input Routing (stdin-input.ts)
-1. Reply-to: `msg.replyToRef` → `sessionManager.getSessionByMessage(ref)`
-2. Session prefix: `r-abc123 some text`
-3. Connected session (regular)
-4. Connected remote session
-5. Single remote auto-route (DMs only — groups require explicit channel binding via CLI)
-6. No connection: show session list
+1. Connected session (regular)
+2. Connected remote session
+3. Single remote auto-route (DMs only — exactly 1 session)
+4. No connection: prompt to run CLI with `--channel`
 
 ### Bot Commands
 - `/sessions` — List active sessions

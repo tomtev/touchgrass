@@ -1,6 +1,7 @@
 import type { InboundMessage } from "../../channel/types";
 import type { RouterContext } from "../command-router";
 import type { RemoteSession } from "../../session/manager";
+import { isLinkedGroup, getLinkedGroupTitle } from "../../config/schema";
 
 // If a session has a pending poll, close it and push the text as a free-form "Other" answer
 function handleTextWhilePoll(remote: RemoteSession, text: string, ctx: RouterContext): boolean {
@@ -73,16 +74,22 @@ export async function handleStdinInput(
     return;
   }
 
-  // 4. Multiple sessions or group without connection — show session list
+  // 4. Multiple sessions or group without connection — no session bound
   if (remotes.length > 0) {
-    const list = remotes.map((r) => {
-      const label = r.cwd.split("/").pop() || r.id;
-      return `  ${fmt.code(r.id)} ${fmt.escape("—")} ${fmt.escape(label)}`;
-    }).join("\n");
-    await ctx.channel.send(
-      chatId,
-      `Multiple sessions active. Reply to a message, or prefix with session ID:\n\n${list}`
-    );
+    if (msg.isGroup && !isLinkedGroup(ctx.config, chatId)) {
+      await ctx.channel.send(chatId, `This group is not linked. Run ${fmt.code("/link")} first.`);
+    } else {
+      const channelHint = msg.isGroup
+        ? getLinkedGroupTitle(ctx.config, chatId)
+        : "dm";
+      const channelFlag = channelHint
+        ? `${fmt.code(`--channel "${channelHint}"`)}`
+        : fmt.code("--channel");
+      await ctx.channel.send(
+        chatId,
+        `No session assigned to this channel. Run ${fmt.code("tg claude")} (or ${fmt.code("codex")}, ${fmt.code("pi")}) with ${channelFlag} to connect.`
+      );
+    }
     return;
   }
 

@@ -128,3 +128,11 @@ export function isLinkedGroup(config: TgConfig, chatId: string): boolean {
   }
   return false;
 }
+
+export function getLinkedGroupTitle(config: TgConfig, chatId: string): string | undefined {
+  for (const ch of Object.values(config.channels)) {
+    const group = ch.linkedGroups?.find((g) => g.chatId === chatId);
+    if (group) return group.title;
+  }
+  return undefined;
+}
