@@ -1,8 +1,6 @@
 import { createInterface, type Interface } from "readline/promises";
 import { access, mkdir, writeFile } from "fs/promises";
 import { dirname, join, resolve } from "path";
-import { type TgConfig } from "../config/schema";
-import { loadConfig, saveConfig } from "../config/store";
 import { embeddedTemplates, type EmbeddedTemplate } from "./embedded-templates";
 
 const BEEKEEPER_ID = "beekeeper";
@@ -22,7 +20,6 @@ export interface AgentInstallProfile {
 
 interface InstallFromTemplateSpec {
   agentId: string;
-  kind: string;
   template: EmbeddedTemplate;
   profile: AgentInstallProfile;
   renderAgentsMd: (templateContent: string) => string;
@@ -123,12 +120,7 @@ function renderGenericAgentMd(template: string, profile: AgentInstallProfile, ag
   return ensureTrailingNewline(rendered);
 }
 
-async function installFromTemplate(config: TgConfig, spec: InstallFromTemplateSpec): Promise<string> {
-  if (config.agents?.[spec.agentId]) {
-    const current = config.agents[spec.agentId];
-    throw new Error(`${spec.agentId} is already installed at ${current.directory}`);
-  }
-
+async function installFromTemplate(spec: InstallFromTemplateSpec): Promise<string> {
   const installDir = resolve(spec.profile.targetDir);
   await mkdir(installDir, { recursive: true });
 
@@ -157,54 +149,25 @@ async function installFromTemplate(config: TgConfig, spec: InstallFromTemplateSp
     await writeFile(targetPath, content, "utf-8");
   }
 
-  if (!config.agents) config.agents = {};
-  config.agents[spec.agentId] = {
-    kind: spec.kind,
-    displayName: spec.profile.agentName,
-    description: spec.profile.description,
-    ownerName: spec.profile.ownerName,
-    location: spec.profile.location,
-    timezone: spec.profile.timezone,
-    directory: installDir,
-    installedAt: new Date().toISOString(),
-  };
-  await saveConfig(config);
-
   return installDir;
 }
 
-export async function installBeekeeper(config: TgConfig, profile: AgentInstallProfile): Promise<string> {
-  return installFromTemplate(config, {
+export async function installBeekeeper(profile: AgentInstallProfile): Promise<string> {
+  return installFromTemplate({
     agentId: BEEKEEPER_ID,
-    kind: BEEKEEPER_ID,
     template: embeddedTemplates.beekeeper,
     profile,
     renderAgentsMd: (template) => renderBeekeeperAgentsMd(template, profile),
   });
 }
 
-async function createAgent(config: TgConfig, agentId: string, profile: AgentInstallProfile): Promise<string> {
-  return installFromTemplate(config, {
+async function createAgent(agentId: string, profile: AgentInstallProfile): Promise<string> {
+  return installFromTemplate({
     agentId,
-    kind: "custom",
     template: embeddedTemplates.newAgent,
     profile,
     renderAgentsMd: (template) => renderGenericAgentMd(template, profile, agentId),
   });
-}
-
-function printAgents(config: TgConfig): void {
-  const agents = config.agents || {};
-  const entries = Object.entries(agents);
-  if (entries.length === 0) {
-    console.log("No agents installed.");
-    return;
-  }
-
-  console.log("Installed agents:");
-  for (const [id, agent] of entries) {
-    console.log(`  - ${id}: ${agent.displayName} (${agent.directory})`);
-  }
 }
 
 async function questionWithDefault(rl: Interface, label: string, fallback: string): Promise<string> {
@@ -292,68 +255,37 @@ function parseProfileOptions(args: string[], defaults: AgentInstallProfile): Pro
   return { profile, assumeYes, explicitDir };
 }
 
-async function promptInstallIfEmpty(): Promise<boolean> {
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
-  try {
-    console.log("The Beekeeper scaffolds AGENTS.md, CLAUDE.md, HEARTBEAT.md, workflows/, and core skills.");
-    const answer = (await rl.question(
-      "No agents installed. Install now or later? [later/install] (default: later) "
-    )).trim().toLowerCase();
-    if (answer === "" || answer === "later" || answer === "l" || answer === "n" || answer === "no") {
-      return false;
-    }
-    if (answer === "install" || answer === "i" || answer === "y" || answer === "yes") {
-      return true;
-    }
-    console.log("Unrecognized option. Keeping later.");
-    return false;
-  } finally {
-    rl.close();
-  }
-}
-
-function printUsage(): void {
-  console.log("Usage:");
-  console.log("  tg agents                           # list agents, or prompt install when none exist");
-  console.log("  tg agents add beekeeper             # install Beekeeper template");
-  console.log("  tg agents create <agent-id>         # create a new agent from shared template");
-  console.log("  tg agents create <agent-id> --dir <path>");
-  console.log("  tg agents create <agent-id> --yes");
-  console.log("  tg agents ls");
+function printTemplatesAndUsage(): void {
+  console.log("Agent templates:");
+  console.log(`  - ${BEEKEEPER_ID}: ${BEEKEEPER_NAME}`);
+  console.log("      Full operational template with AGENTS.md, CLAUDE.md, HEARTBEAT.md, workflows/, and core skills.");
+  console.log("  - custom (<agent-id>)");
+  console.log("      General-purpose template for creating a new agent package.");
+  console.log("");
+  console.log("Create commands:");
+  console.log("  tg agents add beekeeper");
+  console.log("  tg agents create <agent-id>");
+  console.log("");
+  console.log("Options:");
+  console.log("  --dir <path>          Target directory");
+  console.log("  --name <name>         Agent display name");
+  console.log("  --description <text>  Agent description");
+  console.log("  --owner-name <name>   Owner name for AGENTS.md");
+  console.log("  --location <text>     Owner location for AGENTS.md");
+  console.log("  --timezone <tz>       Owner timezone for AGENTS.md");
+  console.log("  --yes                 Skip prompts and use provided/default values");
 }
 
 export async function runAgents(): Promise<void> {
   const args = process.argv.slice(3);
-  const config = await loadConfig();
 
   if (args.length === 0) {
-    const agentCount = Object.keys(config.agents || {}).length;
-    if (agentCount === 0) {
-      if (!process.stdin.isTTY) {
-        console.log("No agents installed.");
-        console.log("Run: tg agents add beekeeper --yes");
-        return;
-      }
-      const shouldInstall = await promptInstallIfEmpty();
-      if (!shouldInstall) {
-        console.log("No changes made.");
-        return;
-      }
-      const profile = await promptForProfile(
-        createDefaultBeekeeperInstallProfile(process.cwd()),
-        true
-      );
-      const installDir = await installBeekeeper(config, profile);
-      console.log(`✅ Installed ${profile.agentName} in ${installDir}`);
-      return;
-    }
-
-    printAgents(config);
+    printTemplatesAndUsage();
     return;
   }
 
   if (args[0] === "ls") {
-    printAgents(config);
+    printTemplatesAndUsage();
     return;
   }
 
@@ -380,7 +312,7 @@ export async function runAgents(): Promise<void> {
     const profile = (parsed.assumeYes || !process.stdin.isTTY)
       ? parsed.profile
       : await promptForProfile(parsed.profile, !parsed.explicitDir);
-    const installDir = await installBeekeeper(config, profile);
+    const installDir = await installBeekeeper(profile);
     console.log(`✅ Installed ${profile.agentName} in ${installDir}`);
     return;
   }
@@ -416,16 +348,16 @@ export async function runAgents(): Promise<void> {
     const profile = (parsed.assumeYes || !process.stdin.isTTY)
       ? parsed.profile
       : await promptForProfile(parsed.profile, !parsed.explicitDir);
-    const installDir = await createAgent(config, agentId, profile);
+    const installDir = await createAgent(agentId, profile);
     console.log(`✅ Created agent '${agentId}' (${profile.agentName}) in ${installDir}`);
     return;
   }
 
   if (args[0] === "help" || args[0] === "--help" || args[0] === "-h") {
-    printUsage();
+    printTemplatesAndUsage();
     return;
   }
 
-  printUsage();
+  printTemplatesAndUsage();
   process.exit(1);
 }
