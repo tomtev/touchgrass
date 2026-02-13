@@ -9,11 +9,17 @@ Manage Claude Code, Codex, and PI terminal sessions from Telegram and create aut
 
 ### Quick install
 
+macOS / Linux:
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/tomtev/touchgrass/main/install.sh | bash
 ```
 
-On Windows, download `tg-windows-x64.exe` from the latest release and place it in your PATH.
+Windows (PowerShell):
+
+```powershell
+irm https://raw.githubusercontent.com/tomtev/touchgrass/main/install.ps1 | iex
+```
 
 Add `tg` in front of any agent CLI command to bridge it to chat. See responses, send input, and manage sessions from channels like Telegram. Use it for direct sessions or autonomous agents built on Claude Code, Codex, PI, and other terminal tools.
 
@@ -48,8 +54,16 @@ More channels (Discord, Slack) coming soon.
 
 ### 1. Install
 
+macOS / Linux:
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/tomtev/touchgrass/main/install.sh | bash
+```
+
+Windows (PowerShell):
+
+```powershell
+irm https://raw.githubusercontent.com/tomtev/touchgrass/main/install.ps1 | iex
 ```
 
 ### 2. Create a Telegram bot

@@ -4,6 +4,7 @@ set -euo pipefail
 REPO="tomtev/touchgrass"
 INSTALL_DIR="${TG_INSTALL_DIR:-$HOME/.local/bin}"
 BINARY_NAME="tg"
+WINDOWS_OS=false
 
 # Colors
 DIM='\033[2m'
@@ -16,7 +17,7 @@ success() { echo -e "  ${GREEN}$1${NC}"; }
 error() { echo -e "  ❌ ${BOLD}$1${NC}" >&2; exit 1; }
 
 EXISTING_INSTALL=false
-if [ -x "${INSTALL_DIR}/${BINARY_NAME}" ] || command -v tg &>/dev/null; then
+if [ -x "${INSTALL_DIR}/${BINARY_NAME}" ] || command -v tg &>/dev/null || command -v tg.exe &>/dev/null; then
   EXISTING_INSTALL=true
 fi
 
@@ -30,7 +31,13 @@ OS="$(uname -s)"
 case "$OS" in
   Darwin) OS="darwin" ;;
   Linux)  OS="linux" ;;
-  *)      error "Unsupported OS: $OS (on Windows, download tg-windows-x64.exe from GitHub releases)" ;;
+  CYGWIN*|MINGW*|MSYS*)
+    OS="windows"
+    WINDOWS_OS=true
+    BINARY_NAME="tg.exe"
+    INSTALL_DIR="${TG_INSTALL_DIR:-$HOME/.touchgrass/bin}"
+    ;;
+  *)      error "Unsupported OS: $OS" ;;
 esac
 
 # Detect architecture
@@ -41,7 +48,14 @@ case "$ARCH" in
   *)             error "Unsupported architecture: $ARCH" ;;
 esac
 
-TARGET="${OS}-${ARCH}"
+if [ "$WINDOWS_OS" = true ]; then
+  if [ "$ARCH" != "x64" ]; then
+    error "Unsupported Windows architecture: $ARCH (supported: x64)"
+  fi
+  TARGET="${OS}-${ARCH}.exe"
+else
+  TARGET="${OS}-${ARCH}"
+fi
 info "Platform: ${TARGET}"
 
 # Get latest release tag
@@ -87,9 +101,19 @@ else
   # Check if INSTALL_DIR is in PATH
   if ! echo "$PATH" | tr ':' '\n' | grep -qx "$INSTALL_DIR"; then
     echo ""
-    info "Add this to your shell profile:"
-    echo ""
-    echo "    export PATH=\"${INSTALL_DIR}:\$PATH\""
+    if [ "$WINDOWS_OS" = true ]; then
+      info "Add this to your shell profile (Git Bash):"
+      echo ""
+      echo "    export PATH=\"${INSTALL_DIR}:\$PATH\""
+      echo ""
+      info "For PowerShell users, run:"
+      echo ""
+      echo "    irm https://raw.githubusercontent.com/${REPO}/main/install.ps1 | iex"
+    else
+      info "Add this to your shell profile:"
+      echo ""
+      echo "    export PATH=\"${INSTALL_DIR}:\$PATH\""
+    fi
   fi
 
   echo ""
