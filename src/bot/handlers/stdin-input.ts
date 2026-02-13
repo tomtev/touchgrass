@@ -1,7 +1,7 @@
 import type { InboundMessage } from "../../channel/types";
 import type { RouterContext } from "../command-router";
 import type { RemoteSession } from "../../session/manager";
-import { isLinkedGroup, getLinkedGroupTitle } from "../../config/schema";
+import { isLinkedGroup } from "../../config/schema";
 
 // If a session has a pending poll, close it and push the text as a free-form "Other" answer
 function handleTextWhilePoll(remote: RemoteSession, text: string, ctx: RouterContext): boolean {
@@ -79,15 +79,9 @@ export async function handleStdinInput(
     if (msg.isGroup && !isLinkedGroup(ctx.config, chatId)) {
       await ctx.channel.send(chatId, `This group is not linked. Run ${fmt.code("/link")} first.`);
     } else {
-      const channelHint = msg.isGroup
-        ? getLinkedGroupTitle(ctx.config, chatId)
-        : "dm";
-      const channelFlag = channelHint
-        ? `${fmt.code(`--channel "${channelHint}"`)}`
-        : fmt.code("--channel");
       await ctx.channel.send(
         chatId,
-        `No session assigned to this channel. In your terminal, run ${fmt.code("tg claude")} (or ${fmt.code("codex")}, ${fmt.code("pi")}) with ${channelFlag} to connect.`
+        `No session assigned to this channel. In your terminal, run ${fmt.code("tg claude")} (or ${fmt.code("codex")}, ${fmt.code("pi")}) to connect.`
       );
     }
     return;
