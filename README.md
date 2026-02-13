@@ -29,39 +29,17 @@ tg claude    # To start a Claude Code. All --props allowed.
 tg codex     # To start Codex. All --props allowed.
 ```
 
-#### Headless - Run without a local terminal interface.
-
-Use headless mode when you want a long-running background bridge controlled from Telegram:
-
-```bash
-tg claude --headless
-tg codex --headless
-tg pi --headless
-tg claude --headless --dangerously-skip-permissions
-tg codex --headless --dangerously-bypass-approvals-and-sandbox
-```
-
-Note: Headless mode currently does not support interactive approval prompts, so use permissive flags carefully.
-
-#### Heartbeat - Keep your terminals alive with workflows and cron jobs.
-
-Set up autonomous workflows with **Heartbeat** — your agent checks a `HEARTBEAT.md` file on a schedule and follows the instructions inside. Update the file from anywhere (even your phone) and the agent picks it up on the next beat.
-
-```bash
-tg claude    # heartbeat runs automatically when HEARTBEAT.md exists
-```
-
 More channels (Discord, Slack) coming soon.
 
 ## Table of contents
 
 - [Setup](#setup)
 - [How it works](#how-it-works)
-- [Headless Mode](#headless-mode)
 - [CLI commands](#cli-commands)
 - [Telegram commands](#telegram-commands)
 - [Connect terminal sessions to Telegram](#connect-terminal-sessions-to-telegram)
 - [Heartbeat](#heartbeat)
+- [Headless Mode](#headless-mode)
 - [FAQ](#faq)
 - [Requirements](#requirements)
 
@@ -169,62 +147,6 @@ Two processes cooperate:
 2. **Daemon** — auto-starts when needed, polls Telegram for your messages, routes them to the right session, auto-stops after 30s of inactivity
    Control transport is Unix socket on macOS/Linux, localhost TCP on Windows.
 
-## Headless Mode
-
-Headless mode runs a long-lived bridge process (`tg <tool> --headless`) without a local interactive terminal interface.
-The bridge receives input from Telegram via the daemon, executes the tool-specific driver, and forwards assistant/tool output back to Telegram.
-
-### Claude headless driver
-
-For each inbound message, touchgrass runs one Claude process per turn:
-
-```bash
-claude [your args] [--resume <session-id> | --continue] \
-  --print --input-format text --output-format stream-json "<message>"
-```
-
-Notes:
-- `--print`, `--input-format`, and `--output-format` are normalized by touchgrass for headless mode.
-- Session continuity is maintained by tracking Claude `session_id` and reusing `--resume`.
-- Interactive approval prompts are not currently supported in headless mode; use `--dangerously-skip-permissions` when needed.
-
-### Codex headless driver
-
-For each inbound message, touchgrass runs Codex in JSON mode per turn:
-
-```bash
-codex exec --json [your args] "<message>"
-```
-
-After a thread is established, touchgrass resumes it on subsequent turns:
-
-```bash
-codex exec resume --json [your args] <thread-id> "<message>"
-```
-
-Notes:
-- If `--last` is requested, touchgrass resumes the most recent thread once, then keeps using the discovered thread ID.
-- Tool calls/results are parsed from Codex JSON events and forwarded to Telegram.
-- Interactive approval prompts are not currently supported in headless mode; use `--dangerously-bypass-approvals-and-sandbox` when needed.
-
-### PI headless driver
-
-PI runs as one persistent RPC process:
-
-```bash
-pi [your args] --mode rpc
-```
-
-For each inbound message, touchgrass writes a prompt command to PI stdin:
-
-```json
-{"id":"prompt-1","type":"prompt","message":"<message>","streamingBehavior":"followUp"}
-```
-
-Notes:
-- The bridge waits for PI `turn_end` before completing that input cycle.
-- This keeps a single long-lived PI process while still using message-by-message control from Telegram.
-
 ## CLI commands
 
 ### CLI agent commands
@@ -292,11 +214,7 @@ All group members can see responses, but only paired users can send input.
 
 ## Heartbeat
 
-Automatically send a periodic message to the agent, prompting it to check a `HEARTBEAT.md` file for instructions. Great for long-running autonomous workflows.
-
-```bash
-tg claude                    # Heartbeat runs if HEARTBEAT.md exists (default: every 15 minutes)
-```
+Heartbeat runs automatically for `tg` agent sessions when a `HEARTBEAT.md` file exists in the working directory. It sends periodic instructions to your agent, which is useful for long-running autonomous workflows.
 
 Behavior per tick:
 - If `<run>` workflows are due, touchgrass loads each due workflow file and sends that workflow context to the agent.
@@ -328,6 +246,62 @@ Notes:
 - If `HEARTBEAT.md` is empty (or comment-only), that heartbeat cycle is skipped.
 
 Update `HEARTBEAT.md` any time (even from your phone via git push) and the agent picks up new instructions on the next heartbeat.
+
+## Headless Mode
+
+Headless mode runs a long-lived bridge process (`tg <tool> --headless`) without a local interactive terminal interface.
+The bridge receives input from Telegram via the daemon, executes the tool-specific driver, and forwards assistant/tool output back to Telegram.
+
+### Claude headless driver
+
+For each inbound message, touchgrass runs one Claude process per turn:
+
+```bash
+claude [your args] [--resume <session-id> | --continue] \
+  --print --input-format text --output-format stream-json "<message>"
+```
+
+Notes:
+- `--print`, `--input-format`, and `--output-format` are normalized by touchgrass for headless mode.
+- Session continuity is maintained by tracking Claude `session_id` and reusing `--resume`.
+- Interactive approval prompts are not currently supported in headless mode; use `--dangerously-skip-permissions` when needed.
+
+### Codex headless driver
+
+For each inbound message, touchgrass runs Codex in JSON mode per turn:
+
+```bash
+codex exec --json [your args] "<message>"
+```
+
+After a thread is established, touchgrass resumes it on subsequent turns:
+
+```bash
+codex exec resume --json [your args] <thread-id> "<message>"
+```
+
+Notes:
+- If `--last` is requested, touchgrass resumes the most recent thread once, then keeps using the discovered thread ID.
+- Tool calls/results are parsed from Codex JSON events and forwarded to Telegram.
+- Interactive approval prompts are not currently supported in headless mode; use `--dangerously-bypass-approvals-and-sandbox` when needed.
+
+### PI headless driver
+
+PI runs as one persistent RPC process:
+
+```bash
+pi [your args] --mode rpc
+```
+
+For each inbound message, touchgrass writes a prompt command to PI stdin:
+
+```json
+{"id":"prompt-1","type":"prompt","message":"<message>","streamingBehavior":"followUp"}
+```
+
+Notes:
+- The bridge waits for PI `turn_end` before completing that input cycle.
+- This keeps a single long-lived PI process while still using message-by-message control from Telegram.
 
 ## Resuming sessions
 
