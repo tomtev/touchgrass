@@ -1,6 +1,6 @@
 # ⛳️ touchgrass.sh
 
-Manage Claude Code, Codex, and PI terminal sessions from Telegram and create autonomous agents on top of them.
+Create autonomous agents on top of Claude Code, Codex and PI and manage them with Telegram and more.
 
 - ✅ **Simple to run** — just prefix terminal commands with `tg`, like `tg claude`
 - ✅ **Communicate with your terminals from Telegram** — send input, see responses
