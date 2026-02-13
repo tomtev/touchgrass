@@ -87,7 +87,7 @@ export async function handleStdinInput(
         : fmt.code("--channel");
       await ctx.channel.send(
         chatId,
-        `No session assigned to this channel. Run ${fmt.code("tg claude")} (or ${fmt.code("codex")}, ${fmt.code("pi")}) with ${channelFlag} to connect.`
+        `No session assigned to this channel. In your terminal, run ${fmt.code("tg claude")} (or ${fmt.code("codex")}, ${fmt.code("pi")}) with ${channelFlag} to connect.`
       );
     }
     return;
