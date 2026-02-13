@@ -4,7 +4,7 @@ A framework for building and running personal agents on top of Claude Code, Code
   Pi, and for managing agent sessions and coding terminals on the go via Telegram and
   other messaging platforms.
   
-- ✅ **Simple to run** — just prefix terminal commands with `tg`, like `tg claude`
+- ✅ **Simple to run** — just prefix CLIs etc with `tg`, like `tg claude`
 - ✅ **Mange your Claude Code, Codex etc terminals on-the-go** — send input, see responses
 - ✅ **Run cron jobs and workflows** — Add a `HEARTBEAT.md` file to run schuedeled tasks.
 - ✅ **Headless mode** — run long-lived JSON bridges for Claude, Codex, and PI (no local terminal interface)
