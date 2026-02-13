@@ -193,8 +193,8 @@ Any plain text you send goes to the connected session.
 
 When you run `tg claude`, a picker lets you choose where to send output — your DM, a group, or a forum topic.
 
-1. Add the bot to a Telegram group (or forum)
-2. Send `/link` in the group to register it (or `/link TopicName` inside a forum topic)
+1. Add the bot to a Telegram group (or topic)
+2. Send `/link` in the group to register it (or `/link TopicName` inside a topic)
 3. Start a session — linked groups and topics appear in the picker
 
 ```
