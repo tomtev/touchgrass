@@ -271,6 +271,11 @@ export const __heartbeatTestUtils = {
   },
 };
 
+// Test-only accessors for CLI arg parsing behavior.
+export const __cliRunTestUtils = {
+  parseCodexResumeArgs,
+};
+
 interface OwnerChannelResolution {
   channelName: string;
   channelConfig: ChannelConfig;
@@ -941,6 +946,107 @@ function stripCodexJsonArgs(args: string[]): string[] {
   return out;
 }
 
+interface ParsedCodexResumeArgs {
+  baseArgs: string[];
+  resumeId: string | null;
+  useResumeLast: boolean;
+}
+
+function parseCodexResumeArgs(args: string[]): ParsedCodexResumeArgs {
+  let baseArgs = stripCodexJsonArgs(args);
+  let resumeId: string | null = null;
+  let useResumeLast = false;
+
+  // Codex accepts global flags before subcommands, so find "resume" anywhere.
+  const resumeSubcommandIdx = baseArgs.indexOf("resume");
+  if (resumeSubcommandIdx !== -1) {
+    baseArgs = [...baseArgs.slice(0, resumeSubcommandIdx), ...baseArgs.slice(resumeSubcommandIdx + 1)];
+    if (resumeSubcommandIdx < baseArgs.length && !baseArgs[resumeSubcommandIdx].startsWith("-")) {
+      resumeId = baseArgs[resumeSubcommandIdx];
+      baseArgs = [...baseArgs.slice(0, resumeSubcommandIdx), ...baseArgs.slice(resumeSubcommandIdx + 1)];
+    } else if (baseArgs.includes("--last")) {
+      useResumeLast = true;
+    }
+  }
+
+  // Also support explicit --resume/-r forms.
+  const resumeIdx = baseArgs.findIndex((a) => a === "--resume" || a === "-r");
+  if (!resumeId && resumeIdx !== -1) {
+    if (resumeIdx + 1 < baseArgs.length) {
+      resumeId = baseArgs[resumeIdx + 1];
+    }
+    baseArgs = [...baseArgs.slice(0, resumeIdx), ...baseArgs.slice(resumeIdx + 2)];
+  }
+
+  if (!resumeId) {
+    const resumeEq = baseArgs.find((a) => a.startsWith("--resume="));
+    if (resumeEq) {
+      const value = resumeEq.slice("--resume=".length);
+      if (value) resumeId = value;
+      baseArgs = baseArgs.filter((a) => a !== resumeEq);
+    }
+  }
+
+  // Strip explicit exec subcommand if user passed it.
+  const execIdx = baseArgs.indexOf("exec");
+  if (execIdx !== -1) {
+    baseArgs = [...baseArgs.slice(0, execIdx), ...baseArgs.slice(execIdx + 1)];
+  }
+
+  // --last is only meaningful for resume mode in this adapter.
+  if (!resumeId && baseArgs.includes("--last")) {
+    useResumeLast = true;
+  }
+  baseArgs = baseArgs.filter((a) => a !== "--last");
+
+  return { baseArgs, resumeId, useResumeLast };
+}
+
+function findCodexSessionFileById(resumeId: string): string | null {
+  const codexRoot = join(homedir(), ".codex", "sessions");
+  const searchDir = (dir: string): string | null => {
+    try {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        if (entry.isDirectory()) {
+          const found = searchDir(join(dir, entry.name));
+          if (found) return found;
+        } else if (entry.name.endsWith(".jsonl") && entry.name.includes(resumeId)) {
+          return join(dir, entry.name);
+        }
+      }
+    } catch {}
+    return null;
+  };
+  return searchDir(codexRoot);
+}
+
+function findLatestCodexSessionFile(): string | null {
+  const codexRoot = join(homedir(), ".codex", "sessions");
+  let newestPath: string | null = null;
+  let newestMtime = 0;
+
+  const scanDir = (dir: string): void => {
+    try {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const fullPath = join(dir, entry.name);
+        if (entry.isDirectory()) {
+          scanDir(fullPath);
+          continue;
+        }
+        if (!entry.name.endsWith(".jsonl")) continue;
+        const s = statSync(fullPath);
+        if (s.mtimeMs > newestMtime) {
+          newestMtime = s.mtimeMs;
+          newestPath = fullPath;
+        }
+      }
+    } catch {}
+  };
+
+  scanDir(codexRoot);
+  return newestPath;
+}
+
 async function readLinesFromStream(
   stream: ReadableStream<Uint8Array> | null | undefined,
   onLine: (line: string) => void
@@ -1228,38 +1334,10 @@ async function runHeadlessSession(opts: HeadlessRunOptions): Promise<number> {
   };
 
   const createCodexAdapter = (): HeadlessAdapter => {
-    let threadId: string | null = null;
-    let useResumeLast = false;
-    let baseArgs = stripCodexJsonArgs(cmdArgs);
-
-    if (baseArgs[0] === "exec") {
-      baseArgs = baseArgs.slice(1);
-    }
-
-    if (baseArgs[0] === "resume") {
-      baseArgs = baseArgs.slice(1);
-      if (baseArgs[0] && !baseArgs[0].startsWith("-")) {
-        threadId = baseArgs[0];
-        baseArgs = baseArgs.slice(1);
-      } else if (baseArgs.includes("--last")) {
-        useResumeLast = true;
-        baseArgs = baseArgs.filter((a) => a !== "--last");
-      }
-    }
-
-    const resumeIdx = baseArgs.indexOf("--resume");
-    if (resumeIdx !== -1) {
-      if (resumeIdx + 1 < baseArgs.length) {
-        threadId = baseArgs[resumeIdx + 1];
-      }
-      baseArgs = [...baseArgs.slice(0, resumeIdx), ...baseArgs.slice(resumeIdx + 2)];
-    }
-
-    const lastIdx = baseArgs.indexOf("--last");
-    if (lastIdx !== -1 && !threadId) {
-      useResumeLast = true;
-      baseArgs = [...baseArgs.slice(0, lastIdx), ...baseArgs.slice(lastIdx + 1)];
-    }
+    const parsed = parseCodexResumeArgs(cmdArgs);
+    let threadId = parsed.resumeId;
+    let useResumeLast = parsed.useResumeLast;
+    const baseArgs = parsed.baseArgs;
 
     return {
       async sendText(text: string): Promise<void> {
@@ -1921,12 +1999,23 @@ export async function runRun(): Promise<void> {
 
     // Check for resume session ID in args
     let resumeId: string | null = null;
-    const resumeIdx = cmdArgs.indexOf("--resume");
-    if (resumeIdx !== -1 && resumeIdx + 1 < cmdArgs.length) {
-      resumeId = cmdArgs[resumeIdx + 1];
-    }
-    if (!resumeId && cmdArgs[0] === "resume" && cmdArgs.length > 1) {
-      resumeId = cmdArgs[1]; // codex resume <id>
+    let codexResumeLast = false;
+    if (cmdName === "codex") {
+      const parsed = parseCodexResumeArgs(cmdArgs);
+      resumeId = parsed.resumeId;
+      codexResumeLast = parsed.useResumeLast;
+    } else {
+      const resumeIdx = cmdArgs.findIndex((a) => a === "--resume" || a === "-r");
+      if (resumeIdx !== -1 && resumeIdx + 1 < cmdArgs.length) {
+        resumeId = cmdArgs[resumeIdx + 1];
+      }
+      if (!resumeId) {
+        const resumeEq = cmdArgs.find((a) => a.startsWith("--resume="));
+        if (resumeEq) {
+          const value = resumeEq.slice("--resume=".length);
+          if (value) resumeId = value;
+        }
+      }
     }
 
     if (resumeId) {
@@ -1946,23 +2035,14 @@ export async function runRun(): Promise<void> {
 
         // Codex: session may be in a different date directory — search recursively
         if (!resumeSessionFile && cmdName === "codex") {
-          const codexRoot = join(homedir(), ".codex", "sessions");
-          const searchDir = (dir: string): string | null => {
-            try {
-              for (const entry of readdirSync(dir, { withFileTypes: true })) {
-                if (entry.isDirectory()) {
-                  const found = searchDir(join(dir, entry.name));
-                  if (found) return found;
-                } else if (entry.name.endsWith(".jsonl") && entry.name.includes(resumeId!)) {
-                  return join(dir, entry.name);
-                }
-              }
-            } catch {}
-            return null;
-          };
-          resumeSessionFile = searchDir(codexRoot);
+          resumeSessionFile = findCodexSessionFileById(resumeId);
         }
       } catch {}
+    }
+
+    // Codex resume --last should tail whichever session file was active most recently.
+    if (!resumeSessionFile && cmdName === "codex" && codexResumeLast) {
+      resumeSessionFile = findLatestCodexSessionFile();
     }
 
     // PI --continue/-c: use the most recent JSONL file
