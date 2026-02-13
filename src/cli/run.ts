@@ -1342,8 +1342,50 @@ async function runHeadlessSession(opts: HeadlessRunOptions): Promise<number> {
   else adapter = createCodexAdapter();
 
   const headlessPrefix = `[headless/${cmdName}]`;
-  const logHeadless = (text: string) => console.log(`${headlessPrefix} ⛳️ ${text}`);
-  const logHeadlessErr = (text: string) => console.error(`${headlessPrefix} ⚠ ${text}`);
+  const spinnerFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+  const canAnimateSpinner = Boolean(process.stdout?.isTTY);
+  let spinnerText: string | null = null;
+  let spinnerFrameIdx = 0;
+  let spinnerTimer: ReturnType<typeof setInterval> | null = null;
+  const clearSpinner = () => {
+    if (!canAnimateSpinner || !spinnerText) return;
+    process.stdout.write("\r\x1b[2K");
+  };
+  const renderSpinner = () => {
+    if (!canAnimateSpinner || !spinnerText) return;
+    const frame = spinnerFrames[spinnerFrameIdx];
+    spinnerFrameIdx = (spinnerFrameIdx + 1) % spinnerFrames.length;
+    process.stdout.write(`\r${headlessPrefix} ${frame} ${spinnerText}`);
+  };
+  const stopSpinner = () => {
+    if (spinnerTimer) {
+      clearInterval(spinnerTimer);
+      spinnerTimer = null;
+    }
+    clearSpinner();
+    spinnerText = null;
+    spinnerFrameIdx = 0;
+  };
+  const logHeadlessLine = (text: string, isError: boolean) => {
+    const hadSpinner = Boolean(spinnerText);
+    if (hadSpinner) clearSpinner();
+    const line = `${headlessPrefix} ${isError ? "⚠" : "⛳️"} ${text}`;
+    if (isError) console.error(line);
+    else console.log(line);
+    if (hadSpinner) renderSpinner();
+  };
+  const logHeadless = (text: string) => logHeadlessLine(text, false);
+  const logHeadlessErr = (text: string) => logHeadlessLine(text, true);
+  const startSpinner = (text: string) => {
+    if (!canAnimateSpinner) {
+      logHeadless(`⏳ ${text}`);
+      return;
+    }
+    stopSpinner();
+    spinnerText = text;
+    renderSpinner();
+    spinnerTimer = setInterval(renderSpinner, 90);
+  };
   logHeadless(`Bridge is live for ${remoteId}. Listening for inbound messages. Press Ctrl+C to stop.`);
 
   const subscribedGroups = new Set<ChannelChatId>();
@@ -1395,6 +1437,10 @@ async function runHeadlessSession(opts: HeadlessRunOptions): Promise<number> {
     const max = 220;
     return cleaned.length > max ? `${cleaned.slice(0, max - 3)}...` : cleaned;
   };
+  const formatElapsed = (elapsedMs: number): string => {
+    if (elapsedMs < 1000) return `${elapsedMs}ms`;
+    return `${(elapsedMs / 1000).toFixed(1)}s`;
+  };
   let warnedControlInput = false;
   const pendingInputs: PendingInput[] = [];
   let drainingInputs = false;
@@ -1417,17 +1463,20 @@ async function runHeadlessSession(opts: HeadlessRunOptions): Promise<number> {
         continue;
       }
       try {
+        const startedAt = Date.now();
         if (input.source === "user") {
           userInputCount++;
           logHeadless(`inbound user input #${userInputCount}: ${formatUserInputPreview(input.line)}`);
-          logHeadless(`dispatching user input #${userInputCount}`);
+          startSpinner(`Working on user input #${userInputCount}...`);
         }
         await adapter.sendText(input.line);
         if (input.source === "user") {
-          logHeadless(`completed user input #${userInputCount}`);
+          stopSpinner();
+          logHeadless(`✅ Completed user input #${userInputCount} in ${formatElapsed(Date.now() - startedAt)}`);
         }
         markActivity();
       } catch (e) {
+        stopSpinner();
         const err = e as Error;
         const label = input.source === "user" ? "user input" : "scheduled input";
         logHeadlessErr(`${label} failed: ${err.message || err}`);
@@ -1556,6 +1605,7 @@ async function runHeadlessSession(opts: HeadlessRunOptions): Promise<number> {
     adapter.exited.then((code) => code ?? 1),
     signalPromise,
   ]);
+  stopSpinner();
   logHeadless(`stopping (exit code ${exitCode ?? 1}).`);
 
   stopping = true;
