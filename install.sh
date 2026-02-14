@@ -94,9 +94,24 @@ if [ -f "$HOME/.touchgrass/daemon.pid" ]; then
     warn "Ignoring stale daemon PID file"
   fi
   rm -f "$HOME/.touchgrass/daemon.pid"
-  # Start the new daemon immediately so active CLI sessions reconnect
-  "${INSTALL_DIR}/${BINARY_NAME}" ls &>/dev/null &
-  info "Daemon restart requested"
+  # Start the new daemon immediately so active CLI sessions reconnect.
+  if "${INSTALL_DIR}/${BINARY_NAME}" ls &>/dev/null; then
+    RESTARTED=false
+    for i in {1..20}; do
+      NEW_DAEMON_PID="$(cat "$HOME/.touchgrass/daemon.pid" 2>/dev/null || true)"
+      if [ -n "${NEW_DAEMON_PID}" ] && kill -0 "${NEW_DAEMON_PID}" 2>/dev/null; then
+        info "Daemon restarted (${NEW_DAEMON_PID})"
+        RESTARTED=true
+        break
+      fi
+      sleep 0.25
+    done
+    if [ "$RESTARTED" = false ]; then
+      warn "Daemon restart could not be verified; active sessions will auto-recover on next poll."
+    fi
+  else
+    warn "Daemon restart command failed; active sessions will auto-recover on next poll."
+  fi
 fi
 
 echo ""
