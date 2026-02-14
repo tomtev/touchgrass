@@ -25,6 +25,62 @@ function shouldRestartDaemonForVersion(
   return true;
 }
 
+function parseDaemonPidsFromPs(psOutput: string): number[] {
+  const pids = new Set<number>();
+  for (const rawLine of psOutput.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    const match = line.match(/^(\d+)\s+(.+)$/);
+    if (!match) continue;
+    const pid = parseInt(match[1], 10);
+    if (!Number.isFinite(pid) || pid <= 0) continue;
+    const command = match[2];
+    if (!command.includes("__daemon__")) continue;
+
+    const isTouchgrassDaemon =
+      /(^|[\/\s])tg(?:\.exe)?\s+__daemon__(\s|$)/i.test(command) ||
+      /\btouchgrass\b/i.test(command);
+    if (!isTouchgrassDaemon) continue;
+    pids.add(pid);
+  }
+  return Array.from(pids);
+}
+
+function listDaemonPidsFromSystem(): number[] {
+  if (process.platform === "win32") return [];
+  try {
+    const out = Bun.spawnSync(["ps", "-axo", "pid=,command="], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    if (out.exitCode !== 0) return [];
+    return parseDaemonPidsFromPs(new TextDecoder().decode(out.stdout));
+  } catch {
+    return [];
+  }
+}
+
+async function reapDuplicateDaemons(primaryPid: number): Promise<void> {
+  if (!Number.isFinite(primaryPid) || primaryPid <= 0) return;
+  const duplicatePids = listDaemonPidsFromSystem().filter((pid) => pid !== primaryPid);
+  if (duplicatePids.length === 0) return;
+
+  for (const pid of duplicatePids) {
+    try {
+      process.kill(pid, "SIGTERM");
+    } catch {}
+  }
+
+  await Bun.sleep(200);
+
+  for (const pid of duplicatePids) {
+    if (!isDaemonRunning(pid)) continue;
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch {}
+  }
+}
+
 // Get the newest mtime across all source files as a "code version"
 function getCodeMtime(): number {
   try {
@@ -104,6 +160,8 @@ export async function ensureDaemon(): Promise<void> {
   if (pid && isDaemonRunning(pid)) {
     try {
       const res = await daemonRequest("/health");
+      const healthyPid = typeof res.pid === "number" ? res.pid : pid;
+      await reapDuplicateDaemons(healthyPid);
       const daemonStartedAt = res.startedAt as number | undefined;
       const scriptMtime = getCodeMtime();
 
@@ -126,9 +184,8 @@ export async function ensureDaemon(): Promise<void> {
       // Daemon is current
       return;
     } catch {
-      // Socket not responding or auth mismatch — force restart
-      try { process.kill(pid, "SIGTERM"); } catch {}
-      await Bun.sleep(250);
+      // Keep existing daemon process to avoid spawning duplicate channel pollers.
+      return;
     }
   }
 
@@ -138,5 +195,6 @@ export async function ensureDaemon(): Promise<void> {
 // Test-only helpers
 export const __ensureDaemonTestUtils = {
   hasActiveSessions,
+  parseDaemonPidsFromPs,
   shouldRestartDaemonForVersion,
 };

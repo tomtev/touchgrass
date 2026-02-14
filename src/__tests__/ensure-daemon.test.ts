@@ -54,5 +54,16 @@ describe("ensure-daemon version restart policy", () => {
       )
     ).toBe(false);
   });
-});
 
+  it("parses only touchgrass daemon pids from ps output", () => {
+    const output = [
+      "61093 /Users/tommyvedvik/.local/bin/tg __daemon__",
+      "61024 /Users/tommyvedvik/.local/bin/tg __daemon__",
+      "70000 /usr/bin/python some_daemon.py",
+      "80000 /usr/local/bin/tg codex",
+      "90000 /tmp/other __daemon__",
+    ].join("\n");
+
+    expect(__ensureDaemonTestUtils.parseDaemonPidsFromPs(output)).toEqual([61093, 61024]);
+  });
+});

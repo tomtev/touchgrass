@@ -1,11 +1,64 @@
-import { readFile, writeFile, unlink, chmod } from "fs/promises";
+import { readFile, writeFile, unlink, chmod, open, type FileHandle } from "fs/promises";
 import { paths, ensureDirs } from "../config/paths";
 import { logger } from "./logger";
+
+let daemonLockFile: FileHandle | null = null;
 
 export async function writePidFile(): Promise<void> {
   await ensureDirs();
   await writeFile(paths.pidFile, String(process.pid), { encoding: "utf-8", mode: 0o600 });
   await chmod(paths.pidFile, 0o600).catch(() => {});
+}
+
+export async function acquireDaemonLock(): Promise<boolean> {
+  await ensureDirs();
+  try {
+    daemonLockFile = await open(paths.daemonLock, "wx", 0o600);
+    await daemonLockFile.writeFile(`${process.pid}\n`);
+    await daemonLockFile.sync().catch(() => {});
+    return true;
+  } catch (e: unknown) {
+    const err = e as { code?: string };
+    if (err.code !== "EEXIST") {
+      throw e;
+    }
+  }
+
+  try {
+    const raw = await readFile(paths.daemonLock, "utf-8");
+    const lockedPid = parseInt(raw.trim(), 10);
+    if (!Number.isFinite(lockedPid) || lockedPid <= 0 || !isDaemonRunning(lockedPid)) {
+      await unlink(paths.daemonLock).catch(() => {});
+      daemonLockFile = await open(paths.daemonLock, "wx", 0o600);
+      await daemonLockFile.writeFile(`${process.pid}\n`);
+      await daemonLockFile.sync().catch(() => {});
+      return true;
+    }
+  } catch {
+    await unlink(paths.daemonLock).catch(() => {});
+    try {
+      daemonLockFile = await open(paths.daemonLock, "wx", 0o600);
+      await daemonLockFile.writeFile(`${process.pid}\n`);
+      await daemonLockFile.sync().catch(() => {});
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  return false;
+}
+
+export async function removeDaemonLock(): Promise<void> {
+  try {
+    if (daemonLockFile) {
+      await daemonLockFile.close().catch(() => {});
+      daemonLockFile = null;
+    }
+    await unlink(paths.daemonLock);
+  } catch {
+    // Ignore if already removed
+  }
 }
 
 export async function readPidFile(): Promise<number | null> {
@@ -81,6 +134,7 @@ export function installSignalHandlers(): void {
       }
     }
     await removePidFile();
+    await removeDaemonLock();
     await removeSocket();
     await removeControlPortFile();
     await removeAuthToken();

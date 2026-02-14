@@ -8,6 +8,7 @@ export const paths = {
   dir: TG_DIR,
   config: join(TG_DIR, "config.json"),
   pidFile: join(TG_DIR, "daemon.pid"),
+  daemonLock: join(TG_DIR, "daemon.lock"),
   socket: join(TG_DIR, "daemon.sock"),
   controlPortFile: join(TG_DIR, "daemon.port"),
   authToken: join(TG_DIR, "daemon.auth"),

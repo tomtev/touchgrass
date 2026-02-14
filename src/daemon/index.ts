@@ -1,7 +1,17 @@
 import { loadConfig, invalidateCache, saveConfig } from "../config/store";
 import { getAllLinkedGroups, getAllPairedUsers, isLinkedGroup, removeLinkedGroup } from "../config/schema";
 import { logger } from "./logger";
-import { writePidFile, installSignalHandlers, onShutdown, removeAuthToken, removeControlPortFile, removePidFile, removeSocket } from "./lifecycle";
+import {
+  acquireDaemonLock,
+  installSignalHandlers,
+  onShutdown,
+  removeAuthToken,
+  removeControlPortFile,
+  removeDaemonLock,
+  removePidFile,
+  removeSocket,
+  writePidFile,
+} from "./lifecycle";
 import { startControlServer, type ChannelInfo } from "./control-server";
 import { routeMessage } from "../bot/command-router";
 import { SessionManager } from "../session/manager";
@@ -26,6 +36,12 @@ function sessionLabel(command: string, cwd: string): string {
 
 export async function startDaemon(): Promise<void> {
   await logger.info("Daemon starting", { pid: process.pid });
+
+  const lockAcquired = await acquireDaemonLock();
+  if (!lockAcquired) {
+    await logger.info("Daemon already active; skipping duplicate start", { pid: process.pid });
+    process.exit(0);
+  }
 
   let config = await loadConfig();
   async function refreshConfig() {
@@ -80,6 +96,7 @@ export async function startDaemon(): Promise<void> {
         sessionManager.killAll();
         await removeAuthToken();
         await removePidFile();
+        await removeDaemonLock();
         await removeSocket();
         await removeControlPortFile();
         process.exit(0);
@@ -415,6 +432,7 @@ export async function startDaemon(): Promise<void> {
       sessionManager.killAll();
       await removeAuthToken();
       await removePidFile();
+      await removeDaemonLock();
       await removeSocket();
       await removeControlPortFile();
       process.exit(0);
