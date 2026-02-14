@@ -18,6 +18,8 @@ interface SlackPollState {
   messageId: string;
   optionCount: number;
   multiSelect: boolean;
+  optionLabels: string[];
+  mode: "text" | "buttons";
 }
 
 interface ResolvedTarget {
@@ -45,6 +47,18 @@ function chunkSlackText(text: string, maxLen = SLACK_MAX_TEXT): string[] {
 
 function pollId(): string {
   return `slack-poll-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+}
+
+function pollActionValue(id: string, optionId: number): string {
+  return `tgp:${id}:${optionId}`;
+}
+
+function parsePollActionValue(value: string): { pollId: string; optionId: number } | null {
+  const match = value.match(/^tgp:([^:]+):(\d+)$/);
+  if (!match) return null;
+  const optionId = Number(match[2]);
+  if (!Number.isFinite(optionId) || optionId < 0) return null;
+  return { pollId: match[1], optionId };
 }
 
 function toChatId(base: string, threadTs?: string): ChannelChatId {
@@ -161,7 +175,11 @@ export class SlackChannel implements Channel {
   private parsePollAnswer(text: string, poll: SlackPollState): number[] | null {
     const trimmed = text.trim();
     if (!trimmed) return null;
-    if (!/^\d+(?:[\s,]+\d+)*$/.test(trimmed)) return null;
+    if (!/^\d+(?:[\s,]+\d+)*$/.test(trimmed)) {
+      const byLabel = poll.optionLabels.findIndex((label) => label.toLowerCase() === trimmed.toLowerCase());
+      if (byLabel >= 0) return [byLabel];
+      return null;
+    }
     const seen = new Set<number>();
     const ids: number[] = [];
     for (const token of trimmed.split(/[\s,]+/)) {
@@ -270,18 +288,47 @@ export class SlackChannel implements Channel {
   ): Promise<PollResult> {
     const target = await this.resolveTarget(chatId);
     const id = pollId();
-    const promptLines = options.map((opt, idx) => `${idx + 1}. ${opt}`);
-    const hint = multiSelect
-      ? "Reply with one or more numbers (for example: 1,3)."
-      : "Reply with one number (for example: 2).";
-    const body = `*${this.fmt.escape(question)}*\n${this.fmt.escape(promptLines.join("\n"))}\n${this.fmt.escape(hint)}`;
-    const sent = await this.api.sendMessage(target.channelId, body, target.threadTs);
+    let sent: { channel: string; ts: string };
+    let mode: "text" | "buttons" = "text";
+    if (!multiSelect) {
+      mode = "buttons";
+      const blocks: Record<string, unknown>[] = [
+        {
+          type: "section",
+          text: {
+            type: "mrkdwn",
+            text: `*${this.fmt.escape(question)}*`,
+          },
+        },
+        {
+          type: "actions",
+          elements: options.slice(0, 10).map((opt, idx) => ({
+            type: "button",
+            text: {
+              type: "plain_text",
+              text: opt.slice(0, 75),
+              emoji: true,
+            },
+            value: pollActionValue(id, idx),
+            action_id: `tg_poll_${idx}`,
+          })),
+        },
+      ];
+      sent = await this.api.sendMessage(target.channelId, question, target.threadTs, blocks);
+    } else {
+      const promptLines = options.map((opt, idx) => `${idx + 1}. ${opt}`);
+      const hint = "Reply with one or more numbers (for example: 1,3).";
+      const body = `*${this.fmt.escape(question)}*\n${this.fmt.escape(promptLines.join("\n"))}\n${this.fmt.escape(hint)}`;
+      sent = await this.api.sendMessage(target.channelId, body, target.threadTs);
+    }
 
     const state: SlackPollState = {
       pollId: id,
       messageId: sent.ts,
       optionCount: options.length,
       multiSelect,
+      optionLabels: options,
+      mode,
     };
     this.textPollByChat.set(chatId, state);
     this.pollToChat.set(id, chatId);
@@ -420,6 +467,30 @@ export class SlackChannel implements Channel {
       if (event.type === "message") {
         await this.handleMessageEvent(event, onMessage);
       }
+      return;
+    }
+
+    if (envelope.type === "interactive" && envelope.payload) {
+      const payload = envelope.payload;
+      if (payload.type !== "block_actions") return;
+      const user = payload.user as Record<string, unknown> | undefined;
+      const userIdRaw = typeof user?.id === "string" ? user.id : "";
+      if (!userIdRaw) return;
+      const actions = Array.isArray(payload.actions) ? payload.actions as Array<Record<string, unknown>> : [];
+      if (actions.length === 0) return;
+      const value = typeof actions[0]?.value === "string" ? actions[0].value : "";
+      const parsed = parsePollActionValue(value);
+      if (!parsed || !this.onPollAnswer) return;
+      const chatId = this.pollToChat.get(parsed.pollId);
+      if (chatId) {
+        this.textPollByChat.delete(chatId);
+        this.pollToChat.delete(parsed.pollId);
+      }
+      this.onPollAnswer({
+        pollId: parsed.pollId,
+        userId: `slack:${userIdRaw}`,
+        optionIds: [parsed.optionId],
+      });
       return;
     }
   }

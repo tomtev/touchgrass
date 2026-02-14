@@ -15,6 +15,8 @@ export interface SlackConversation {
   is_mpim?: boolean;
 }
 
+export type SlackBlock = Record<string, unknown>;
+
 interface SlackApiResponse<T> {
   ok: boolean;
   error?: string;
@@ -115,7 +117,8 @@ export class SlackApi {
   async sendMessage(
     channel: string,
     text: string,
-    threadTs?: string
+    threadTs?: string,
+    blocks?: SlackBlock[]
   ): Promise<{ channel: string; ts: string }> {
     const res = await this.call<SlackApiResponse<unknown> & { channel?: string; ts?: string }>(
       "chat.postMessage",
@@ -124,6 +127,7 @@ export class SlackApi {
         text,
         mrkdwn: true,
         ...(threadTs ? { thread_ts: threadTs } : {}),
+        ...(blocks ? { blocks } : {}),
       }
     );
     if (!res.channel || !res.ts) {
@@ -135,13 +139,15 @@ export class SlackApi {
   async updateMessage(
     channel: string,
     ts: string,
-    text: string
+    text: string,
+    blocks?: SlackBlock[]
   ): Promise<void> {
     await this.call("chat.update", {
       channel,
       ts,
       text,
       mrkdwn: true,
+      ...(blocks ? { blocks } : {}),
     });
   }
 
@@ -228,4 +234,3 @@ export class SlackApi {
     return await res.arrayBuffer();
   }
 }
-

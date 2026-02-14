@@ -4,7 +4,12 @@ import type { InboundMessage } from "../channel/types";
 
 interface MockSlackApi {
   openDm?: (userId: string) => Promise<string>;
-  sendMessage?: (channel: string, text: string, threadTs?: string) => Promise<{ channel: string; ts: string }>;
+  sendMessage?: (
+    channel: string,
+    text: string,
+    threadTs?: string,
+    blocks?: Array<Record<string, unknown>>
+  ) => Promise<{ channel: string; ts: string }>;
   updateMessage?: (channel: string, ts: string, text: string) => Promise<void>;
   sendFile?: (channel: string, filePath: string, caption?: string, threadTs?: string) => Promise<void>;
   getConversationInfo?: (channel: string) => Promise<{ id: string; name?: string }>;
@@ -133,6 +138,46 @@ describe("SlackChannel", () => {
     expect(pollAnswers[0]?.userId).toBe("slack:U777");
     expect(pollAnswers[0]?.optionIds).toEqual([1]);
     expect(pollAnswers[0]?.pollId).toBe(poll.pollId);
+  });
+
+  it("maps Slack interactive button clicks to poll answers", async () => {
+    const channel = createChannelWithApi({
+      openDm: async () => "D222",
+      sendMessage: async (target) => ({ channel: target, ts: "1700000000.000222" }),
+    });
+
+    const pollAnswers: Array<{ pollId: string; userId: string; optionIds: number[] }> = [];
+    channel.onPollAnswer = (answer) => {
+      pollAnswers.push(answer);
+    };
+
+    const poll = await channel.sendPoll("slack:U777", "Choose", ["Approve", "Reject"], false);
+
+    const anyChannel = channel as unknown as {
+      handleSocketEnvelope: (
+        envelope: Record<string, unknown>,
+        onMessage: (msg: InboundMessage) => Promise<void>
+      ) => Promise<void>;
+    };
+
+    await anyChannel.handleSocketEnvelope(
+      {
+        type: "interactive",
+        payload: {
+          type: "block_actions",
+          user: { id: "U777" },
+          actions: [{ value: `tgp:${poll.pollId}:1` }],
+        },
+      },
+      async () => {}
+    );
+
+    expect(pollAnswers).toHaveLength(1);
+    expect(pollAnswers[0]).toEqual({
+      pollId: poll.pollId,
+      userId: "slack:U777",
+      optionIds: [1],
+    });
   });
 
   it("validates user and channel chat IDs using the right Slack API calls", async () => {

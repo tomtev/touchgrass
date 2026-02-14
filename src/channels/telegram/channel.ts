@@ -1,4 +1,4 @@
-import { TelegramApi, type TelegramUpdate, type TelegramPollAnswer } from "./api";
+import { TelegramApi, type TelegramUpdate, type TelegramInlineKeyboardButton } from "./api";
 import type { Channel, ChannelChatId, InboundMessage, PollResult, PollAnswerHandler } from "../../channel/types";
 import { TelegramFormatter } from "./telegram-formatter";
 import { escapeHtml, chunkText } from "./formatter";
@@ -22,6 +22,23 @@ function fromChatId(chatId: ChannelChatId): { chatId: number; threadId?: number 
   return { chatId: numChatId };
 }
 
+function actionPollId(): string {
+  return `tgp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function actionCallbackData(pollId: string, optionId: number): string {
+  return `tgp:${pollId}:${optionId}`;
+}
+
+function parseActionCallbackData(data: string | undefined): { pollId: string; optionId: number } | null {
+  if (!data) return null;
+  const match = data.match(/^tgp:([^:]+):(\d+)$/);
+  if (!match) return null;
+  const optionId = Number(match[2]);
+  if (!Number.isFinite(optionId) || optionId < 0) return null;
+  return { pollId: match[1], optionId };
+}
+
 export class TelegramChannel implements Channel {
   readonly type = "telegram";
   readonly fmt = new TelegramFormatter();
@@ -34,6 +51,8 @@ export class TelegramChannel implements Channel {
   private readonly uploadTtlMs = 24 * 60 * 60 * 1000;
   // Cache forum topic names: key = "chatId:threadId", value = topic name
   private topicNames: Map<string, string> = new Map();
+  private actionPollById: Map<string, { chatId: ChannelChatId; messageId: number }> = new Map();
+  private actionPollByMessage: Map<string, string> = new Map();
   onPollAnswer: PollAnswerHandler | null = null;
   onDeadChat: ((chatId: ChannelChatId, error: Error) => void) | null = null;
 
@@ -178,6 +197,21 @@ export class TelegramChannel implements Channel {
     multiSelect: boolean
   ): Promise<PollResult> {
     const { chatId: numChatId, threadId } = fromChatId(chatId);
+    if (!multiSelect) {
+      const id = actionPollId();
+      const inlineButtons: TelegramInlineKeyboardButton[][] = options.slice(0, 10).map((label, idx) => [
+        { text: label.slice(0, 64), callback_data: actionCallbackData(id, idx) },
+      ]);
+      const sent = await this.api.sendInlineKeyboard(
+        numChatId,
+        this.fmt.bold(this.fmt.escape(question)),
+        inlineButtons,
+        threadId
+      );
+      this.actionPollById.set(id, { chatId, messageId: sent.message_id });
+      this.actionPollByMessage.set(`${chatId}:${sent.message_id}`, id);
+      return { pollId: id, messageId: String(sent.message_id) };
+    }
     const sent = await this.api.sendPoll(numChatId, question, options, multiSelect, false, threadId);
     // Telegram includes poll info in the sent message
     const poll = (sent as unknown as { poll?: { id: string } }).poll;
@@ -185,6 +219,18 @@ export class TelegramChannel implements Channel {
   }
 
   async closePoll(chatId: ChannelChatId, messageId: string): Promise<void> {
+    const actionId = this.actionPollByMessage.get(`${chatId}:${messageId}`);
+    if (actionId) {
+      this.actionPollByMessage.delete(`${chatId}:${messageId}`);
+      this.actionPollById.delete(actionId);
+      const { chatId: numChatId } = fromChatId(chatId);
+      try {
+        await this.api.editMessageReplyMarkup(numChatId, Number(messageId), { inline_keyboard: [] });
+      } catch {
+        // Ignore if message is no longer editable.
+      }
+      return;
+    }
     const { chatId: numChatId } = fromChatId(chatId);
     try {
       await this.api.stopPoll(numChatId, Number(messageId));
@@ -268,6 +314,27 @@ export class TelegramChannel implements Channel {
               });
             } catch (e) {
               await logger.error("Error handling poll answer", { error: (e as Error).message });
+            }
+          }
+
+          if (update.callback_query) {
+            try {
+              const parsed = parseActionCallbackData(update.callback_query.data);
+              if (parsed && this.onPollAnswer) {
+                const action = this.actionPollById.get(parsed.pollId);
+                if (action) {
+                  this.actionPollById.delete(parsed.pollId);
+                  this.actionPollByMessage.delete(`${action.chatId}:${action.messageId}`);
+                }
+                this.onPollAnswer({
+                  pollId: parsed.pollId,
+                  userId: `telegram:${update.callback_query.from.id}`,
+                  optionIds: [parsed.optionId],
+                });
+              }
+              await this.api.answerCallbackQuery(update.callback_query.id);
+            } catch (e) {
+              await logger.error("Error handling callback query", { error: (e as Error).message });
             }
           }
 

@@ -147,4 +147,47 @@ describe("WhatsAppChannel", () => {
 
     expect(received).toHaveLength(0);
   });
+
+  it("maps WhatsApp action replies to poll answer callbacks", async () => {
+    const channel = new WhatsAppChannel("/tmp/tg-test-whatsapp");
+    const anyChannel = channel as unknown as {
+      connected: boolean;
+      socket: { sendMessage: (jid: string, content: Record<string, unknown>) => Promise<void> };
+      handleMessagesUpsert: (upsert: unknown, onMessage: (msg: InboundMessage) => Promise<void>) => Promise<void>;
+    };
+    anyChannel.connected = true;
+    anyChannel.socket = {
+      sendMessage: async () => {},
+    };
+
+    const answers: Array<{ pollId: string; userId: string; optionIds: number[] }> = [];
+    channel.onPollAnswer = (answer) => answers.push(answer);
+
+    const poll = await channel.sendPoll("whatsapp:+15551234567", "Pick one", ["Yes", "No"], false);
+
+    await anyChannel.handleMessagesUpsert(
+      {
+        type: "notify",
+        messages: [
+          {
+            key: {
+              remoteJid: "15551234567@s.whatsapp.net",
+              fromMe: false,
+            },
+            message: {
+              conversation: "2",
+            },
+          },
+        ],
+      },
+      async () => {}
+    );
+
+    expect(answers).toHaveLength(1);
+    expect(answers[0]).toEqual({
+      pollId: poll.pollId,
+      userId: "whatsapp:+15551234567",
+      optionIds: [1],
+    });
+  });
 });

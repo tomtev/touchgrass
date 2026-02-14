@@ -63,10 +63,23 @@ export interface TelegramPollAnswer {
   option_ids: number[];
 }
 
+export interface TelegramInlineKeyboardButton {
+  text: string;
+  callback_data: string;
+}
+
+export interface TelegramCallbackQuery {
+  id: string;
+  from: TelegramUser;
+  data?: string;
+  message?: TelegramMessage;
+}
+
 export interface TelegramUpdate {
   update_id: number;
   message?: TelegramMessage;
   poll_answer?: TelegramPollAnswer;
+  callback_query?: TelegramCallbackQuery;
 }
 
 interface ApiResponse<T> {
@@ -118,7 +131,7 @@ export class TelegramApi {
     return this.call<TelegramUpdate[]>("getUpdates", {
       offset,
       timeout,
-      allowed_updates: ["message", "poll_answer"],
+      allowed_updates: ["message", "poll_answer", "callback_query"],
     });
   }
 
@@ -234,5 +247,36 @@ export class TelegramApi {
       chat_id: chatId,
       message_id: messageId,
     });
+  }
+
+  async sendInlineKeyboard(
+    chatId: number,
+    text: string,
+    buttons: TelegramInlineKeyboardButton[][],
+    messageThreadId?: number
+  ): Promise<TelegramMessage> {
+    return this.call<TelegramMessage>("sendMessage", {
+      chat_id: chatId,
+      text,
+      parse_mode: "HTML",
+      reply_markup: { inline_keyboard: buttons },
+      ...(messageThreadId ? { message_thread_id: messageThreadId } : {}),
+    });
+  }
+
+  async editMessageReplyMarkup(
+    chatId: number,
+    messageId: number,
+    replyMarkup: Record<string, unknown> | null
+  ): Promise<TelegramMessage | true> {
+    return this.call<TelegramMessage | true>("editMessageReplyMarkup", {
+      chat_id: chatId,
+      message_id: messageId,
+      reply_markup: replyMarkup,
+    });
+  }
+
+  async answerCallbackQuery(callbackQueryId: string): Promise<boolean> {
+    return this.call<boolean>("answerCallbackQuery", { callback_query_id: callbackQueryId });
   }
 }

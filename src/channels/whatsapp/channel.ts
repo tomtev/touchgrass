@@ -22,6 +22,14 @@ import {
 
 const WHATSAPP_MAX_TEXT = 3900;
 
+interface WhatsAppPollState {
+  pollId: string;
+  messageId: string;
+  optionCount: number;
+  multiSelect: boolean;
+  optionLabels: string[];
+}
+
 function chunkText(text: string, maxLen = WHATSAPP_MAX_TEXT): string[] {
   if (text.length <= maxLen) return [text];
   const chunks: string[] = [];
@@ -71,6 +79,36 @@ function guessMimeType(filePath: string): string {
     default:
       return "application/octet-stream";
   }
+}
+
+function whatsappPollId(): string {
+  return `wa-poll-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+}
+
+function parseWhatsAppPollAnswer(text: string, poll: WhatsAppPollState): number[] | null {
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+
+  const byLabel = poll.optionLabels.findIndex((label) => label.toLowerCase() === trimmed.toLowerCase());
+  if (byLabel >= 0) return [byLabel];
+
+  if (!/^\d+(?:[\s,]+\d+)*$/.test(trimmed)) return null;
+  const seen = new Set<number>();
+  const ids: number[] = [];
+  for (const token of trimmed.split(/[\s,]+/)) {
+    const n = Number(token);
+    if (!Number.isFinite(n) || !Number.isInteger(n)) return null;
+    if (n < 1 || n > poll.optionCount) return null;
+    const zero = n - 1;
+    if (!seen.has(zero)) {
+      seen.add(zero);
+      ids.push(zero);
+    }
+  }
+  if (!poll.multiSelect && ids.length > 1) {
+    return [ids[0]];
+  }
+  return ids;
 }
 
 function resolveMessageContent(message: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
@@ -142,6 +180,8 @@ export class WhatsAppChannel implements Channel {
     { interval: ReturnType<typeof setInterval>; timeout: ReturnType<typeof setTimeout> }
   >();
   private groupNames = new Map<string, string>();
+  private textPollByChat = new Map<ChannelChatId, WhatsAppPollState>();
+  private pollToChat = new Map<string, ChannelChatId>();
 
   onPollAnswer: PollAnswerHandler | null = null;
   onDeadChat: ((chatId: ChannelChatId, error: Error) => void) | null = null;
@@ -295,6 +335,41 @@ export class WhatsAppChannel implements Channel {
     // No-op for WhatsApp.
   }
 
+  async sendPoll(
+    chatId: ChannelChatId,
+    question: string,
+    options: string[],
+    multiSelect: boolean
+  ): Promise<{ pollId: string; messageId: string }> {
+    const id = whatsappPollId();
+    const messageId = `wa-msg-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`;
+    const promptLines = options.map((opt, idx) => `${idx + 1}. ${opt}`);
+    const hint = multiSelect
+      ? "Reply with one or more numbers (for example: 1,3)."
+      : "Reply with one number (for example: 2).";
+    const body = `*${question}*\n${promptLines.join("\n")}\n${hint}`;
+    await this.send(chatId, body);
+
+    const state: WhatsAppPollState = {
+      pollId: id,
+      messageId,
+      optionCount: options.length,
+      multiSelect,
+      optionLabels: options,
+    };
+    this.textPollByChat.set(chatId, state);
+    this.pollToChat.set(id, chatId);
+    return { pollId: id, messageId };
+  }
+
+  async closePoll(chatId: ChannelChatId, messageId: string): Promise<void> {
+    const poll = this.textPollByChat.get(chatId);
+    if (!poll) return;
+    if (poll.messageId !== messageId) return;
+    this.textPollByChat.delete(chatId);
+    this.pollToChat.delete(poll.pollId);
+  }
+
   async validateChat(chatId: ChannelChatId): Promise<boolean> {
     if (!this.connected || !this.socket) return true;
     try {
@@ -347,6 +422,21 @@ export class WhatsAppChannel implements Channel {
       const content = resolveMessageContent(msg.message as Record<string, unknown> | undefined);
       const text = extractMessageText(content);
       if (!text) continue;
+
+      const poll = this.textPollByChat.get(chatId);
+      if (poll && this.onPollAnswer) {
+        const answerIds = parseWhatsAppPollAnswer(text, poll);
+        if (answerIds) {
+          this.textPollByChat.delete(chatId);
+          this.pollToChat.delete(poll.pollId);
+          this.onPollAnswer({
+            pollId: poll.pollId,
+            userId,
+            optionIds: answerIds,
+          });
+          continue;
+        }
+      }
 
       const inbound: InboundMessage = {
         userId,
