@@ -7,7 +7,7 @@ import {
 function baseInput(overrides: Partial<RemoteRecoveryInput> = {}): RemoteRecoveryInput {
   return {
     remoteId: "r-abc123",
-    fullCommand: "claude --agent-mode",
+    fullCommand: "claude",
     chatId: "telegram:123",
     ownerUserId: "telegram:123",
     cwd: "/tmp/project",

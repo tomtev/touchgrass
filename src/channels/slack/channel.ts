@@ -270,12 +270,6 @@ export class SlackChannel implements Channel {
     }
   }
 
-  async sendSessionExit(chatId: ChannelChatId, sessionId: string, exitCode: number | null): Promise<void> {
-    const status = exitCode === 0 ? "disconnected" : `disconnected (code ${exitCode ?? "unknown"})`;
-    await this.send(chatId, `Session ${this.fmt.code(this.fmt.escape(sessionId))} ${this.fmt.escape(status)}.`);
-    this.lastMessage.delete(chatId);
-  }
-
   clearLastMessage(chatId: ChannelChatId): void {
     this.lastMessage.delete(chatId);
   }

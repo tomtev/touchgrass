@@ -7,7 +7,6 @@ import { addLinkedGroup, removeLinkedGroup, isLinkedGroup, updateLinkedGroupTitl
 import { saveConfig } from "../config/store";
 import { handlePair } from "./handlers/pair";
 import { handleHelp } from "./handlers/help";
-import { handleSpawn } from "./handlers/spawn";
 import { handleSessionMgmt } from "./handlers/session-mgmt";
 import { handleStdinInput } from "./handlers/stdin-input";
 import { logger } from "../daemon/logger";
@@ -95,11 +94,8 @@ export async function routeMessage(
       await ctx.channel.send(chatId, "No active sessions.");
       return;
     }
-    const attached = ctx.sessionManager.getAttached(chatId);
-    const attachedRemote = ctx.sessionManager.getAttachedRemote(chatId);
-    const attachedId = attached?.ownerUserId === userId ? attached.id : undefined;
-    const attachedRemoteId = attachedRemote?.ownerUserId === userId ? attachedRemote.id : undefined;
-    const mainId = attachedId || attachedRemoteId;
+    const attached = ctx.sessionManager.getAttachedRemote(chatId);
+    const mainId = attached?.ownerUserId === userId ? attached.id : undefined;
     const lines = sessions.map((s) => {
       const label = s.id;
       const isMain = label === mainId;
@@ -164,7 +160,7 @@ export async function routeMessage(
     return;
   }
 
-  // tg <command> - session management and spawning
+  // tg <command> - session management
   if (text.startsWith("tg ")) {
     const args = text.slice(3).trim();
 
@@ -174,8 +170,10 @@ export async function routeMessage(
       return;
     }
 
-    // Spawn a new session
-    await handleSpawn(msg, args, ctx);
+    await ctx.channel.send(
+      chatId,
+      `Unknown command. Use ${fmt.code("tg sessions")}, ${fmt.code("tg attach <id>")}, ${fmt.code("tg detach")}, ${fmt.code("tg stop <id>")}, or ${fmt.code("tg kill <id>")}. Start sessions from your terminal with ${fmt.code("tg claude")}, ${fmt.code("tg codex")}, or ${fmt.code("tg pi")}.`
+    );
     return;
   }
 

@@ -31,7 +31,6 @@ export interface Channel {
   readonly fmt: Formatter;
   send(chatId: ChannelChatId, html: string): Promise<void>;
   sendOutput(chatId: ChannelChatId, rawOutput: string): Promise<void>;
-  sendSessionExit(chatId: ChannelChatId, sessionId: string, exitCode: number | null): Promise<void>;
   sendDocument?(chatId: ChannelChatId, filePath: string, caption?: string): Promise<void>;
   clearLastMessage(chatId: ChannelChatId): void;
   startReceiving(onMessage: (msg: InboundMessage) => Promise<void>): Promise<void>;

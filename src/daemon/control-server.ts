@@ -39,8 +39,8 @@ export interface DaemonContext {
   handleAssistantText: (sessionId: string, text: string) => void;
   handleToolResult: (sessionId: string, toolName: string, content: string, isError?: boolean) => void;
   sendFileToSession: (sessionId: string, filePath: string, caption?: string) => Promise<{ ok: boolean; error?: string }>;
-  stopSessionById: (sessionId: string) => { ok: boolean; mode?: "local" | "remote"; error?: string };
-  killSessionById: (sessionId: string) => { ok: boolean; mode?: "local" | "remote"; error?: string };
+  stopSessionById: (sessionId: string) => { ok: boolean; error?: string };
+  killSessionById: (sessionId: string) => { ok: boolean; error?: string };
 }
 
 async function readJsonBody(req: Request): Promise<Record<string, unknown>> {
@@ -113,7 +113,7 @@ export async function startControlServer(ctx: DaemonContext): Promise<void> {
         if (!result.ok) {
           return Response.json({ ok: false, error: result.error || "Session not found" }, { status: 404 });
         }
-        return Response.json({ ok: true, mode: result.mode || "local" });
+        return Response.json({ ok: true });
       }
 
       if (path === "/remote/register" && req.method === "POST") {

@@ -170,12 +170,6 @@ export class TelegramChannel implements Channel {
     }
   }
 
-  async sendSessionExit(chatId: ChannelChatId, sessionId: string, exitCode: number | null): Promise<void> {
-    const status = exitCode === 0 ? "disconnected" : `disconnected (code ${exitCode ?? "unknown"})`;
-    await this.send(chatId, `Session ${this.fmt.code(this.fmt.escape(sessionId))} ${this.fmt.escape(status)}.`);
-    this.lastMessage.delete(chatId);
-  }
-
   async validateChat(chatId: ChannelChatId): Promise<boolean> {
     const { chatId: numChatId } = fromChatId(chatId);
     try {

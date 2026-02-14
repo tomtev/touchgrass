@@ -90,7 +90,7 @@ export async function startDaemon(): Promise<void> {
   function scheduleAutoStop() {
     cancelAutoStop();
     autoStopTimer = setTimeout(async () => {
-      if (sessionManager.remoteCount() === 0 && sessionManager.runningCount() === 0) {
+      if (sessionManager.remoteCount() === 0) {
         await logger.info("No active sessions, auto-stopping daemon");
         for (const ch of channels) ch.stopReceiving();
         sessionManager.killAll();
@@ -127,32 +127,6 @@ export async function startDaemon(): Promise<void> {
       };
     }
   }
-
-  // Wire session event handlers
-  sessionManager.setEventHandlers({
-    onOutput: (sessionId, data) => {
-      const session = sessionManager.get(sessionId);
-      if (session) {
-        primaryChannel.setTyping(session.ownerChatId, false);
-        for (const groupChatId of sessionManager.getSubscribedGroups(sessionId)) {
-          primaryChannel.setTyping(groupChatId, false);
-        }
-        primaryChannel.sendOutput(session.ownerChatId, data);
-        for (const groupChatId of sessionManager.getSubscribedGroups(sessionId)) {
-          primaryChannel.sendOutput(groupChatId, data);
-        }
-      }
-    },
-    onExit: (sessionId, exitCode) => {
-      const session = sessionManager.get(sessionId);
-      if (session) {
-        primaryChannel.sendSessionExit(session.ownerChatId, sessionId, exitCode);
-        for (const groupChatId of sessionManager.getSubscribedGroups(sessionId)) {
-          primaryChannel.sendSessionExit(groupChatId, sessionId, exitCode);
-        }
-      }
-    },
-  });
 
   // --- Poll / AskUserQuestion support ---
 
@@ -399,7 +373,7 @@ export async function startDaemon(): Promise<void> {
       const msg = `${fmt.escape("⛳️")} ${fmt.bold(fmt.escape(sessionLabel(remote.command, remote.cwd)))} disconnected (CLI stopped responding)`;
       primaryChannel.send(remote.chatId, msg);
     }
-    if (reaped.length > 0 && sessionManager.remoteCount() === 0 && sessionManager.runningCount() === 0) {
+    if (reaped.length > 0 && sessionManager.remoteCount() === 0) {
       scheduleAutoStop();
     }
   }, REAP_INTERVAL);
@@ -599,7 +573,7 @@ export async function startDaemon(): Promise<void> {
         }
         sessionManager.removeRemote(sessionId);
       }
-      if (sessionManager.remoteCount() === 0 && sessionManager.runningCount() === 0) {
+      if (sessionManager.remoteCount() === 0) {
         scheduleAutoStop();
       }
     },
@@ -640,21 +614,15 @@ export async function startDaemon(): Promise<void> {
       }
       return { ok: true };
     },
-    stopSessionById(sessionId: string): { ok: boolean; mode?: "local" | "remote"; error?: string } {
-      if (sessionManager.stopSession(sessionId)) {
-        return { ok: true, mode: "local" };
-      }
+    stopSessionById(sessionId: string): { ok: boolean; error?: string } {
       if (sessionManager.requestRemoteStop(sessionId)) {
-        return { ok: true, mode: "remote" };
+        return { ok: true };
       }
       return { ok: false, error: "Session not found or already exited" };
     },
-    killSessionById(sessionId: string): { ok: boolean; mode?: "local" | "remote"; error?: string } {
-      if (sessionManager.killSession(sessionId)) {
-        return { ok: true, mode: "local" };
-      }
+    killSessionById(sessionId: string): { ok: boolean; error?: string } {
       if (sessionManager.requestRemoteKill(sessionId)) {
-        return { ok: true, mode: "remote" };
+        return { ok: true };
       }
       return { ok: false, error: "Session not found or already exited" };
     },

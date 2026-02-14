@@ -21,12 +21,10 @@ export async function handleSessionMgmt(
         await ctx.channel.send(chatId, "No active sessions.");
         return;
       }
-      const attached = ctx.sessionManager.getAttached(chatId);
       const attachedRemote = ctx.sessionManager.getAttachedRemote(chatId);
-      const attachedId = attached?.ownerUserId === userId ? attached.id : undefined;
       const attachedRemoteId = attachedRemote?.ownerUserId === userId ? attachedRemote.id : undefined;
       const lines = sessions.map((s) => {
-        const isAttached = attachedId === s.id || attachedRemoteId === s.id;
+        const isAttached = attachedRemoteId === s.id;
         const marker = isAttached ? " (attached)" : "";
         return `${fmt.code(s.id)} [${s.state}] ${fmt.escape(s.command)}${marker}`;
       });
@@ -69,7 +67,7 @@ export async function handleSessionMgmt(
         await ctx.channel.send(chatId, `Session ${fmt.code(safeSessionId)} not found or already exited.`);
         return;
       }
-      if (ctx.sessionManager.stopSession(sessionId) || ctx.sessionManager.requestRemoteStop(sessionId)) {
+      if (ctx.sessionManager.requestRemoteStop(sessionId)) {
         await ctx.channel.send(chatId, `Sent stop to session ${fmt.code(safeSessionId)}.`);
       } else {
         await ctx.channel.send(chatId, `Session ${fmt.code(safeSessionId)} not found or already exited.`);
@@ -86,7 +84,7 @@ export async function handleSessionMgmt(
         await ctx.channel.send(chatId, `Session ${fmt.code(safeSessionId)} not found or already exited.`);
         return;
       }
-      if (ctx.sessionManager.killSession(sessionId) || ctx.sessionManager.requestRemoteKill(sessionId)) {
+      if (ctx.sessionManager.requestRemoteKill(sessionId)) {
         await ctx.channel.send(chatId, `Sent kill to session ${fmt.code(safeSessionId)}.`);
       } else {
         await ctx.channel.send(chatId, `Session ${fmt.code(safeSessionId)} not found or already exited.`);

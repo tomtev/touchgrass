@@ -36,21 +36,12 @@ export async function runStopOrKill(): Promise<void> {
 
   await ensureDaemon();
   const sessionId = await resolveSessionId(sessionArg);
-  const res = await daemonRequest(`/session/${sessionId}/${action}`, "POST");
-  const mode = (res.mode as string) || "local";
+  await daemonRequest(`/session/${sessionId}/${action}`, "POST");
 
   if (action === "stop") {
-    console.log(
-      mode === "remote"
-        ? `Sent stop request to remote session ${sessionId}`
-        : `Sent SIGTERM to session ${sessionId}`
-    );
+    console.log(`Sent stop request to session ${sessionId}`);
     return;
   }
 
-  console.log(
-    mode === "remote"
-      ? `Sent kill request to remote session ${sessionId}`
-      : `Sent SIGKILL to session ${sessionId}`
-  );
+  console.log(`Sent kill request to session ${sessionId}`);
 }

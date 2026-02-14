@@ -326,11 +326,6 @@ export class WhatsAppChannel implements Channel {
     }
   }
 
-  async sendSessionExit(chatId: ChannelChatId, sessionId: string, exitCode: number | null): Promise<void> {
-    const status = exitCode === 0 ? "disconnected" : `disconnected (code ${exitCode ?? "unknown"})`;
-    await this.send(chatId, `Session ${this.fmt.code(this.fmt.escape(sessionId))} ${this.fmt.escape(status)}.`);
-  }
-
   clearLastMessage(_chatId: ChannelChatId): void {
     // No-op for WhatsApp.
   }

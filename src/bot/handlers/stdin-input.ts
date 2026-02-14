@@ -38,20 +38,7 @@ export async function handleStdinInput(
     }
   };
 
-  // 1. Check regular attached sessions
-  const session = ctx.sessionManager.getAttached(chatId);
-  if (session && session.ownerUserId !== userId) {
-    await ctx.channel.send(chatId, "This chat is connected to another user's session.");
-    return;
-  }
-  if (session && session.ownerUserId === userId) {
-    ctx.channel.setTyping(chatId, true);
-    session.writeStdin(text);
-    maybeSubscribeGroup(session.id);
-    return;
-  }
-
-  // 2. Check attached remote sessions
+  // 1. Check attached remote sessions
   const remote = ctx.sessionManager.getAttachedRemote(chatId);
   if (remote && remote.ownerUserId !== userId) {
     await ctx.channel.send(chatId, "This chat is connected to another user's session.");
@@ -65,7 +52,7 @@ export async function handleStdinInput(
     return;
   }
 
-  // 3. Single session auto-route: if exactly 1 remote, send there (DMs only)
+  // 2. Single session auto-route: if exactly 1 remote, send there (DMs only)
   const remotes = ctx.sessionManager.listRemotesForUser(userId);
   if (remotes.length === 1 && !msg.isGroup) {
     if (!handleTextWhilePoll(remotes[0], text, ctx)) {
@@ -74,7 +61,7 @@ export async function handleStdinInput(
     return;
   }
 
-  // 4. Multiple sessions or group without connection — no session bound
+  // 3. Multiple sessions or group without connection — no session bound
   if (remotes.length > 0) {
     if (msg.isGroup && !isLinkedGroup(ctx.config, chatId)) {
       await ctx.channel.send(chatId, `This group is not linked. Run ${fmt.code("/link")} first.`);
