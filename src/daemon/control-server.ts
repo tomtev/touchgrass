@@ -4,6 +4,7 @@ import { logger } from "./logger";
 import { removeControlPortFile, removeSocket, onShutdown } from "./lifecycle";
 import { timingSafeEqual } from "crypto";
 import { chmod, writeFile } from "fs/promises";
+import type { RemoteControlAction } from "../session/remote-control";
 
 export interface ChannelInfo {
   chatId: string;
@@ -24,6 +25,7 @@ export interface DaemonContext {
   bindChat: (sessionId: string, chatId: ChannelChatId) => Promise<{ ok: boolean; error?: string }>;
   canUserAccessSession: (userId: ChannelUserId, sessionId: string) => boolean;
   drainRemoteInput: (sessionId: string) => string[];
+  drainRemoteControl: (sessionId: string) => RemoteControlAction | null;
   pushRemoteInput: (sessionId: string, text: string) => boolean;
   hasRemote: (sessionId: string) => boolean;
   endRemote: (sessionId: string, exitCode: number | null) => void;
@@ -37,6 +39,8 @@ export interface DaemonContext {
   handleAssistantText: (sessionId: string, text: string) => void;
   handleToolResult: (sessionId: string, toolName: string, content: string, isError?: boolean) => void;
   sendFileToSession: (sessionId: string, filePath: string, caption?: string) => Promise<{ ok: boolean; error?: string }>;
+  stopSessionById: (sessionId: string) => { ok: boolean; mode?: "local" | "remote"; error?: string };
+  killSessionById: (sessionId: string) => { ok: boolean; mode?: "local" | "remote"; error?: string };
 }
 
 async function readJsonBody(req: Request): Promise<Record<string, unknown>> {
@@ -98,6 +102,18 @@ export async function startControlServer(ctx: DaemonContext): Promise<void> {
       if (path === "/channels") {
         const channels = await ctx.getChannels();
         return Response.json({ ok: true, channels });
+      }
+
+      const sessionMatch = path.match(/^\/session\/([^/]+)\/(stop|kill)$/);
+      if (sessionMatch && req.method === "POST") {
+        const [, sessionId, action] = sessionMatch;
+        const result = action === "stop"
+          ? ctx.stopSessionById(sessionId)
+          : ctx.killSessionById(sessionId);
+        if (!result.ok) {
+          return Response.json({ ok: false, error: result.error || "Session not found" }, { status: 404 });
+        }
+        return Response.json({ ok: true, mode: result.mode || "local" });
       }
 
       if (path === "/remote/register" && req.method === "POST") {
@@ -206,7 +222,8 @@ export async function startControlServer(ctx: DaemonContext): Promise<void> {
             return Response.json({ ok: true, lines: [], unknown: true });
           }
           const lines = ctx.drainRemoteInput(sessionId);
-          return Response.json({ ok: true, lines });
+          const controlAction = ctx.drainRemoteControl(sessionId);
+          return Response.json({ ok: true, lines, controlAction });
         }
         if (action === "exit" && req.method === "POST") {
           const body = await readJsonBody(req);

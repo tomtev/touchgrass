@@ -1,6 +1,6 @@
 {
   "name": "touchgrass",
-  "version": "0.1.56",
+  "version": "0.1.57",
   "description": "touchgrass.sh — manage your AI agent CLIs from your phone",
   "type": "module",
   "scripts": {

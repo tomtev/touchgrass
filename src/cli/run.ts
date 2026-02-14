@@ -11,6 +11,7 @@ import { watch, readdirSync, statSync, readFileSync, type FSWatcher } from "fs";
 import { chmod, open, writeFile, unlink } from "fs/promises";
 import { homedir, platform } from "os";
 import { isAbsolute, join } from "path";
+import { mergeRemoteControlAction, parseRemoteControlAction, type RemoteControlAction } from "../session/remote-control";
 
 // Per-CLI patterns for detecting approval prompts in terminal output.
 // Both `promptText` and `optionText` must be present in the PTY buffer to trigger a notification.
@@ -1094,9 +1095,31 @@ async function readLinesFromStream(
   }
 }
 
+async function terminateSubprocess(
+  proc: ReturnType<typeof Bun.spawn>,
+  action: RemoteControlAction
+): Promise<void> {
+  try {
+    if (action === "kill") {
+      proc.kill(9);
+      return;
+    }
+    proc.kill(15);
+    const timedOut = await Promise.race([
+      proc.exited.then(() => false),
+      new Promise<boolean>((resolve) => setTimeout(() => resolve(true), 1000)),
+    ]);
+    if (timedOut) {
+      try {
+        proc.kill(9);
+      } catch {}
+    }
+  } catch {}
+}
+
 interface HeadlessAdapter {
   sendText(text: string): Promise<void>;
-  close(): Promise<void>;
+  close(action?: RemoteControlAction): Promise<void>;
   exited: Promise<number | null>;
 }
 
@@ -1173,6 +1196,8 @@ async function runHeadlessSession(opts: HeadlessRunOptions): Promise<number> {
     const filteredArgs = stripClaudeHeadlessArgs(cmdArgs);
     let sessionId: string | null = null;
     let useContinue = false;
+    let activeProc: ReturnType<typeof Bun.spawn> | null = null;
+    let closeAction: RemoteControlAction | null = null;
     const commonArgs: string[] = [];
 
     for (let i = 0; i < filteredArgs.length; i++) {
@@ -1208,6 +1233,8 @@ async function runHeadlessSession(opts: HeadlessRunOptions): Promise<number> {
 
     return {
       async sendText(text: string): Promise<void> {
+        if (closeAction) throw new Error("Session is stopping.");
+
         const invocation: string[] = [executable, ...commonArgs];
         if (sessionId) {
           invocation.push("--resume", sessionId);
@@ -1223,6 +1250,7 @@ async function runHeadlessSession(opts: HeadlessRunOptions): Promise<number> {
           stderr: "pipe",
           env: { ...process.env },
         });
+        activeProc = proc;
 
         const stderrLines: string[] = [];
         await Promise.all([
@@ -1259,12 +1287,17 @@ async function runHeadlessSession(opts: HeadlessRunOptions): Promise<number> {
         ]);
 
         const exitCode = await proc.exited;
+        if (activeProc === proc) activeProc = null;
+        if (closeAction) throw new Error("Session is stopping.");
         if (exitCode !== 0) {
           throw new Error(stderrLines[stderrLines.length - 1] || `Claude agent-mode request failed (code ${exitCode ?? "unknown"})`);
         }
       },
-      async close(): Promise<void> {
-        // One-process-per-turn adapter; nothing persistent to stop.
+      async close(action: RemoteControlAction = "stop"): Promise<void> {
+        closeAction = mergeRemoteControlAction(closeAction, action);
+        if (activeProc) {
+          await terminateSubprocess(activeProc, closeAction);
+        }
       },
       exited: new Promise<number | null>(() => {}),
     };
@@ -1272,6 +1305,7 @@ async function runHeadlessSession(opts: HeadlessRunOptions): Promise<number> {
 
   const createPiAdapter = (): HeadlessAdapter => {
     const filteredArgs = stripPiHeadlessArgs(cmdArgs);
+    let closeAction: RemoteControlAction | null = null;
     const proc = Bun.spawn([executable, ...filteredArgs, "--mode", "rpc"], {
       stdin: "pipe",
       stdout: "pipe",
@@ -1324,6 +1358,7 @@ async function runHeadlessSession(opts: HeadlessRunOptions): Promise<number> {
 
     return {
       async sendText(text: string): Promise<void> {
+        if (closeAction) throw new Error("Session is stopping.");
         if (!proc.stdin) throw new Error("PI stdin is unavailable.");
 
         await new Promise<void>((resolve, reject) => {
@@ -1342,10 +1377,13 @@ async function runHeadlessSession(opts: HeadlessRunOptions): Promise<number> {
           }
         });
       },
-      async close(): Promise<void> {
-        try {
-          proc.kill();
-        } catch {}
+      async close(action: RemoteControlAction = "stop"): Promise<void> {
+        closeAction = mergeRemoteControlAction(closeAction, action);
+        const err = new Error("Session is stopping.");
+        while (pendingTurns.length > 0) {
+          pendingTurns.shift()?.reject(err);
+        }
+        await terminateSubprocess(proc, closeAction);
       },
       exited: proc.exited,
     };
@@ -1355,10 +1393,14 @@ async function runHeadlessSession(opts: HeadlessRunOptions): Promise<number> {
     const parsed = parseCodexResumeArgs(cmdArgs);
     let threadId = parsed.resumeId;
     let useResumeLast = parsed.useResumeLast;
+    let activeProc: ReturnType<typeof Bun.spawn> | null = null;
+    let closeAction: RemoteControlAction | null = null;
     const baseArgs = parsed.baseArgs;
 
     return {
       async sendText(text: string): Promise<void> {
+        if (closeAction) throw new Error("Session is stopping.");
+
         const invocation: string[] = ["exec"];
         if (threadId || useResumeLast) {
           invocation.push("resume");
@@ -1383,6 +1425,7 @@ async function runHeadlessSession(opts: HeadlessRunOptions): Promise<number> {
           stderr: "pipe",
           env: { ...process.env },
         });
+        activeProc = proc;
 
         void readLinesFromStream(proc.stdout, (line) => {
           const msg = parseJsonLine(line);
@@ -1427,12 +1470,17 @@ async function runHeadlessSession(opts: HeadlessRunOptions): Promise<number> {
         });
 
         const exitCode = await proc.exited;
+        if (activeProc === proc) activeProc = null;
+        if (closeAction) throw new Error("Session is stopping.");
         if (exitCode !== 0) {
           throw new Error(`Codex agent-mode request failed (code ${exitCode ?? "unknown"})`);
         }
       },
-      async close(): Promise<void> {
-        // One-process-per-turn driver; no persistent process to stop.
+      async close(action: RemoteControlAction = "stop"): Promise<void> {
+        closeAction = mergeRemoteControlAction(closeAction, action);
+        if (activeProc) {
+          await terminateSubprocess(activeProc, closeAction);
+        }
       },
       exited: new Promise<number | null>(() => {}),
     };
@@ -1526,6 +1574,36 @@ async function runHeadlessSession(opts: HeadlessRunOptions): Promise<number> {
   }, 500);
 
   let stopping = false;
+  let stopAction: RemoteControlAction | null = null;
+  let stopResolved = false;
+  let resolveStopRequest: ((code: number) => void) | null = null;
+  const stopRequestPromise = new Promise<number>((resolve) => {
+    resolveStopRequest = resolve;
+  });
+  const resolveStop = (code: number) => {
+    if (stopResolved) return;
+    stopResolved = true;
+    resolveStopRequest?.(code);
+  };
+  const requestStop = async (incoming: RemoteControlAction, source: "control" | "signal") => {
+    const prev = stopAction;
+    stopAction = mergeRemoteControlAction(stopAction, incoming);
+    const effective = stopAction;
+
+    stopSpinner();
+    if (!stopping) {
+      stopping = true;
+      const label = effective === "kill" ? "Kill requested." : "Stop requested.";
+      const detail = source === "control" ? `${label} Received from control command.` : `${label} Received local signal.`;
+      logHeadless(detail);
+      resolveStop(effective === "kill" ? 137 : 130);
+    } else if (prev !== "kill" && effective === "kill") {
+      logHeadless("Escalating shutdown from stop to kill.");
+      resolveStop(137);
+    }
+
+    await adapter.close(effective).catch(() => {});
+  };
   let userInputCount = 0;
   const idleLogIntervalMs = 60_000;
   let lastActivityAt = Date.now();
@@ -1580,6 +1658,7 @@ async function runHeadlessSession(opts: HeadlessRunOptions): Promise<number> {
         }
         markActivity();
       } catch (e) {
+        if (stopping) break;
         stopSpinner();
         const err = e as Error;
         const label = input.source === "user" ? "user input" : "scheduled input";
@@ -1623,6 +1702,13 @@ async function runHeadlessSession(opts: HeadlessRunOptions): Promise<number> {
           logHeadlessErr("re-registration failed; will retry.");
         }
         reconnecting = false;
+        return;
+      }
+
+      const controlAction = parseRemoteControlAction((res as { controlAction?: unknown }).controlAction);
+      if (controlAction) {
+        markActivity();
+        await requestStop(controlAction, "control");
         return;
       }
 
@@ -1699,8 +1785,14 @@ async function runHeadlessSession(opts: HeadlessRunOptions): Promise<number> {
   }
 
   const signalPromise = new Promise<number>((resolve) => {
-    const onSigInt = () => resolve(130);
-    const onSigTerm = () => resolve(143);
+    const onSigInt = () => {
+      void requestStop("stop", "signal");
+      resolve(130);
+    };
+    const onSigTerm = () => {
+      void requestStop("kill", "signal");
+      resolve(143);
+    };
     process.once("SIGINT", onSigInt);
     process.once("SIGTERM", onSigTerm);
   });
@@ -1708,12 +1800,13 @@ async function runHeadlessSession(opts: HeadlessRunOptions): Promise<number> {
   const exitCode = await Promise.race([
     adapter.exited.then((code) => code ?? 1),
     signalPromise,
+    stopRequestPromise,
   ]);
   stopSpinner();
   logHeadless(`stopping (exit code ${exitCode ?? 1}).`);
 
   stopping = true;
-  await adapter.close().catch(() => {});
+  await adapter.close(stopAction || "stop").catch(() => {});
   if (pollTimer) clearInterval(pollTimer);
   if (groupPollTimer) clearInterval(groupPollTimer);
   if (heartbeatTimer) clearInterval(heartbeatTimer);
@@ -2484,6 +2577,18 @@ export async function runRun(): Promise<void> {
             // Re-registration failed — will retry on next poll
           }
           reconnecting = false;
+          return;
+        }
+
+        const remoteControl = parseRemoteControlAction((res as { controlAction?: unknown }).controlAction);
+        if (remoteControl === "stop") {
+          terminal.write(Buffer.from("\x03"));
+          return;
+        }
+        if (remoteControl === "kill") {
+          try {
+            proc.kill(9);
+          } catch {}
           return;
         }
 

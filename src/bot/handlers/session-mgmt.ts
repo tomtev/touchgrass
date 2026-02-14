@@ -69,8 +69,8 @@ export async function handleSessionMgmt(
         await ctx.channel.send(chatId, `Session ${fmt.code(safeSessionId)} not found or already exited.`);
         return;
       }
-      if (ctx.sessionManager.stopSession(sessionId)) {
-        await ctx.channel.send(chatId, `Sent SIGTERM to session ${fmt.code(safeSessionId)}.`);
+      if (ctx.sessionManager.stopSession(sessionId) || ctx.sessionManager.requestRemoteStop(sessionId)) {
+        await ctx.channel.send(chatId, `Sent stop to session ${fmt.code(safeSessionId)}.`);
       } else {
         await ctx.channel.send(chatId, `Session ${fmt.code(safeSessionId)} not found or already exited.`);
       }
@@ -86,8 +86,8 @@ export async function handleSessionMgmt(
         await ctx.channel.send(chatId, `Session ${fmt.code(safeSessionId)} not found or already exited.`);
         return;
       }
-      if (ctx.sessionManager.killSession(sessionId)) {
-        await ctx.channel.send(chatId, `Sent SIGKILL to session ${fmt.code(safeSessionId)}.`);
+      if (ctx.sessionManager.killSession(sessionId) || ctx.sessionManager.requestRemoteKill(sessionId)) {
+        await ctx.channel.send(chatId, `Sent kill to session ${fmt.code(safeSessionId)}.`);
       } else {
         await ctx.channel.send(chatId, `Session ${fmt.code(safeSessionId)} not found or already exited.`);
       }

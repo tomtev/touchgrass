@@ -4,6 +4,7 @@ import { Session } from "./session";
 import type { SessionInfo, SessionEvents } from "./types";
 import type { TgSettings } from "../config/schema";
 import { logger } from "../daemon/logger";
+import { mergeRemoteControlAction, type RemoteControlAction } from "./remote-control";
 
 export interface RemoteSession {
   id: string;
@@ -12,6 +13,7 @@ export interface RemoteSession {
   chatId: ChannelChatId;
   ownerUserId: ChannelUserId;
   inputQueue: string[];
+  controlAction: RemoteControlAction | null;
   lastSeenAt: number;
 }
 
@@ -203,6 +205,20 @@ export class SessionManager {
     return true;
   }
 
+  requestRemoteStop(id: string): boolean {
+    const remote = this.remotes.get(id);
+    if (!remote) return false;
+    remote.controlAction = mergeRemoteControlAction(remote.controlAction, "stop");
+    return true;
+  }
+
+  requestRemoteKill(id: string): boolean {
+    const remote = this.remotes.get(id);
+    if (!remote) return false;
+    remote.controlAction = mergeRemoteControlAction(remote.controlAction, "kill");
+    return true;
+  }
+
   killAll(): void {
     for (const session of this.sessions.values()) {
       session.destroy();
@@ -226,7 +242,16 @@ export class SessionManager {
       if (existing) return existing;
     }
     const id = existingId || "r-" + randomBytes(3).toString("hex");
-    const remote: RemoteSession = { id, command, cwd, chatId, ownerUserId, inputQueue: [], lastSeenAt: Date.now() };
+    const remote: RemoteSession = {
+      id,
+      command,
+      cwd,
+      chatId,
+      ownerUserId,
+      inputQueue: [],
+      controlAction: null,
+      lastSeenAt: Date.now(),
+    };
     this.remotes.set(id, remote);
     // Only auto-attach if no existing attachment (don't overwrite)
     if (!this.attachments.has(chatId)) {
@@ -245,6 +270,15 @@ export class SessionManager {
     remote.lastSeenAt = Date.now();
     const lines = remote.inputQueue.splice(0);
     return lines;
+  }
+
+  drainRemoteControl(id: string): RemoteControlAction | null {
+    const remote = this.remotes.get(id);
+    if (!remote) return null;
+    remote.lastSeenAt = Date.now();
+    const action = remote.controlAction;
+    remote.controlAction = null;
+    return action;
   }
 
   removeRemote(id: string): void {

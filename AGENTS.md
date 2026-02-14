@@ -16,7 +16,7 @@ bun run build         # Compile to standalone binary
 bun run typecheck     # tsc --noEmit
 ```
 
-CLI commands: `tg init`, `tg pair`, `tg claude [args]`, `tg codex [args]`, `tg pi [args]`, `tg agents`, `tg ls`, `tg channels`, `tg doctor`, `tg config`, `tg logs`
+CLI commands: `tg init`, `tg pair`, `tg claude [args]`, `tg codex [args]`, `tg pi [args]`, `tg agents`, `tg ls`, `tg channels`, `tg send`, `tg peek`, `tg stop`, `tg kill`, `tg doctor`, `tg config`, `tg logs`
 
 ## Architecture Overview
 
@@ -222,10 +222,11 @@ Old format (`botToken` at top level, `pairedUsers[].telegramId: number`) auto-mi
 | POST | `/shutdown` | Graceful shutdown |
 | POST | `/generate-code` | Generate pairing code |
 | GET | `/channels` | List all available channels with busy status |
+| POST | `/session/:id/stop` | Stop a session (local SIGTERM or remote stop request) |
+| POST | `/session/:id/kill` | Kill a session (local SIGKILL or remote kill request) |
 | POST | `/remote/register` | Register remote session (body: command, chatId, cwd, name) |
 | GET | `/remote/:id/input` | Drain remote input queue |
 | POST | `/remote/:id/exit` | Mark remote session done (body: exitCode) |
-| POST | `/remote/:id/track-message` | Track message ref for reply routing (body: msgRef) |
 | GET | `/remote/:id/subscribed-groups` | Get group chatIds subscribed to session output |
 
 ## Releasing

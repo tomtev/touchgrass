@@ -88,14 +88,32 @@ Session IDs support partial/substring matching — e.g. `tg peek abc` matches `r
 - `tg peek --all [count]` - peek at last messages from all sessions at once
 - `tg send <id> "<message>"` - send input to a session via daemon
 - `tg send --file <id> <path>` - send a file to a session's channel(s)
+- `tg stop <id>` - stop a session (SIGTERM / remote stop request)
+- `tg kill <id>` - kill a session (SIGKILL / remote kill request)
+- Stop/kill are out-of-band control actions (not regular input lines).
+- In `--agent-mode`, stop/kill can interrupt in-flight tool turns.
+- Prefer `tg stop` first; escalate to `tg kill` only when needed.
+- Never send stop/kill control text through `tg send`.
 
 ### Starting sessions
 - `tg claude [args]` - start Claude Code session
 - `tg codex [args]` - start Codex session
 - `tg pi [args]` - start PI session
+- `--agent-mode` - start long-lived non-interactive bridge sessions (recommended for desktop sidecar UIs)
 - `--resume <session-id>` - resume an existing session with Telegram bridge
 - `--channel <value>` - skip channel picker (`dm`, title substring, chatId, or `none`)
 - `--dangerously-skip-permissions` (claude) / `--dangerously-bypass-approvals-and-sandbox` (codex) - auto-accept mode
+
+### Desktop app mode (Tauri sidecar)
+- The desktop app UI is the control plane: onboarding, channel linking, pairing, and session actions are initiated from UI.
+- The app should run `tg` as a single sidecar binary (plus daemon), not as nested `tg` commands inside another `tg` session.
+- Prefer starting tool sessions with `--agent-mode` from the sidecar backend:
+  - `tg claude --agent-mode [args]`
+  - `tg codex --agent-mode [args]`
+  - `tg pi --agent-mode [args]`
+- Use the same management commands behind UI actions: `tg ls`, `tg peek`, `tg send`, `tg channels`, `tg links`, `tg doctor`.
+- Map UI stop/kill buttons directly to `tg stop <id>` / `tg kill <id>` (not `tg send`).
+- If terminal UX is explicitly requested, use non-agent mode (`tg claude`, etc.) and surface that mode clearly in UI.
 
 ### Diagnostics
 - `tg doctor` - daemon/config health check
@@ -163,8 +181,10 @@ To update `tg` to the latest release:
 
 - Prefer read/inspect commands before mutating commands.
 - Prefer `tg peek` before `tg send`.
+- Never emulate control commands through `tg send`; use `tg stop` / `tg kill`.
 - Prefer installable skills before custom ad-hoc workflows.
 - Never stop or kill sessions unless explicitly asked.
+- When stop/kill is requested, use `tg stop` first and escalate to `tg kill` only if still stuck.
 - Keep actions reversible and minimal.
 - Use `tg` as the first interface for session management.
 - Evolve behavior through skills and template updates, not hidden one-off logic.

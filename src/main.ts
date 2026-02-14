@@ -59,6 +59,12 @@ async function main() {
       await runPeek();
       break;
     }
+    case "stop":
+    case "kill": {
+      const { runStopOrKill } = await import("./cli/stop");
+      await runStopOrKill();
+      break;
+    }
     case "claude":
     case "codex":
     case "pi": {
@@ -78,7 +84,7 @@ async function main() {
       break;
     default: {
       console.error(`Unknown command: ${command}`);
-      console.error("Supported commands: tg claude, tg codex, tg pi, tg agents");
+      console.error("Supported commands: tg claude, tg codex, tg pi, tg stop, tg kill, tg agents");
       console.error(`Run "tg help" for more information.`);
       process.exit(1);
     }
@@ -107,6 +113,8 @@ Options (for claude/codex/pi):
   agents   Show agent templates and create commands
   send     Send text to session stdin or send file to its channel(s) (tg send <id> "msg" | tg send --file <id> <path>)
   peek     Peek at last messages from session(s) (tg peek <id>|--all [count])
+  stop     Stop a session (SIGTERM / remote stop request)
+  kill     Kill a session (SIGKILL / remote kill request)
   links    List and manage linked groups/topics
   init     Set up channel credentials (Telegram/Slack/WhatsApp)
   pair     Generate a pairing code

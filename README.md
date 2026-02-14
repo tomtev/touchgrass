@@ -222,6 +222,8 @@ Two processes cooperate:
 | `tg send --file <id> <path>` | Send a file to a session's channel(s) |
 | `tg peek <id> [count]` | Peek at recent messages from a session (default: 10) |
 | `tg peek --all [count]` | Peek at recent messages from all sessions |
+| `tg stop <id>` | Stop a session (SIGTERM / remote stop request) |
+| `tg kill <id>` | Kill a session (SIGKILL / remote kill request) |
 
 ## Chat commands
 

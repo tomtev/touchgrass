@@ -558,6 +558,9 @@ export async function startDaemon(): Promise<void> {
     drainRemoteInput(sessionId: string): string[] {
       return sessionManager.drainRemoteInput(sessionId);
     },
+    drainRemoteControl(sessionId: string) {
+      return sessionManager.drainRemoteControl(sessionId);
+    },
     pushRemoteInput(sessionId: string, text: string): boolean {
       const remote = sessionManager.getRemote(sessionId);
       if (!remote) return false;
@@ -618,6 +621,24 @@ export async function startDaemon(): Promise<void> {
         await primaryChannel.sendDocument(cid, filePath, finalCaption);
       }
       return { ok: true };
+    },
+    stopSessionById(sessionId: string): { ok: boolean; mode?: "local" | "remote"; error?: string } {
+      if (sessionManager.stopSession(sessionId)) {
+        return { ok: true, mode: "local" };
+      }
+      if (sessionManager.requestRemoteStop(sessionId)) {
+        return { ok: true, mode: "remote" };
+      }
+      return { ok: false, error: "Session not found or already exited" };
+    },
+    killSessionById(sessionId: string): { ok: boolean; mode?: "local" | "remote"; error?: string } {
+      if (sessionManager.killSession(sessionId)) {
+        return { ok: true, mode: "local" };
+      }
+      if (sessionManager.requestRemoteKill(sessionId)) {
+        return { ok: true, mode: "remote" };
+      }
+      return { ok: false, error: "Session not found or already exited" };
     },
     handleToolCall(sessionId: string, name: string, input: Record<string, unknown>): void {
       const remote = sessionManager.getRemote(sessionId);

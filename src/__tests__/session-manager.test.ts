@@ -17,6 +17,7 @@ describe("registerRemote", () => {
     expect(remote.chatId).toBe("telegram:100");
     expect(remote.ownerUserId).toBe("telegram:100");
     expect(remote.inputQueue).toEqual([]);
+    expect(remote.controlAction).toBeNull();
   });
 
   it("auto-attaches to chatId when no existing attachment", () => {
@@ -169,6 +170,24 @@ describe("drainRemoteInput", () => {
   it("returns empty array for unknown session", () => {
     const mgr = createManager();
     expect(mgr.drainRemoteInput("r-unknown")).toEqual([]);
+  });
+
+  it("keeps remote control requests separate from input queue", () => {
+    const mgr = createManager();
+    const remote = mgr.registerRemote("claude", "telegram:100" as ChannelChatId, "telegram:100" as ChannelUserId);
+    remote.inputQueue.push("hello");
+    expect(mgr.requestRemoteStop(remote.id)).toBe(true);
+    expect(mgr.drainRemoteInput(remote.id)).toEqual(["hello"]);
+    expect(mgr.drainRemoteControl(remote.id)).toBe("stop");
+    expect(mgr.drainRemoteControl(remote.id)).toBeNull();
+  });
+
+  it("remote kill preempts prior remote stop request", () => {
+    const mgr = createManager();
+    const remote = mgr.registerRemote("claude", "telegram:100" as ChannelChatId, "telegram:100" as ChannelUserId);
+    expect(mgr.requestRemoteStop(remote.id)).toBe(true);
+    expect(mgr.requestRemoteKill(remote.id)).toBe(true);
+    expect(mgr.drainRemoteControl(remote.id)).toBe("kill");
   });
 });
 
