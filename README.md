@@ -4,8 +4,8 @@ A framework for building and running personal agents on top of Claude Code, Code
 
 Run mode overview:
 - ✅ **Simple to run** — prefix supported CLIs with `tg`, like `tg claude`
-- ✅ **Terminal mode** — sync your `claude code` terminals and more with Telegram, Slack and more.
-- ✅ **Agent mode (`--agent-mode`)** — run Claude, Codex etc in JSON mode for running agent tasks and cron jobs.
+- ✅ **Terminal mode** — Manage `claude code` terminals on the go with Telegram, Slack and more.
+- ✅ **Agent mode (`--agent-mode`)** — Run Claude, Codex etc in JSON mode for agent tasks and cron jobs with Skills.
 
 ### Quick install
 
