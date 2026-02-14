@@ -3,6 +3,28 @@ import { daemonRequest } from "./client";
 import { statSync, readdirSync } from "fs";
 import { join, dirname } from "path";
 
+function hasActiveSessions(status: Record<string, unknown>): boolean {
+  const sessions = status.sessions;
+  if (!Array.isArray(sessions)) return false;
+  return sessions.some((session) => {
+    if (!session || typeof session !== "object") return false;
+    const state = (session as { state?: unknown }).state;
+    return state === "running" || state === "remote";
+  });
+}
+
+function shouldRestartDaemonForVersion(
+  daemonStartedAt: number | undefined,
+  scriptMtime: number,
+  status: Record<string, unknown> | null
+): boolean {
+  if (!daemonStartedAt || !scriptMtime || scriptMtime <= daemonStartedAt) return false;
+  // Preserve live sessions. If status is unavailable, default to no restart.
+  if (!status) return false;
+  if (hasActiveSessions(status)) return false;
+  return true;
+}
+
 // Get the newest mtime across all source files as a "code version"
 function getCodeMtime(): number {
   try {
@@ -87,9 +109,18 @@ export async function ensureDaemon(): Promise<void> {
 
       // If code is newer than daemon, restart it
       if (daemonStartedAt && scriptMtime && scriptMtime > daemonStartedAt) {
-        await shutdownDaemon();
-        await spawnDaemon();
-        return;
+        let status: Record<string, unknown> | null = null;
+        try {
+          status = await daemonRequest("/status");
+        } catch {
+          // Keep current daemon when status cannot be determined.
+          return;
+        }
+        if (shouldRestartDaemonForVersion(daemonStartedAt, scriptMtime, status)) {
+          await shutdownDaemon();
+          await spawnDaemon();
+          return;
+        }
       }
 
       // Daemon is current
@@ -103,3 +134,9 @@ export async function ensureDaemon(): Promise<void> {
 
   await spawnDaemon();
 }
+
+// Test-only helpers
+export const __ensureDaemonTestUtils = {
+  hasActiveSessions,
+  shouldRestartDaemonForVersion,
+};

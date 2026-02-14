@@ -84,33 +84,22 @@ mkdir -p "$INSTALL_DIR"
 mv "$TMPFILE" "${INSTALL_DIR}/${BINARY_NAME}"
 chmod +x "${INSTALL_DIR}/${BINARY_NAME}"
 
-# Restart daemon if running so next command uses the new binary
+# Probe daemon compatibility with the new binary without forcing a restart.
 if [ -f "$HOME/.touchgrass/daemon.pid" ]; then
-  DAEMON_PID="$(cat "$HOME/.touchgrass/daemon.pid" 2>/dev/null || true)"
-  if [ -n "${DAEMON_PID}" ] && kill -0 "${DAEMON_PID}" 2>/dev/null; then
-    kill "${DAEMON_PID}" 2>/dev/null || true
-    info "Stopped old daemon (${DAEMON_PID})"
-  else
-    warn "Ignoring stale daemon PID file"
-  fi
-  rm -f "$HOME/.touchgrass/daemon.pid"
-  # Start the new daemon immediately so active CLI sessions reconnect.
+  BEFORE_PID="$(cat "$HOME/.touchgrass/daemon.pid" 2>/dev/null || true)"
   if "${INSTALL_DIR}/${BINARY_NAME}" ls &>/dev/null; then
-    RESTARTED=false
-    for i in {1..20}; do
-      NEW_DAEMON_PID="$(cat "$HOME/.touchgrass/daemon.pid" 2>/dev/null || true)"
-      if [ -n "${NEW_DAEMON_PID}" ] && kill -0 "${NEW_DAEMON_PID}" 2>/dev/null; then
-        info "Daemon restarted (${NEW_DAEMON_PID})"
-        RESTARTED=true
-        break
+    AFTER_PID="$(cat "$HOME/.touchgrass/daemon.pid" 2>/dev/null || true)"
+    if [ -n "${AFTER_PID}" ] && kill -0 "${AFTER_PID}" 2>/dev/null; then
+      if [ -n "${BEFORE_PID}" ] && [ "${BEFORE_PID}" = "${AFTER_PID}" ]; then
+        info "Daemon kept alive (${AFTER_PID})"
+      else
+        info "Daemon refreshed (${AFTER_PID})"
       fi
-      sleep 0.25
-    done
-    if [ "$RESTARTED" = false ]; then
-      warn "Daemon restart could not be verified; active sessions will auto-recover on next poll."
+    else
+      warn "Daemon check completed but PID could not be verified."
     fi
   else
-    warn "Daemon restart command failed; active sessions will auto-recover on next poll."
+    warn "Daemon compatibility check failed; existing sessions may need manual reconnect."
   fi
 fi
 

@@ -14,7 +14,7 @@ function isPidAlive(pid: number): boolean {
 }
 
 describe("install.sh daemon restart", () => {
-  it("verifies daemon restart during upgrade", async () => {
+  it("keeps an active daemon alive during upgrade", async () => {
     const root = mkdtempSync(join(tmpdir(), "tg-install-test-"));
     const homeDir = join(root, "home");
     const installDir = join(root, "bin");
@@ -64,9 +64,7 @@ cat > "$out" <<'EOF'
 #!/bin/sh
 set -eu
 if [ "\${1:-}" = "ls" ]; then
-  mkdir -p "$HOME/.touchgrass"
-  sleep 20 &
-  echo "$!" > "$HOME/.touchgrass/daemon.pid"
+  # Compatibility check only; do not restart daemon in this mock.
   exit 0
 fi
 exit 0
@@ -76,7 +74,6 @@ printf "200"
       { mode: 0o755 }
     );
 
-    let newDaemonPid = 0;
     try {
       const proc = Bun.spawn(["bash", "install.sh"], {
         cwd: process.cwd(),
@@ -98,27 +95,23 @@ printf "200"
 
       expect(exitCode).toBe(0);
       expect(stderr).toBe("");
-      expect(stdout).toContain("Daemon restarted (");
-      expect(stdout).not.toContain("Daemon restart requested");
-      expect(isPidAlive(oldDaemonPid)).toBe(false);
+      expect(stdout).toContain(`Daemon kept alive (${oldDaemonPid})`);
+      expect(stdout).not.toContain("Stopped old daemon");
+      expect(stdout).not.toContain("Daemon restarted");
+      expect(isPidAlive(oldDaemonPid)).toBe(true);
 
       const daemonPidPath = join(homeDir, ".touchgrass", "daemon.pid");
-      newDaemonPid = parseInt(readFileSync(daemonPidPath, "utf-8").trim(), 10);
-      expect(Number.isFinite(newDaemonPid)).toBe(true);
-      expect(isPidAlive(newDaemonPid)).toBe(true);
+      const daemonPid = parseInt(readFileSync(daemonPidPath, "utf-8").trim(), 10);
+      expect(Number.isFinite(daemonPid)).toBe(true);
+      expect(daemonPid).toBe(oldDaemonPid);
+      expect(isPidAlive(daemonPid)).toBe(true);
     } finally {
       if (isPidAlive(oldDaemonPid)) {
         try {
           process.kill(oldDaemonPid, "SIGTERM");
         } catch {}
       }
-      if (isPidAlive(newDaemonPid)) {
-        try {
-          process.kill(newDaemonPid, "SIGTERM");
-        } catch {}
-      }
       rmSync(root, { recursive: true, force: true });
     }
   });
 });
-
