@@ -85,6 +85,9 @@ function parseDurationMinutes(value: string | undefined): number | null {
   const plain = v.match(/^(\d+)$/);
   if (plain) return parseInt(plain[1], 10);
 
+  const secs = v.match(/^(\d+)\s*(s|sec|secs|second|seconds)$/);
+  if (secs) return parseInt(secs[1], 10) / 60;
+
   const mins = v.match(/^(\d+)\s*(m|min|mins|minute|minutes)$/);
   if (mins) return parseInt(mins[1], 10);
 
