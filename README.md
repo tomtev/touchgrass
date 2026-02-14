@@ -3,10 +3,9 @@
 A framework for building and running personal agents on top of Claude Code, Codex, and PI, and for managing agent sessions and coding terminals on the go via Telegram, Slack, WhatsApp, and other messaging platforms.
 
 Run mode overview:
-- ✅ **Terminal mode** — normal local CLI interface + channel bridge
-- ✅ **Agent mode (`--agent-mode`)** — long-lived JSON bridge for autonomous flows (no local terminal interface)
-- ✅ **Heartbeat (agent mode)** — add an `<agent-heartbeat>` block in `AGENTS.md` for scheduled workflows and cron-style tasks
 - ✅ **Simple to run** — prefix supported CLIs with `tg`, like `tg claude`
+- ✅ **Terminal mode** — sync your `claude code` terminals and more with Telegram, Slack and more.
+- ✅ **Agent mode (`--agent-mode`)** — run Claude, Codex etc in JSON mode for running agent tasks and cron jobs.
 
 ### Quick install
 
