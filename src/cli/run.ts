@@ -5,6 +5,7 @@ import type { Channel, ChannelChatId } from "../channel/types";
 import { createInterface } from "readline/promises";
 import { daemonRequest } from "./client";
 import { ensureDaemon } from "./ensure-daemon";
+import { createRemoteRecoveryController } from "./remote-recovery";
 import { stripAnsiReadable } from "../utils/ansi";
 import { paths, ensureDirs } from "../config/paths";
 import { watch, readdirSync, statSync, readFileSync, type FSWatcher } from "fs";
@@ -1671,65 +1672,28 @@ async function runHeadlessSession(opts: HeadlessRunOptions): Promise<number> {
 
   let pollTimer: ReturnType<typeof setInterval> | null = null;
   let processingInput = false;
-  let reconnecting = false;
-  let recoveringDaemon = false;
-  let lastRecoveryAttemptAt = 0;
-  let daemonUnavailableLogged = false;
-  const DAEMON_RECOVERY_MIN_INTERVAL_MS = 1500;
-  const tryRecoverDaemon = async (reason: "unknown" | "unreachable") => {
-    if (stopping || reconnecting || recoveringDaemon) return false;
-    const now = Date.now();
-    if (reason === "unreachable" && now - lastRecoveryAttemptAt < DAEMON_RECOVERY_MIN_INTERVAL_MS) {
-      return false;
-    }
-    lastRecoveryAttemptAt = now;
-    reconnecting = true;
-    recoveringDaemon = true;
-    if (reason === "unknown") {
-      logHeadless("Lost daemon registration. Attempting re-register...");
-    } else if (!daemonUnavailableLogged) {
-      daemonUnavailableLogged = true;
-      logHeadlessErr("Daemon connection lost. Attempting recovery...");
-    }
-    try {
-      await ensureDaemon();
-      const regRes = await daemonRequest("/remote/register", "POST", {
-        command: fullCommand,
-        chatId,
-        ownerUserId,
-        cwd: process.cwd(),
-        sessionId: remoteId,
-        subscribedGroups: Array.from(subscribedGroups),
-      });
-      if (regRes.ok && boundChat) {
-        await daemonRequest("/remote/bind-chat", "POST", {
-          sessionId: remoteId,
-          chatId: boundChat,
-          ownerUserId,
-        });
-      }
-      daemonUnavailableLogged = false;
-      logHeadless("Reconnected to daemon.");
-      return true;
-    } catch {
-      if (reason === "unknown") {
-        logHeadlessErr("re-registration failed; will retry.");
-      }
-      return false;
-    } finally {
-      reconnecting = false;
-      recoveringDaemon = false;
-    }
-  };
+  const recovery = createRemoteRecoveryController({
+    ensureDaemon,
+    daemonRequest,
+    log: logHeadless,
+    logErr: logHeadlessErr,
+  });
   pollTimer = setInterval(async () => {
-    if (stopping || processingInput || reconnecting || recoveringDaemon) return;
+    if (stopping || processingInput || recovery.isRecovering()) return;
     try {
       const res = await daemonRequest(`/remote/${remoteId}/input`);
       if (res.unknown) {
-        await tryRecoverDaemon("unknown");
+        await recovery.recover("unknown", {
+          remoteId,
+          fullCommand,
+          chatId,
+          ownerUserId,
+          cwd: process.cwd(),
+          subscribedGroups: Array.from(subscribedGroups),
+          boundChat,
+        });
         return;
       }
-      daemonUnavailableLogged = false;
 
       const controlAction = parseRemoteControlAction((res as { controlAction?: unknown }).controlAction);
       if (controlAction) {
@@ -1757,7 +1721,15 @@ async function runHeadlessSession(opts: HeadlessRunOptions): Promise<number> {
       }
     } catch {
       processingInput = false;
-      await tryRecoverDaemon("unreachable");
+      await recovery.recover("unreachable", {
+        remoteId,
+        fullCommand,
+        chatId,
+        ownerUserId,
+        cwd: process.cwd(),
+        subscribedGroups: Array.from(subscribedGroups),
+        boundChat,
+      });
     }
   }, 200);
 
@@ -2341,7 +2313,7 @@ export async function runRun(): Promise<void> {
   let nullBoundPolls = 0;
   let groupPollTimer: ReturnType<typeof setInterval> | null = null;
   const getPrimaryTargetChat = (): ChannelChatId | null => remoteId ? boundChat : chatId;
-  if (remoteId) {
+  if (remoteId && chatId && ownerUserId) {
     const pollRemoteId = remoteId;
     const pollBinding = async () => {
       try {
@@ -2570,52 +2542,30 @@ export async function runRun(): Promise<void> {
   // Poll daemon for remote input if registered
   let pollTimer: ReturnType<typeof setInterval> | null = null;
   let processingInput = false;
-  let reconnecting = false;
-  let recoveringDaemon = false;
-  let lastRecoveryAttemptAt = 0;
-  const DAEMON_RECOVERY_MIN_INTERVAL_MS = 1500;
-  if (remoteId) {
-    const tryRecoverDaemon = async () => {
-      if (reconnecting || recoveringDaemon) return false;
-      const now = Date.now();
-      if (now - lastRecoveryAttemptAt < DAEMON_RECOVERY_MIN_INTERVAL_MS) return false;
-      lastRecoveryAttemptAt = now;
-      reconnecting = true;
-      recoveringDaemon = true;
-      try {
-        await ensureDaemon();
-        const regRes = await daemonRequest("/remote/register", "POST", {
-          command: fullCommand,
-          chatId,
-          ownerUserId,
-          cwd: process.cwd(),
-          sessionId: remoteId,
-          subscribedGroups: Array.from(subscribedGroups),
-        });
-        if (regRes.ok && boundChat) {
-          await daemonRequest("/remote/bind-chat", "POST", {
-            sessionId: remoteId,
-            chatId: boundChat,
-            ownerUserId,
-          });
-        }
-        return true;
-      } catch {
-        return false;
-      } finally {
-        reconnecting = false;
-        recoveringDaemon = false;
-      }
-    };
+  if (remoteId && chatId && ownerUserId) {
+    const recovery = createRemoteRecoveryController({
+      ensureDaemon,
+      daemonRequest,
+      log: () => {},
+      logErr: () => {},
+    });
 
     pollTimer = setInterval(async () => {
-      if (processingInput || reconnecting || recoveringDaemon) return;
+      if (processingInput || recovery.isRecovering()) return;
       try {
         const res = await daemonRequest(`/remote/${remoteId}/input`);
 
         // Daemon restarted and lost our session — re-register with the same ID
         if (res.unknown) {
-          await tryRecoverDaemon();
+          await recovery.recover("unknown", {
+            remoteId,
+            fullCommand,
+            chatId,
+            ownerUserId,
+            cwd: process.cwd(),
+            subscribedGroups: Array.from(subscribedGroups),
+            boundChat,
+          });
           return;
         }
 
@@ -2696,7 +2646,15 @@ export async function runRun(): Promise<void> {
       } catch {
         // Don't kill polling on transient errors — just retry next interval
         processingInput = false;
-        await tryRecoverDaemon();
+        await recovery.recover("unreachable", {
+          remoteId,
+          fullCommand,
+          chatId,
+          ownerUserId,
+          cwd: process.cwd(),
+          subscribedGroups: Array.from(subscribedGroups),
+          boundChat,
+        });
       }
     }, 200);
   }
