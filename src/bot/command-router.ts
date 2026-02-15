@@ -24,7 +24,7 @@ export interface RouterContext {
   listBackgroundJobs?: (
     userId: ChannelUserId,
     chatId: ChannelChatId
-  ) => BackgroundJobSessionSummary[];
+  ) => BackgroundJobSessionSummary[] | Promise<BackgroundJobSessionSummary[]>;
 }
 
 export async function routeMessage(

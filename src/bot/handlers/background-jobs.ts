@@ -69,7 +69,7 @@ export function resolveBackgroundJobs(
   ctx: RouterContext,
   userId: ChannelUserId,
   chatId: ChannelChatId
-): BackgroundJobSessionSummary[] {
+) : BackgroundJobSessionSummary[] | Promise<BackgroundJobSessionSummary[]> {
   if (!ctx.listBackgroundJobs) return [];
   return ctx.listBackgroundJobs(userId, chatId);
 }
@@ -78,7 +78,7 @@ export async function handleBackgroundJobsCommand(
   msg: InboundMessage,
   ctx: RouterContext
 ): Promise<void> {
-  const sessions = resolveBackgroundJobs(ctx, msg.userId, msg.chatId);
+  const sessions = await Promise.resolve(resolveBackgroundJobs(ctx, msg.userId, msg.chatId));
   if (sessions.length === 0) {
     await ctx.channel.send(msg.chatId, emptyBackgroundJobsMessage(ctx.channel.fmt));
     return;

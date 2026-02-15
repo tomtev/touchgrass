@@ -366,6 +366,120 @@ export async function startDaemon(): Promise<void> {
     return stopped;
   };
 
+  const readRunningClaudeTasks = async (
+    jsonlFile: string
+  ): Promise<Map<string, BackgroundJobState>> => {
+    const running = new Map<string, BackgroundJobState>();
+    if (!jsonlFile) return running;
+    try {
+      const tail = await readTail(jsonlFile, 500_000);
+      const lines = tail.split("\n");
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const msg = JSON.parse(line) as Record<string, unknown>;
+          const ts = typeof msg.timestamp === "string"
+            ? Date.parse(msg.timestamp)
+            : Date.now();
+          const updatedAt = Number.isFinite(ts) ? ts : Date.now();
+
+          if (msg.type === "user") {
+            const rootToolUseResult = msg.toolUseResult as Record<string, unknown> | undefined;
+            const rootBackgroundTaskId = typeof rootToolUseResult?.backgroundTaskId === "string"
+              ? rootToolUseResult.backgroundTaskId
+              : undefined;
+            const m = msg.message as Record<string, unknown> | undefined;
+            if (!m?.content || !Array.isArray(m.content)) continue;
+            for (const block of m.content as Array<Record<string, unknown>>) {
+              if (block.type !== "tool_result") continue;
+              let text = "";
+              const c = block.content;
+              if (typeof c === "string") text = c;
+              else if (Array.isArray(c)) {
+                text = (c as Array<{ type: string; text?: string }>)
+                  .filter((seg) => seg.type === "text")
+                  .map((seg) => seg.text ?? "")
+                  .join("\n");
+              }
+              const trimmedText = text.trim();
+              if (!trimmedText) continue;
+              const startedIdFromText = trimmedText.match(/Command running in background with ID:\s*([A-Za-z0-9_-]+)/i)?.[1];
+              const taskId = startedIdFromText || rootBackgroundTaskId;
+              if (!taskId) continue;
+              const outputFile = trimmedText.match(/Output is being written to:\s*([^\s]+)/i)?.[1];
+              const urls = extractUrls(trimmedText);
+              const existing = running.get(taskId);
+              running.set(taskId, {
+                taskId,
+                status: "running",
+                command: existing?.command,
+                outputFile: outputFile || existing?.outputFile,
+                summary: existing?.summary,
+                urls: mergeUrls(existing?.urls, urls.length > 0 ? urls : undefined),
+                updatedAt: Math.max(updatedAt, existing?.updatedAt ?? 0),
+              });
+            }
+            continue;
+          }
+
+          if (msg.type !== "queue-operation" || msg.operation !== "enqueue") continue;
+          const content = typeof msg.content === "string" ? msg.content : "";
+          if (!content.includes("<task-notification>")) continue;
+          const taskId = extractTaskNotificationTag(content, "task-id");
+          const statusRaw = (extractTaskNotificationTag(content, "status") || "").toLowerCase();
+          if (!taskId || !statusRaw) continue;
+          if (statusRaw === "completed" || statusRaw === "failed" || statusRaw === "killed" || statusRaw === "stopped") {
+            running.delete(taskId);
+            continue;
+          }
+          if (statusRaw === "running" || statusRaw === "started" || statusRaw === "start") {
+            const summary = extractTaskNotificationTag(content, "summary");
+            const outputFile = extractTaskNotificationTag(content, "output-file");
+            const urls = extractUrls(content);
+            const existing = running.get(taskId);
+            running.set(taskId, {
+              taskId,
+              status: "running",
+              command: existing?.command,
+              outputFile: outputFile || existing?.outputFile,
+              summary: summary || existing?.summary,
+              urls: mergeUrls(existing?.urls, urls.length > 0 ? urls : undefined),
+              updatedAt: Math.max(updatedAt, existing?.updatedAt ?? 0),
+            });
+          }
+        } catch {
+          // Ignore malformed lines in tail snapshots.
+        }
+      }
+    } catch {
+      // JSONL may not exist yet.
+    }
+    return running;
+  };
+
+  const hydrateBackgroundJobsFromClaudeLogs = async (sessionIds: string[]): Promise<void> => {
+    for (const sessionId of sessionIds) {
+      const remote = sessionManager.getRemote(sessionId);
+      if (!remote) continue;
+      if (remote.command.split(" ")[0] !== "claude") continue;
+      const manifest = await readSessionManifest(sessionId);
+      if (!manifest?.jsonlFile) continue;
+      const runningFromLog = await readRunningClaudeTasks(manifest.jsonlFile);
+      if (runningFromLog.size === 0) continue;
+      const existing = backgroundJobsBySession.get(sessionId) || new Map<string, BackgroundJobState>();
+      let changed = false;
+      for (const [taskId, snapshot] of runningFromLog) {
+        const prior = existing.get(taskId);
+        if (prior) continue;
+        existing.set(taskId, snapshot);
+        changed = true;
+      }
+      if (changed) {
+        backgroundJobsBySession.set(sessionId, existing);
+      }
+    }
+  };
+
   const getBackgroundTargets = (sessionId: string): Set<ChannelChatId> => {
     const targets = new Set<ChannelChatId>();
     const remote = sessionManager.getRemote(sessionId);
@@ -383,34 +497,42 @@ export async function startDaemon(): Promise<void> {
     return targets;
   };
 
-  const listBackgroundJobsForUserChat = (
+  const listBackgroundJobsForUserChat = async (
     userId: ChannelUserId,
     chatId: ChannelChatId
-  ): BackgroundJobSessionSummary[] => {
+  ): Promise<BackgroundJobSessionSummary[]> => {
     const attachedId = sessionManager.getAttachedRemote(chatId)?.id;
-    const candidates = new Set<string>(
-      sessionManager.listRemotesForUser(userId).map((remote) => remote.id)
-    );
+    const candidateIds = sessionManager.listRemotesForUser(userId).map((remote) => remote.id);
+    const candidates = new Set<string>(candidateIds);
 
-    const rows: BackgroundJobSessionSummary[] = [];
-    for (const sessionId of candidates) {
-      const remote = sessionManager.getRemote(sessionId);
-      if (!remote) continue;
-      const jobs = backgroundJobsBySession.get(sessionId);
-      if (!jobs || jobs.size === 0) continue;
-      rows.push({
-        sessionId,
-        command: remote.command,
-        cwd: remote.cwd,
-        jobs: Array.from(jobs.values())
-          .sort((a, b) => b.updatedAt - a.updatedAt)
-          .map((job) => ({
-            taskId: job.taskId,
-            command: job.command,
-            urls: job.urls,
-            updatedAt: job.updatedAt,
-          })),
-      });
+    const buildRows = (): BackgroundJobSessionSummary[] => {
+      const rows: BackgroundJobSessionSummary[] = [];
+      for (const sessionId of candidates) {
+        const remote = sessionManager.getRemote(sessionId);
+        if (!remote) continue;
+        const jobs = backgroundJobsBySession.get(sessionId);
+        if (!jobs || jobs.size === 0) continue;
+        rows.push({
+          sessionId,
+          command: remote.command,
+          cwd: remote.cwd,
+          jobs: Array.from(jobs.values())
+            .sort((a, b) => b.updatedAt - a.updatedAt)
+            .map((job) => ({
+              taskId: job.taskId,
+              command: job.command,
+              urls: job.urls,
+              updatedAt: job.updatedAt,
+            })),
+        });
+      }
+      return rows;
+    };
+
+    let rows = buildRows();
+    if (rows.length === 0 && candidateIds.length > 0) {
+      await hydrateBackgroundJobsFromClaudeLogs(candidateIds);
+      rows = buildRows();
     }
 
     rows.sort((a, b) => {
