@@ -53,4 +53,16 @@ describe("file picker page builder", () => {
     expect(page1.optionLabels).toContain("✅ @h.ts");
     expect(page1.title).toContain("selected 1");
   });
+
+  it("renders folders with trailing slash and folder icon", () => {
+    const paths = [
+      "src/",
+      "src/main.ts",
+      "README.md",
+    ];
+    const page = __filePickerTestUtils.buildFilePickerPage(paths, "src", 0, ["@src/"], 5);
+    expect(page.optionLabels).toContain("✅ 📁 @src/");
+    expect(page.optionLabels).toContain("☑️ @src/main.ts");
+    expect(page.title).toContain("Pick paths");
+  });
 });

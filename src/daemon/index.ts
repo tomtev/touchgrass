@@ -223,8 +223,9 @@ export async function startDaemon(): Promise<void> {
       mention: `@${path}`,
     }));
     const optionLabels: string[] = visible.map((path) => {
+      const isDir = path.endsWith("/");
       const mention = `@${path}`;
-      return `${selected.has(mention) ? "✅" : "☑️"} ${mention}`;
+      return `${selected.has(mention) ? "✅" : "☑️"} ${isDir ? "📁 " : ""}${mention}`;
     });
 
     if (totalPages > 1 && currentPage > 0) {
@@ -244,8 +245,8 @@ export async function startDaemon(): Promise<void> {
 
     const q = query.trim();
     const title = q
-      ? `Pick files (${q}) ${currentPage + 1}/${totalPages} • selected ${selected.size}`
-      : `Pick files ${currentPage + 1}/${totalPages} • selected ${selected.size}`;
+      ? `Pick paths (${q}) ${currentPage + 1}/${totalPages} • selected ${selected.size}`
+      : `Pick paths ${currentPage + 1}/${totalPages} • selected ${selected.size}`;
 
     return { page: currentPage, totalPages, options, optionLabels, title };
   }

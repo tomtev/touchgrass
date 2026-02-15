@@ -44,6 +44,25 @@ function listRepoFiles(cwd: string): string[] {
   return runLines(["find", ".", "-type", "f", "!", "-path", "*/.git/*"], cwd).map(normalizeRelativePath);
 }
 
+function listRepoDirsFromFiles(files: string[]): string[] {
+  const dirs = new Set<string>();
+  for (const file of files) {
+    const normalized = normalizeRelativePath(file);
+    if (!normalized) continue;
+    const parts = normalized.split("/").filter(Boolean);
+    for (let i = 1; i < parts.length; i++) {
+      dirs.add(`${parts.slice(0, i).join("/")}/`);
+    }
+  }
+  return Array.from(dirs);
+}
+
+function listRepoPaths(cwd: string): string[] {
+  const files = listRepoFiles(cwd).map(normalizeRelativePath).filter(Boolean);
+  const dirs = listRepoDirsFromFiles(files);
+  return Array.from(new Set([...files, ...dirs]));
+}
+
 function subsequenceScore(text: string, query: string): number {
   let score = 0;
   let j = 0;
@@ -130,8 +149,9 @@ export function buildFilePickerPage(
     mention: `@${path}`,
   }));
   const optionLabels: string[] = visible.map((path) => {
+    const isDir = path.endsWith("/");
     const mention = `@${path}`;
-    return `${selected.has(mention) ? "✅" : "☑️"} ${mention}`;
+    return `${selected.has(mention) ? "✅" : "☑️"} ${isDir ? "📁 " : ""}${mention}`;
   });
 
   if (totalPages > 1 && currentPage > 0) {
@@ -151,8 +171,8 @@ export function buildFilePickerPage(
 
   const q = query.trim();
   const title = q
-    ? `Pick files (${q}) ${currentPage + 1}/${totalPages} • selected ${selected.size}`
-    : `Pick files ${currentPage + 1}/${totalPages} • selected ${selected.size}`;
+    ? `Pick paths (${q}) ${currentPage + 1}/${totalPages} • selected ${selected.size}`
+    : `Pick paths ${currentPage + 1}/${totalPages} • selected ${selected.size}`;
 
   return {
     page: currentPage,
@@ -193,15 +213,15 @@ export async function handleFilesCommand(
     return;
   }
 
-  const files = listRepoFiles(remote.cwd);
-  if (files.length === 0) {
-    await ctx.channel.send(chatId, `No files found in ${fmt.code(fmt.escape(remote.cwd))}.`);
+  const paths = listRepoPaths(remote.cwd);
+  if (paths.length === 0) {
+    await ctx.channel.send(chatId, `No repo paths found in ${fmt.code(fmt.escape(remote.cwd))}.`);
     return;
   }
 
-  const ranked = rankFiles(files, query).slice(0, FILE_PICKER_MAX_FILES);
+  const ranked = rankFiles(paths, query).slice(0, FILE_PICKER_MAX_FILES);
   if (ranked.length === 0) {
-    await ctx.channel.send(chatId, `No files matched ${fmt.code(fmt.escape(query))}.`);
+    await ctx.channel.send(chatId, `No paths matched ${fmt.code(fmt.escape(query))}.`);
     return;
   }
 
