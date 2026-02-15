@@ -616,6 +616,11 @@ export async function startDaemon(): Promise<void> {
     userId: ChannelUserId,
     chatId: ChannelChatId
   ): Promise<BackgroundJobSessionSummary[]> => {
+    const supportsOfficialBackgroundJobs = (command: string): boolean => {
+      const tool = command.trim().split(/\s+/)[0] || "";
+      return tool === "claude";
+    };
+
     const attachedId = sessionManager.getAttachedRemote(chatId)?.id;
     const userRemoteIds = sessionManager.listRemotesForUser(userId).map((remote) => remote.id);
     const candidateIds = attachedId ? [attachedId] : userRemoteIds;
@@ -626,6 +631,7 @@ export async function startDaemon(): Promise<void> {
       for (const sessionId of candidates) {
         const remote = sessionManager.getRemote(sessionId);
         if (!remote) continue;
+        if (!supportsOfficialBackgroundJobs(remote.command)) continue;
         const jobs = backgroundJobsBySession.get(sessionId);
         if (!jobs || jobs.size === 0) continue;
         rows.push({
