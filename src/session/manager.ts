@@ -38,6 +38,15 @@ export interface PendingQuestionSet {
   answers: number[][]; // collected option_ids per question
 }
 
+export interface PendingFilePicker {
+  pollId: string;
+  messageId: string;
+  chatId: ChannelChatId;
+  ownerUserId: ChannelUserId;
+  sessionId: string;
+  fileMentions: string[];
+}
+
 export class SessionManager {
   private remotes: Map<string, RemoteSession> = new Map();
   // Map: channelChatId → sessionId (attached session)
@@ -48,6 +57,10 @@ export class SessionManager {
   private pendingPolls: Map<string, PendingPoll> = new Map();
   // Map: sessionId → pending question set (for multi-question flows)
   private pendingQuestions: Map<string, PendingQuestionSet> = new Map();
+  // Map: pollId → pending file picker metadata
+  private pendingFilePickers: Map<string, PendingFilePicker> = new Map();
+  // Map: sessionId|chatId|userId → file mentions to prepend on next text input
+  private pendingFileMentions: Map<string, string[]> = new Map();
 
   constructor(_settings: TgSettings) {}
 
@@ -134,6 +147,8 @@ export class SessionManager {
     this.remotes.clear();
     this.attachments.clear();
     this.groupSubscriptions.clear();
+    this.pendingFilePickers.clear();
+    this.pendingFileMentions.clear();
   }
 
   registerRemote(
@@ -197,6 +212,12 @@ export class SessionManager {
       this.remotes.delete(id);
       this.groupSubscriptions.delete(id);
       this.clearPendingQuestions(id);
+      for (const [pollId, picker] of this.pendingFilePickers) {
+        if (picker.sessionId === id) this.pendingFilePickers.delete(pollId);
+      }
+      for (const key of this.pendingFileMentions.keys()) {
+        if (key.startsWith(`${id}|`)) this.pendingFileMentions.delete(key);
+      }
     }
   }
 
@@ -261,6 +282,45 @@ export class SessionManager {
       if (poll.sessionId === sessionId) this.pendingPolls.delete(pollId);
     }
     this.pendingQuestions.delete(sessionId);
+  }
+
+  registerFilePicker(picker: PendingFilePicker): void {
+    this.pendingFilePickers.set(picker.pollId, picker);
+  }
+
+  getFilePickerByPollId(pollId: string): PendingFilePicker | undefined {
+    return this.pendingFilePickers.get(pollId);
+  }
+
+  removeFilePicker(pollId: string): void {
+    this.pendingFilePickers.delete(pollId);
+  }
+
+  setPendingFileMentions(
+    sessionId: string,
+    chatId: ChannelChatId,
+    userId: ChannelUserId,
+    mentions: string[]
+  ): void {
+    const key = `${sessionId}|${chatId}|${userId}`;
+    const normalized = mentions.map((m) => m.trim()).filter(Boolean);
+    if (normalized.length === 0) {
+      this.pendingFileMentions.delete(key);
+      return;
+    }
+    this.pendingFileMentions.set(key, normalized);
+  }
+
+  consumePendingFileMentions(
+    sessionId: string,
+    chatId: ChannelChatId,
+    userId: ChannelUserId
+  ): string[] {
+    const key = `${sessionId}|${chatId}|${userId}`;
+    const mentions = this.pendingFileMentions.get(key);
+    if (!mentions) return [];
+    this.pendingFileMentions.delete(key);
+    return mentions;
   }
 
   registerPoll(pollId: string, poll: PendingPoll): void {

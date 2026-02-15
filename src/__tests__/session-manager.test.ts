@@ -202,6 +202,65 @@ describe("removeRemote", () => {
     expect(mgr.getSubscribedGroups(remote.id)).toEqual([]);
     expect(mgr.remoteCount()).toBe(0);
   });
+
+  it("removes pending file pickers and pending mentions for the session", () => {
+    const mgr = createManager();
+    const remote = mgr.registerRemote("claude", "telegram:100" as ChannelChatId, "telegram:100" as ChannelUserId);
+    mgr.registerFilePicker({
+      pollId: "picker-1",
+      messageId: "1",
+      chatId: "telegram:100" as ChannelChatId,
+      ownerUserId: "telegram:100" as ChannelUserId,
+      sessionId: remote.id,
+      fileMentions: ["@README.md"],
+    });
+    mgr.setPendingFileMentions(
+      remote.id,
+      "telegram:100" as ChannelChatId,
+      "telegram:100" as ChannelUserId,
+      ["@README.md"]
+    );
+
+    mgr.removeRemote(remote.id);
+    expect(mgr.getFilePickerByPollId("picker-1")).toBeUndefined();
+    expect(
+      mgr.consumePendingFileMentions(
+        remote.id,
+        "telegram:100" as ChannelChatId,
+        "telegram:100" as ChannelUserId
+      )
+    ).toEqual([]);
+  });
+});
+
+describe("file picker selection state", () => {
+  it("stores and consumes pending file mentions once", () => {
+    const mgr = createManager();
+    const remote = mgr.registerRemote("claude", "telegram:100" as ChannelChatId, "telegram:100" as ChannelUserId);
+
+    mgr.setPendingFileMentions(
+      remote.id,
+      "telegram:100" as ChannelChatId,
+      "telegram:100" as ChannelUserId,
+      ["@src/app.ts", "@README.md"]
+    );
+
+    expect(
+      mgr.consumePendingFileMentions(
+        remote.id,
+        "telegram:100" as ChannelChatId,
+        "telegram:100" as ChannelUserId
+      )
+    ).toEqual(["@src/app.ts", "@README.md"]);
+
+    expect(
+      mgr.consumePendingFileMentions(
+        remote.id,
+        "telegram:100" as ChannelChatId,
+        "telegram:100" as ChannelUserId
+      )
+    ).toEqual([]);
+  });
 });
 
 describe("getBoundChat", () => {

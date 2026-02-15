@@ -43,3 +43,10 @@ describe("codex resume arg parsing", () => {
     expect(parsed.baseArgs).toEqual(["--foo"]);
   });
 });
+
+describe("remote terminal input encoding", () => {
+  it("wraps chat input as bracketed paste to avoid picker shortcuts", () => {
+    const encoded = __cliRunTestUtils.encodeBracketedPaste("hello @");
+    expect(encoded.toString()).toBe("\x1b[200~hello @\x1b[201~");
+  });
+});

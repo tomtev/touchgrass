@@ -28,6 +28,7 @@ const APPROVAL_PATTERNS: Record<string, { promptText: string; optionText: string
 
 // Test-only accessors for CLI arg parsing behavior.
 export const __cliRunTestUtils = {
+  encodeBracketedPaste,
   parseCodexResumeArgs,
 };
 
@@ -494,6 +495,10 @@ async function writePollKeypresses(
       currentPos = idx;
     }
   }
+}
+
+function encodeBracketedPaste(text: string): Buffer {
+  return Buffer.from(`\x1b[200~${text}\x1b[201~`);
 }
 
 // Watch a JSONL file for new assistant messages using incremental reads.
@@ -1505,7 +1510,9 @@ export async function runRun(): Promise<void> {
               if (typingTarget) channel.setTyping(typingTarget, true);
               for (const gid of subscribedGroups) channel.setTyping(gid, true);
             }
-            terminal.write(Buffer.from(line));
+            // Send remote text as bracketed paste so special chars (like '@')
+            // stay literal and don't trigger interactive pickers/autocomplete.
+            terminal.write(encodeBracketedPaste(line));
             // File paths need extra time for the tool to load/process the attachment
             const hasFilePath = line.includes("/.touchgrass/uploads/");
             await delay(hasFilePath ? 1500 : 100);

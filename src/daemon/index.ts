@@ -200,6 +200,41 @@ export async function startDaemon(): Promise<void> {
   }
 
   function handlePollAnswer(answer: { pollId: string; userId: ChannelUserId; optionIds: number[] }) {
+    const filePicker = sessionManager.getFilePickerByPollId(answer.pollId);
+    if (filePicker) {
+      if (!isUserPaired(config, answer.userId)) {
+        logger.warn("Ignoring file picker answer from unpaired user", { userId: answer.userId, pollId: answer.pollId });
+        return;
+      }
+      if (filePicker.ownerUserId !== answer.userId) {
+        logger.warn("Ignoring file picker answer from non-owner", {
+          userId: answer.userId,
+          pollId: answer.pollId,
+          ownerUserId: filePicker.ownerUserId,
+        });
+        return;
+      }
+      closePollForChat(filePicker.chatId, filePicker.messageId);
+      sessionManager.removeFilePicker(answer.pollId);
+
+      const selectedIdx = answer.optionIds[0];
+      if (!Number.isFinite(selectedIdx)) return;
+      if (selectedIdx < 0 || selectedIdx >= filePicker.fileMentions.length) return;
+      const selectedMention = filePicker.fileMentions[selectedIdx];
+      sessionManager.setPendingFileMentions(
+        filePicker.sessionId,
+        filePicker.chatId,
+        filePicker.ownerUserId,
+        [selectedMention]
+      );
+      const pickerFmt = getFormatterForChat(filePicker.chatId);
+      sendToChat(
+        filePicker.chatId,
+        `${pickerFmt.escape("📎")} File selected for next message: ${pickerFmt.code(pickerFmt.escape(selectedMention))}`
+      );
+      return;
+    }
+
     const poll = sessionManager.getPollByPollId(answer.pollId);
     if (!poll) return;
     if (!isUserPaired(config, answer.userId)) {

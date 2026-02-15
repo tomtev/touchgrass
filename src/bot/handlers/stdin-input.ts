@@ -37,6 +37,11 @@ export async function handleStdinInput(
       ctx.sessionManager.subscribeGroup(sessionId, chatId);
     }
   };
+  const applyPendingFileMentions = (remoteSession: RemoteSession, rawText: string): string => {
+    const mentions = ctx.sessionManager.consumePendingFileMentions(remoteSession.id, chatId, userId);
+    if (mentions.length === 0) return rawText;
+    return `${mentions.join(" ")} ${rawText}`.trim();
+  };
 
   // 1. Check attached remote sessions
   const remote = ctx.sessionManager.getAttachedRemote(chatId);
@@ -46,7 +51,7 @@ export async function handleStdinInput(
   }
   if (remote && remote.ownerUserId === userId) {
     if (!handleTextWhilePoll(remote, text, ctx)) {
-      remote.inputQueue.push(text);
+      remote.inputQueue.push(applyPendingFileMentions(remote, text));
     }
     maybeSubscribeGroup(remote.id);
     return;
@@ -56,7 +61,7 @@ export async function handleStdinInput(
   const remotes = ctx.sessionManager.listRemotesForUser(userId);
   if (remotes.length === 1 && !msg.isGroup) {
     if (!handleTextWhilePoll(remotes[0], text, ctx)) {
-      remotes[0].inputQueue.push(text);
+      remotes[0].inputQueue.push(applyPendingFileMentions(remotes[0], text));
     }
     return;
   }
