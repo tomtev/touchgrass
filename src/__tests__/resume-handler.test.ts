@@ -75,7 +75,13 @@ describe("resume session discovery", () => {
       const claudeDir = join(root, ".claude", "projects", "-tmp-repo");
       mkdirSync(claudeDir, { recursive: true });
       const claudeFile = join(claudeDir, "edc2331d-8b9f-46ce-a96f-caffb470df35.jsonl");
-      writeFileSync(claudeFile, "{}");
+      writeFileSync(
+        claudeFile,
+        JSON.stringify({
+          type: "assistant",
+          message: { content: [{ type: "text", text: "hello from claude" }] },
+        }) + "\n"
+      );
       utimesSync(claudeFile, new Date(), new Date("2026-02-15T10:00:00.000Z"));
 
       const codexDir = join(root, ".codex", "sessions", "2026", "02", "15");
@@ -88,27 +94,88 @@ describe("resume session discovery", () => {
         codexDir,
         "rollout-2026-02-15T11-00-00-019c56ac-417b-7180-bd3f-2ed6e2589999.jsonl"
       );
-      writeFileSync(codexOld, "{}");
-      writeFileSync(codexNew, "{}");
+      writeFileSync(
+        codexOld,
+        JSON.stringify({
+          type: "event_msg",
+          payload: { type: "agent_message", message: "older codex response" },
+        }) + "\n"
+      );
+      writeFileSync(
+        codexNew,
+        JSON.stringify({
+          type: "event_msg",
+          payload: { type: "agent_message", message: "latest codex response" },
+        }) + "\n"
+      );
       utimesSync(codexOld, new Date(), new Date("2026-02-15T10:00:00.000Z"));
       utimesSync(codexNew, new Date(), new Date("2026-02-15T11:00:00.000Z"));
 
       const piDir = join(root, ".pi", "agent", "sessions", "--tmp-repo--");
       mkdirSync(piDir, { recursive: true });
       const piFile = join(piDir, "2026-02-11T22-17-53-914Z_4f5814e4-8823-4d1b-ba68-8dbab84c5ca4.jsonl");
-      writeFileSync(piFile, "{}");
+      writeFileSync(
+        piFile,
+        JSON.stringify({
+          type: "message",
+          message: { role: "assistant", content: [{ type: "text", text: "pi says hello" }] },
+        }) + "\n"
+      );
 
       const claudeSessions = __resumeTestUtils.listRecentSessions("claude", "/tmp/repo");
       expect(claudeSessions[0]?.sessionRef).toBe("edc2331d-8b9f-46ce-a96f-caffb470df35");
+      expect(claudeSessions[0]?.label).toContain("hello from claude");
+      expect(claudeSessions[0]?.label).toContain("ago:");
 
       const codexSessions = __resumeTestUtils.listRecentSessions("codex", "/tmp/repo");
       expect(codexSessions[0]?.sessionRef).toBe("019c56ac-417b-7180-bd3f-2ed6e2589999");
       expect(codexSessions[1]?.sessionRef).toBe("019c56ac-417b-7180-bd3f-2ed6e25885e3");
+      expect(codexSessions[0]?.label).toContain("latest codex response");
+      expect(codexSessions[0]?.label).toContain("ago:");
 
       const piSessions = __resumeTestUtils.listRecentSessions("pi", "/tmp/repo");
       expect(piSessions[0]?.sessionRef).toBe(piFile);
+      expect(piSessions[0]?.label).toContain("pi says hello");
+      expect(piSessions[0]?.label).toContain("ago:");
     } finally {
       process.env.HOME = originalHome;
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("extracts assistant previews from all tool JSONL formats", () => {
+    const root = mkdtempSync(join(tmpdir(), "tg-resume-preview-"));
+    try {
+      const claudeFile = join(root, "claude.jsonl");
+      writeFileSync(
+        claudeFile,
+        JSON.stringify({
+          type: "assistant",
+          message: { content: [{ type: "text", text: "Claude wrote this response" }] },
+        }) + "\n"
+      );
+      expect(__resumeTestUtils.extractLastAssistantPreview("claude", claudeFile)).toContain("Claude wrote");
+
+      const codexFile = join(root, "codex.jsonl");
+      writeFileSync(
+        codexFile,
+        JSON.stringify({
+          type: "event_msg",
+          payload: { type: "agent_message", message: "Codex output line" },
+        }) + "\n"
+      );
+      expect(__resumeTestUtils.extractLastAssistantPreview("codex", codexFile)).toContain("Codex output");
+
+      const piFile = join(root, "pi.jsonl");
+      writeFileSync(
+        piFile,
+        JSON.stringify({
+          type: "message",
+          message: { role: "assistant", content: [{ type: "text", text: "PI output line" }] },
+        }) + "\n"
+      );
+      expect(__resumeTestUtils.extractLastAssistantPreview("pi", piFile)).toContain("PI output");
+    } finally {
       rmSync(root, { recursive: true, force: true });
     }
   });

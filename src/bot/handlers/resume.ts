@@ -1,4 +1,4 @@
-import { readdirSync, statSync, type Dirent } from "fs";
+import { closeSync, openSync, readSync, readdirSync, statSync, type Dirent } from "fs";
 import { homedir } from "os";
 import { basename, join } from "path";
 import type { InboundMessage } from "../../channel/types";
@@ -7,6 +7,7 @@ import type { PendingResumePickerOption, RemoteSession, ResumeSessionCandidate }
 
 const RESUME_BUTTON_LIMIT = 10;
 const RESUME_SEARCH_LIMIT = 500;
+const RESUME_TAIL_BYTES = 24 * 1024;
 
 type ResumeTool = "claude" | "codex" | "pi";
 
@@ -24,6 +25,13 @@ function stripJsonl(name: string): string {
   return name.replace(/\.jsonl$/i, "");
 }
 
+function truncateMiddle(value: string, max = 20): string {
+  if (value.length <= max) return value;
+  const left = Math.max(6, Math.floor((max - 1) / 2));
+  const right = Math.max(6, max - left - 1);
+  return `${value.slice(0, left)}…${value.slice(-right)}`;
+}
+
 function relativeAge(mtimeMs: number): string {
   const deltaMs = Math.max(0, Date.now() - mtimeMs);
   const sec = Math.floor(deltaMs / 1000);
@@ -36,15 +44,86 @@ function relativeAge(mtimeMs: number): string {
   return `${day}d`;
 }
 
-function truncateMiddle(value: string, max = 28): string {
-  if (value.length <= max) return value;
-  const left = Math.max(6, Math.floor((max - 1) / 2));
-  const right = Math.max(6, max - left - 1);
-  return `${value.slice(0, left)}…${value.slice(-right)}`;
+function normalizePreview(text: string, maxChars = 42): string {
+  const collapsed = text.replace(/\s+/g, " ").trim();
+  if (!collapsed) return "";
+  if (collapsed.length <= maxChars) return collapsed;
+  return `${collapsed.slice(0, maxChars - 1).trimEnd()}…`;
 }
 
-function buildLabel(sessionToken: string, mtimeMs: number): string {
-  return `${truncateMiddle(sessionToken)} • ${relativeAge(mtimeMs)}`;
+function readTailUtf8(filePath: string, maxBytes: number = RESUME_TAIL_BYTES): string {
+  try {
+    const stat = statSync(filePath);
+    if (stat.size <= 0) return "";
+    const readSize = Math.min(stat.size, maxBytes);
+    const offset = Math.max(0, stat.size - readSize);
+    const fd = openSync(filePath, "r");
+    const buffer = Buffer.alloc(readSize);
+    try {
+      const bytesRead = readSync(fd, buffer, 0, readSize, offset);
+      if (bytesRead <= 0) return "";
+      return buffer.toString("utf8", 0, bytesRead);
+    } finally {
+      closeSync(fd);
+    }
+  } catch {
+    return "";
+  }
+}
+
+function parseAssistantTextLine(tool: ResumeTool, line: string): string | null {
+  try {
+    const msg = JSON.parse(line) as Record<string, unknown>;
+    if (tool === "claude" && msg.type === "assistant") {
+      const m = msg.message as Record<string, unknown> | undefined;
+      if (!m?.content || !Array.isArray(m.content)) return null;
+      const texts = (m.content as Array<Record<string, unknown>>)
+        .filter((b) => b.type === "text" && typeof b.text === "string")
+        .map((b) => b.text as string)
+        .join(" ")
+        .trim();
+      return texts || null;
+    }
+
+    if (tool === "pi" && msg.type === "message") {
+      const m = msg.message as Record<string, unknown> | undefined;
+      if (m?.role !== "assistant") return null;
+      if (!m.content || !Array.isArray(m.content)) return null;
+      const texts = (m.content as Array<Record<string, unknown>>)
+        .filter((b) => b.type === "text" && typeof b.text === "string")
+        .map((b) => b.text as string)
+        .join(" ")
+        .trim();
+      return texts || null;
+    }
+
+    if (tool === "codex" && msg.type === "event_msg") {
+      const payload = msg.payload as Record<string, unknown> | undefined;
+      if (!payload || payload.type !== "agent_message") return null;
+      const text = typeof payload.message === "string" ? payload.message.trim() : "";
+      return text || null;
+    }
+  } catch {}
+  return null;
+}
+
+function extractLastAssistantPreview(tool: ResumeTool, filePath: string): string | null {
+  const tail = readTailUtf8(filePath, RESUME_TAIL_BYTES);
+  if (!tail) return null;
+  const lines = tail.split(/\r?\n/);
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i]?.trim();
+    if (!line) continue;
+    const parsed = parseAssistantTextLine(tool, line);
+    if (parsed) return normalizePreview(parsed);
+  }
+  return null;
+}
+
+function buildLabel(sessionToken: string, mtimeMs: number, preview: string | null): string {
+  const age = `${relativeAge(mtimeMs)} ago`;
+  if (preview) return `${age}: ${preview}`;
+  return `${age}: ${truncateMiddle(sessionToken)}`;
 }
 
 function encodedClaudeDir(cwd: string): string {
@@ -123,11 +202,12 @@ function walkCodexJsonl(root: string, maxResults: number): string[] {
 function toResumeCandidates(tool: ResumeTool, files: string[]): ResumeSessionCandidate[] {
   const mapped = files.map((filePath) => {
     const mtimeMs = safeStatMtime(filePath);
+    const preview = extractLastAssistantPreview(tool, filePath);
     if (tool === "pi") {
       const token = parsePiSessionToken(filePath);
       return {
         sessionRef: filePath,
-        label: buildLabel(token, mtimeMs),
+        label: buildLabel(token, mtimeMs, preview),
         mtimeMs,
       } satisfies ResumeSessionCandidate;
     }
@@ -136,7 +216,7 @@ function toResumeCandidates(tool: ResumeTool, files: string[]): ResumeSessionCan
       const sessionId = parseCodexSessionId(filePath);
       return {
         sessionRef: sessionId,
-        label: buildLabel(sessionId, mtimeMs),
+        label: buildLabel(sessionId, mtimeMs, preview),
         mtimeMs,
       } satisfies ResumeSessionCandidate;
     }
@@ -144,7 +224,7 @@ function toResumeCandidates(tool: ResumeTool, files: string[]): ResumeSessionCan
     const sessionId = stripJsonl(basename(filePath));
     return {
       sessionRef: sessionId,
-      label: buildLabel(sessionId, mtimeMs),
+      label: buildLabel(sessionId, mtimeMs, preview),
       mtimeMs,
     } satisfies ResumeSessionCandidate;
   });
@@ -230,8 +310,11 @@ export function buildResumePickerPage(
 export const __resumeTestUtils = {
   buildResumePickerPage,
   detectTool,
+  extractLastAssistantPreview,
   listRecentSessions,
+  normalizePreview,
   parseCodexSessionId,
+  parseAssistantTextLine,
   parsePiSessionToken,
 };
 
