@@ -617,7 +617,8 @@ export async function startDaemon(): Promise<void> {
     chatId: ChannelChatId
   ): Promise<BackgroundJobSessionSummary[]> => {
     const attachedId = sessionManager.getAttachedRemote(chatId)?.id;
-    const candidateIds = sessionManager.listRemotesForUser(userId).map((remote) => remote.id);
+    const userRemoteIds = sessionManager.listRemotesForUser(userId).map((remote) => remote.id);
+    const candidateIds = attachedId ? [attachedId] : userRemoteIds;
     const candidates = new Set<string>(candidateIds);
 
     const buildRows = (): BackgroundJobSessionSummary[] => {
