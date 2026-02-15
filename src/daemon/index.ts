@@ -370,10 +370,15 @@ export async function startDaemon(): Promise<void> {
     const targets = new Set<ChannelChatId>();
     const remote = sessionManager.getRemote(sessionId);
     if (!remote) return targets;
-    const targetChat = sessionManager.getBoundChat(sessionId) || remote.chatId;
-    if (targetChat) targets.add(targetChat);
-    for (const groupChatId of sessionManager.getSubscribedGroups(sessionId)) {
-      targets.add(groupChatId);
+    const targetChat = sessionManager.getBoundChat(sessionId);
+    if (targetChat) {
+      targets.add(targetChat);
+      return targets;
+    }
+    // Fallback to owner DM only if this session is actually attached there.
+    const attachedInOwnerDm = sessionManager.getAttachedRemote(remote.chatId);
+    if (attachedInOwnerDm?.id === sessionId) {
+      targets.add(remote.chatId);
     }
     return targets;
   };
