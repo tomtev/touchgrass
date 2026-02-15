@@ -15,6 +15,7 @@ import {
 import { startControlServer, type ChannelInfo } from "./control-server";
 import { routeMessage } from "../bot/command-router";
 import { buildResumePickerPage } from "../bot/handlers/resume";
+import type { BackgroundJobSessionSummary } from "../bot/handlers/background-jobs";
 import { SessionManager } from "../session/manager";
 import { paths } from "../config/paths";
 import { generatePairingCode } from "../security/pairing";
@@ -146,8 +147,10 @@ export async function startDaemon(): Promise<void> {
   };
   const backgroundJobsBySession = new Map<string, Map<string, BackgroundJobState>>();
   const persistedStatusBoards = new Map<string, PersistedStatusBoardEntry>();
+  const backgroundJobAnnouncements = new Map<string, BackgroundJobStatus>();
   const backgroundBoardKey = (sessionId: string) => `background-jobs:${sessionId}`;
   const statusBoardMapKey = (chatId: string, boardKey: string) => `${chatId}::${boardKey}`;
+  const backgroundAnnouncementKey = (sessionId: string, taskId: string) => `${sessionId}::${taskId}`;
   const sessionIdFromBoardKey = (boardKey: string): string | null => {
     if (!boardKey.startsWith("background-jobs:")) return null;
     return boardKey.slice("background-jobs:".length) || null;
@@ -375,6 +378,96 @@ export async function startDaemon(): Promise<void> {
     return targets;
   };
 
+  const listBackgroundJobsForUserChat = (
+    userId: ChannelUserId,
+    chatId: ChannelChatId
+  ): BackgroundJobSessionSummary[] => {
+    const candidates = new Set<string>();
+    const attached = sessionManager.getAttachedRemote(chatId);
+    if (attached && attached.ownerUserId === userId) {
+      candidates.add(attached.id);
+    } else {
+      for (const remote of sessionManager.listRemotesForUser(userId)) {
+        candidates.add(remote.id);
+      }
+    }
+
+    const rows: BackgroundJobSessionSummary[] = [];
+    for (const sessionId of candidates) {
+      const remote = sessionManager.getRemote(sessionId);
+      if (!remote) continue;
+      const jobs = backgroundJobsBySession.get(sessionId);
+      if (!jobs || jobs.size === 0) continue;
+      rows.push({
+        sessionId,
+        command: remote.command,
+        cwd: remote.cwd,
+        jobs: Array.from(jobs.values())
+          .sort((a, b) => b.updatedAt - a.updatedAt)
+          .map((job) => ({
+            taskId: job.taskId,
+            command: job.command,
+            urls: job.urls,
+            updatedAt: job.updatedAt,
+          })),
+      });
+    }
+
+    rows.sort((a, b) => {
+      const aLatest = a.jobs[0]?.updatedAt || 0;
+      const bLatest = b.jobs[0]?.updatedAt || 0;
+      return bLatest - aLatest;
+    });
+
+    return rows;
+  };
+
+  const announceBackgroundJobEvent = (
+    sessionId: string,
+    status: BackgroundJobStatus,
+    job: {
+      taskId: string;
+      command?: string;
+      summary?: string;
+      urls?: string[];
+    }
+  ): void => {
+    const dedupeKey = backgroundAnnouncementKey(sessionId, job.taskId);
+    const previousStatus = backgroundJobAnnouncements.get(dedupeKey);
+    if (previousStatus === status) return;
+    backgroundJobAnnouncements.set(dedupeKey, status);
+
+    const emoji = status === "running"
+      ? "🟢"
+      : status === "completed"
+      ? "✅"
+      : status === "failed"
+      ? "❌"
+      : "🛑";
+    const label = status === "running"
+      ? "Background job started"
+      : status === "completed"
+      ? "Background job completed"
+      : status === "failed"
+      ? "Background job failed"
+      : "Background job stopped";
+
+    for (const chatId of getBackgroundTargets(sessionId)) {
+      const fmt = getFormatterForChat(chatId);
+      const lines: string[] = [
+        `${fmt.escape(emoji)} ${fmt.bold(fmt.escape(label))}`,
+        `${fmt.code(fmt.escape(job.taskId))} ${fmt.escape("—")} ${fmt.escape((job.command || "background task").trim())}`,
+      ];
+      if (job.summary && status !== "running") {
+        const trimmed = job.summary.trim();
+        if (trimmed) lines.push(fmt.escape(trimmed.length > 280 ? `${trimmed.slice(0, 277)}...` : trimmed));
+      }
+      const url = job.urls?.find((candidate) => /^https?:\/\//i.test(candidate));
+      if (url) lines.push(`↳ ${fmt.link(fmt.escape(url), url)}`);
+      sendToChat(chatId, lines.join("\n"));
+    }
+  };
+
   const renderBackgroundBoard = (chatId: ChannelChatId, jobs: BackgroundJobState[]): string => {
     const fmt = getFormatterForChat(chatId);
     const header = `${fmt.escape("⛳️")} ${fmt.bold(fmt.escape(`Background jobs (${jobs.length} running)`))}`;
@@ -400,7 +493,7 @@ export async function startDaemon(): Promise<void> {
     const key = backgroundBoardKey(sessionId);
     const entriesForSession = Array.from(persistedStatusBoards.values()).filter((e) => e.boardKey === key);
 
-    // Unpin stale boards if the chat is no longer a target for this session.
+    // Clear stale boards if the chat is no longer a target for this session.
     for (const entry of entriesForSession) {
       if (targets.has(entry.chatId)) continue;
       const channel = getChannelForChat(entry.chatId);
@@ -433,12 +526,12 @@ export async function startDaemon(): Promise<void> {
       const html = renderBackgroundBoard(chatId, jobs);
       try {
         const result = await channel.upsertStatusBoard(chatId, key, html, {
-          pin: true,
+          pin: false,
           messageId: persisted?.messageId,
           pinned: persisted?.pinned,
         });
         const messageId = result?.messageId || persisted?.messageId;
-        const pinned = result?.pinned ?? persisted?.pinned ?? true;
+        const pinned = result?.pinned ?? persisted?.pinned ?? false;
         if (messageId) {
           setPersistedStatusBoard(chatId, key, messageId, pinned);
         }
@@ -472,6 +565,11 @@ export async function startDaemon(): Promise<void> {
       removePersistedStatusBoard(chatId, key);
     }
     backgroundJobsBySession.delete(sessionId);
+    for (const entryKey of Array.from(backgroundJobAnnouncements.keys())) {
+      if (entryKey.startsWith(`${sessionId}::`)) {
+        backgroundJobAnnouncements.delete(entryKey);
+      }
+    }
   };
 
   // Auto-stop timer: shut down when all sessions disconnect
@@ -1468,19 +1566,38 @@ export async function startDaemon(): Promise<void> {
       if (status === "running") {
         const sessionJobs = backgroundJobsBySession.get(sessionId) || new Map<string, BackgroundJobState>();
         const existing = sessionJobs.get(event.taskId);
+        const mergedUrls = mergeUrls(existing?.urls, event.urls);
         sessionJobs.set(event.taskId, {
           taskId: event.taskId,
           status,
           command: event.command || existing?.command,
           outputFile: event.outputFile || existing?.outputFile,
           summary: event.summary || existing?.summary,
-          urls: mergeUrls(existing?.urls, event.urls),
+          urls: mergedUrls,
           updatedAt: Date.now(),
         });
         backgroundJobsBySession.set(sessionId, sessionJobs);
+        if (!existing) {
+          announceBackgroundJobEvent(sessionId, status, {
+            taskId: event.taskId,
+            command: event.command,
+            summary: event.summary,
+            urls: mergedUrls,
+          });
+        }
       } else {
         const sessionJobs = backgroundJobsBySession.get(sessionId);
+        const existing = sessionJobs?.get(event.taskId);
         sessionJobs?.delete(event.taskId);
+        if (sessionJobs && sessionJobs.size === 0) {
+          backgroundJobsBySession.delete(sessionId);
+        }
+        announceBackgroundJobEvent(sessionId, status, {
+          taskId: event.taskId,
+          command: event.command || existing?.command,
+          summary: event.summary || existing?.summary,
+          urls: mergeUrls(existing?.urls, event.urls),
+        });
       }
 
       void refreshBackgroundBoards(sessionId);
@@ -1511,7 +1628,12 @@ export async function startDaemon(): Promise<void> {
   for (const channel of channels) {
     channel.startReceiving(async (msg) => {
       await refreshConfig();
-      await routeMessage(msg, { config, sessionManager, channel });
+      await routeMessage(msg, {
+        config,
+        sessionManager,
+        channel,
+        listBackgroundJobs: listBackgroundJobsForUserChat,
+      });
     });
   }
 

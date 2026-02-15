@@ -61,6 +61,11 @@ async function main() {
       await runStopOrKill();
       break;
     }
+    case "resume": {
+      const { runResume } = await import("./cli/resume");
+      await runResume();
+      break;
+    }
     case "claude":
     case "codex":
     case "pi": {
@@ -97,9 +102,11 @@ Commands:
   claude   Run Claude Code with chat bridge
   codex    Run Codex with chat bridge
   pi       Run PI with chat bridge
+  resume   Resume a recent session (picker or --last for most recent)
 
-Options (for claude/codex/pi):
+Options (for claude/codex/pi/resume):
   --channel <value>      Skip channel picker (use "dm", a chatId, or title substring)
+  --last                 Skip session picker, resume most recent (resume only)
 
   ls       List active sessions
   channels List available channels (DM, groups, topics) with busy status

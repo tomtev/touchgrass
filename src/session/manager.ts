@@ -132,6 +132,11 @@ export class SessionManager {
   attach(chatId: ChannelChatId, sessionId: string): boolean {
     if (!sessionId.startsWith("r-")) return false;
     if (!this.remotes.has(sessionId)) return false;
+    for (const [existingChatId, existingSessionId] of this.attachments) {
+      if (existingSessionId === sessionId) {
+        this.attachments.delete(existingChatId);
+      }
+    }
     this.removeChatFromAllGroupSubscriptions(chatId);
     this.attachments.set(chatId, sessionId);
     return true;

@@ -114,6 +114,7 @@ From Telegram chat:
 - `@?<query>` is shorthand for the same picker (example: `@?readme`)
 - `@?<query> - <prompt>` resolves the top fuzzy match and sends `@path - prompt` directly (example: `@?readme - summarize this file`)
 - `/resume` (or `tg resume`) opens a picker of recent local sessions for this tool and restarts into the selected session
+- `/background-jobs` (or `tg background-jobs`) lists currently running background jobs for your connected session(s)
 
 ### Setup & diagnostics
 

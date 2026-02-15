@@ -35,6 +35,7 @@ export interface ClearStatusBoardOptions {
 export interface StatusBoardResult {
   messageId?: string;
   pinned?: boolean;
+  pinError?: string;
 }
 
 export type PollAnswerHandler = (answer: {

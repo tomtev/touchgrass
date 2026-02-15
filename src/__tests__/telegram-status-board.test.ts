@@ -64,4 +64,32 @@ describe("TelegramChannel status board", () => {
 
     expect(calls).toEqual(["unpinChatMessage"]);
   });
+
+  it("returns pinError when pinning fails so daemon can surface permission issues", async () => {
+    const channel = new TelegramChannel("bot-token");
+    const anyChannel = channel as unknown as {
+      api: {
+        sendMessage: (chatId: number, text: string, parseMode: "HTML" | "MarkdownV2" | "", threadId?: number) => Promise<{ message_id: number }>;
+        pinChatMessage: (chatId: number, messageId: number, disableNotification?: boolean) => Promise<boolean>;
+      };
+    };
+
+    anyChannel.api = {
+      sendMessage: async () => ({ message_id: 1234 }),
+      pinChatMessage: async () => {
+        throw new Error("Telegram API pinChatMessage: not enough rights");
+      },
+    };
+
+    const result = await channel.upsertStatusBoard?.(
+      "telegram:-1001:4",
+      "background:r-1",
+      "<b>Background jobs</b>",
+      { pin: true }
+    );
+
+    expect(result?.messageId).toBe("1234");
+    expect(result?.pinned).toBe(false);
+    expect(result?.pinError).toContain("not enough rights");
+  });
 });

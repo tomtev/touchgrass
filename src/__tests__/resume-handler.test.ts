@@ -21,6 +21,7 @@ describe("resume picker pagination", () => {
     expect(page0.optionLabels).toHaveLength(10);
     expect(page0.optionLabels[9]).toBe("➡️ More");
     expect(page0.options[9]).toEqual({ kind: "more", nextOffset: 9 });
+    expect(page0.title).toBe("Resume session 1-9 of 25");
 
     const page1 = __resumeTestUtils.buildResumePickerPage(sessions, 9, 10);
     expect(page1.optionLabels).toHaveLength(10);
@@ -30,6 +31,7 @@ describe("resume picker pagination", () => {
     const page2 = __resumeTestUtils.buildResumePickerPage(sessions, 18, 10);
     expect(page2.optionLabels).not.toContain("➡️ More");
     expect(page2.optionLabels.length).toBeGreaterThan(0);
+    expect(page2.title).toBe("Resume session 19-25 of 25");
   });
 
   it("omits More when sessions fit on one page", () => {
@@ -256,6 +258,7 @@ describe("resume handler", () => {
 
       expect(polls).toHaveLength(1);
       expect(polls[0].title).toContain("Resume session");
+      expect(polls[0].title).toMatch(/1-9 of 12/);
       expect(polls[0].options).toContain("➡️ More");
 
       const picker = sessionManager.getResumePickerByPollId("resume-poll-1");

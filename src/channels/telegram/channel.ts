@@ -263,6 +263,7 @@ export class TelegramChannel implements Channel {
 
     let messageId = existing?.messageId ?? null;
     let pinned = existing?.pinned ?? options?.pinned ?? false;
+    let pinError: string | undefined;
 
     if (messageId) {
       try {
@@ -299,14 +300,15 @@ export class TelegramChannel implements Channel {
       try {
         await this.api.pinChatMessage(numChatId, messageId, true);
         pinned = true;
-      } catch {
+      } catch (e) {
         // Pin is optional; keep board updates working even without pin permission.
+        pinError = (e as Error).message || "Failed to pin status board";
       }
     }
 
     if (messageId) {
       this.statusBoards.set(key, { messageId, pinned });
-      return { messageId: String(messageId), pinned };
+      return { messageId: String(messageId), pinned, pinError };
     }
   }
 
@@ -379,13 +381,13 @@ export class TelegramChannel implements Channel {
       this.botUsername = me.username || null;
       await logger.info("Bot connected", { username: me.username, id: me.id });
       await this.api.setMyCommands([
-        { command: "sessions", description: "List active sessions" },
         { command: "files", description: "Pick repo paths for next message" },
         { command: "resume", description: "Pick and resume a previous session" },
         { command: "link", description: "Add this chat as a channel" },
         { command: "unlink", description: "Remove this chat as a channel" },
         { command: "help", description: "Show help" },
         { command: "pair", description: "Pair with code: /pair <code>" },
+        { command: "sessions", description: "List active sessions" },
       ]);
     } catch (e) {
       await logger.error("Failed to connect to Telegram", { error: (e as Error).message });

@@ -9,7 +9,7 @@ const RESUME_BUTTON_LIMIT = 10;
 const RESUME_SEARCH_LIMIT = 500;
 const RESUME_TAIL_BYTES = 24 * 1024;
 
-type ResumeTool = "claude" | "codex" | "pi";
+export type ResumeTool = "claude" | "codex" | "pi";
 
 function detectTool(command: string): ResumeTool | null {
   const head = command.trim().split(/\s+/)[0]?.toLowerCase();
@@ -234,7 +234,7 @@ function toResumeCandidates(tool: ResumeTool, files: string[]): ResumeSessionCan
     .sort((a, b) => b.mtimeMs - a.mtimeMs);
 }
 
-function listRecentSessions(tool: ResumeTool, cwd: string): ResumeSessionCandidate[] {
+export function listRecentSessions(tool: ResumeTool, cwd: string): ResumeSessionCandidate[] {
   const cleanCwd = normalizeCwd(cwd);
   if (!cleanCwd) return [];
 
