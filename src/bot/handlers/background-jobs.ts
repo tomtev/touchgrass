@@ -60,12 +60,19 @@ export function formatBackgroundJobs(
     lines.push(renderSessionHeader(fmt, session));
     const visible = session.jobs.slice(0, MAX_RENDERED_JOBS_PER_SESSION);
     for (const job of visible) {
+      const url = job.urls?.find((candidate) => /^https?:\/\//i.test(candidate));
+      if (url) {
+        lines.push(
+          `• ${fmt.code(fmt.escape(job.taskId))} ${fmt.escape(`(${relativeAge(job.updatedAt)})`)}`
+        );
+        lines.push(`  ↳ ${fmt.link(fmt.escape(url), url)}`);
+        continue;
+      }
+
       const cmd = compactCommand(job.command);
       lines.push(
         `• ${fmt.code(fmt.escape(job.taskId))} ${fmt.escape("—")} ${fmt.escape(cmd)} ${fmt.escape(`(${relativeAge(job.updatedAt)})`)}`
       );
-      const url = job.urls?.find((candidate) => /^https?:\/\//i.test(candidate));
-      if (url) lines.push(`  ↳ ${fmt.link(fmt.escape(url), url)}`);
     }
     if (session.jobs.length > MAX_RENDERED_JOBS_PER_SESSION) {
       lines.push(fmt.escape(`+${session.jobs.length - MAX_RENDERED_JOBS_PER_SESSION} more`));

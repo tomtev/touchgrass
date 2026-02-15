@@ -61,9 +61,10 @@ describe("background jobs handler", () => {
     const rendered = formatBackgroundJobs(fmt, sessions);
     expect(rendered).toContain("Background jobs (2 running)");
     expect(rendered).toContain("claude (touchgrass) • r-abc123");
-    expect(rendered).toContain("bg_1 — npm run dev");
+    expect(rendered).toContain("bg_1 (");
     expect(rendered).toContain("bg_2 — bun test --watch");
     expect(rendered).toContain("http://localhost:3000");
+    expect(rendered).not.toContain("bg_1 — npm run dev");
   });
 
   it("caps rendered jobs per session and shortens long command previews", () => {
