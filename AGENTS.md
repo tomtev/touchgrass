@@ -18,6 +18,7 @@ Supported channels:
 ```bash
 tg setup      # configure channel credentials (tg init is alias)
 tg pair       # generate pairing code
+curl -fsSL https://raw.githubusercontent.com/tomtev/touchgrass/main/install.sh | bash  # update/install latest CLI
 
 tg claude
 tg codex
@@ -62,6 +63,7 @@ tg kill <id>
 ## Operational Notes
 
 - Telegram is the only supported channel.
+- If the user asks to "update", that means running the curl installer command above.
 - Session IDs are tagged and partial matching is supported in several CLI commands.
 - Use `tg stop` first and `tg kill` only if needed.
 - Keep routing changes covered by tests in `src/__tests__/`.

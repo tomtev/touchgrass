@@ -232,6 +232,16 @@ export async function handleFilesCommand(
     return;
   }
 
+  // Telegram Web App inline keyboard buttons are only supported in private chats.
+  // In groups/topics Telegram returns BUTTON_TYPE_INVALID.
+  if (msg.isGroup) {
+    await ctx.channel.send(
+      chatId,
+      `${fmt.bold("Popup picker works in DM only.")}\nTelegram does not allow Web App popup buttons in groups/topics.\nOpen a private chat with the bot and run ${fmt.code("/files")} there.`
+    );
+    return;
+  }
+
   const token = `wfp-${randomBytes(8).toString("hex")}`;
   ctx.sessionManager.registerWebFilePicker({
     token,
