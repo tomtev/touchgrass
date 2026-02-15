@@ -38,13 +38,13 @@ export interface PendingQuestionSet {
   answers: number[][]; // collected option_ids per question
 }
 
-export interface PendingFilePicker {
-  pollId: string;
-  messageId: string;
+export interface PendingWebFilePicker {
+  token: string;
   chatId: ChannelChatId;
   ownerUserId: ChannelUserId;
   sessionId: string;
-  fileMentions: string[];
+  files: string[];
+  expiresAt: number;
 }
 
 export class SessionManager {
@@ -57,8 +57,8 @@ export class SessionManager {
   private pendingPolls: Map<string, PendingPoll> = new Map();
   // Map: sessionId → pending question set (for multi-question flows)
   private pendingQuestions: Map<string, PendingQuestionSet> = new Map();
-  // Map: pollId → pending file picker metadata
-  private pendingFilePickers: Map<string, PendingFilePicker> = new Map();
+  // Map: token → pending Telegram Web App file picker metadata
+  private pendingWebFilePickers: Map<string, PendingWebFilePicker> = new Map();
   // Map: sessionId|chatId|userId → file mentions to prepend on next text input
   private pendingFileMentions: Map<string, string[]> = new Map();
 
@@ -147,7 +147,7 @@ export class SessionManager {
     this.remotes.clear();
     this.attachments.clear();
     this.groupSubscriptions.clear();
-    this.pendingFilePickers.clear();
+    this.pendingWebFilePickers.clear();
     this.pendingFileMentions.clear();
   }
 
@@ -212,8 +212,8 @@ export class SessionManager {
       this.remotes.delete(id);
       this.groupSubscriptions.delete(id);
       this.clearPendingQuestions(id);
-      for (const [pollId, picker] of this.pendingFilePickers) {
-        if (picker.sessionId === id) this.pendingFilePickers.delete(pollId);
+      for (const [token, picker] of this.pendingWebFilePickers) {
+        if (picker.sessionId === id) this.pendingWebFilePickers.delete(token);
       }
       for (const key of this.pendingFileMentions.keys()) {
         if (key.startsWith(`${id}|`)) this.pendingFileMentions.delete(key);
@@ -284,16 +284,23 @@ export class SessionManager {
     this.pendingQuestions.delete(sessionId);
   }
 
-  registerFilePicker(picker: PendingFilePicker): void {
-    this.pendingFilePickers.set(picker.pollId, picker);
+  private pruneExpiredWebFilePickers(now: number = Date.now()): void {
+    for (const [token, picker] of this.pendingWebFilePickers) {
+      if (picker.expiresAt <= now) this.pendingWebFilePickers.delete(token);
+    }
   }
 
-  getFilePickerByPollId(pollId: string): PendingFilePicker | undefined {
-    return this.pendingFilePickers.get(pollId);
+  registerWebFilePicker(picker: PendingWebFilePicker): void {
+    this.pruneExpiredWebFilePickers();
+    this.pendingWebFilePickers.set(picker.token, picker);
   }
 
-  removeFilePicker(pollId: string): void {
-    this.pendingFilePickers.delete(pollId);
+  consumeWebFilePicker(token: string): PendingWebFilePicker | undefined {
+    this.pruneExpiredWebFilePickers();
+    const picker = this.pendingWebFilePickers.get(token);
+    if (!picker) return undefined;
+    this.pendingWebFilePickers.delete(token);
+    return picker;
   }
 
   setPendingFileMentions(

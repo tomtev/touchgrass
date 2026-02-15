@@ -68,6 +68,10 @@ tg pi
 2. Copy bot token
 3. Run `tg setup` and choose Telegram
 4. Run `tg pair`, then send `/pair <code>` in bot DM
+5. Optional `/files` popup picker:
+   - host `docs/telegram-file-picker-webapp.html` on any `https://` URL
+   - set `channels.telegram.credentials.webAppUrl` in `~/.touchgrass/config.json`
+   - run `/files` (or `tg files <query>`) in Telegram
 
 Group note:
 - Disable BotFather group privacy (`/setprivacy` -> Disable) so non-command messages are visible.
@@ -108,6 +112,9 @@ tg kill <id>
 tg send <id> "continue"
 tg send --file <id> ./notes.md
 ```
+
+From Telegram chat:
+- `/files` opens a popup file picker (Telegram Web App) and queues selected `@path` for your next message
 
 ### Setup & diagnostics
 

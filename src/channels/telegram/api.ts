@@ -48,6 +48,7 @@ export interface TelegramMessage {
   is_topic_message?: boolean;
   forum_topic_created?: { name: string; icon_color: number; icon_custom_emoji_id?: string };
   forum_topic_edited?: { name?: string; icon_custom_emoji_id?: string };
+  web_app_data?: { button_text?: string; data?: string };
 }
 
 export interface TelegramPoll {
@@ -65,7 +66,9 @@ export interface TelegramPollAnswer {
 
 export interface TelegramInlineKeyboardButton {
   text: string;
-  callback_data: string;
+  callback_data?: string;
+  web_app?: { url: string };
+  url?: string;
 }
 
 export interface TelegramCallbackQuery {

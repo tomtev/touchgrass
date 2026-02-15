@@ -32,6 +32,7 @@ export interface Channel {
   send(chatId: ChannelChatId, html: string): Promise<void>;
   sendOutput(chatId: ChannelChatId, rawOutput: string): Promise<void>;
   sendDocument?(chatId: ChannelChatId, filePath: string, caption?: string): Promise<void>;
+  sendWebAppButton?(chatId: ChannelChatId, text: string, buttonText: string, url: string): Promise<void>;
   clearLastMessage(chatId: ChannelChatId): void;
   startReceiving(onMessage: (msg: InboundMessage) => Promise<void>): Promise<void>;
   stopReceiving(): void;

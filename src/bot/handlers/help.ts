@@ -10,7 +10,7 @@ Any text you send goes to the connected session.
 
 ${fmt.bold("Commands:")}
 /sessions ${fmt.escape("or")} ${fmt.code("tg sessions")} ${fmt.escape("—")} List active sessions
-/files ${fmt.escape("or")} ${fmt.code("tg files [query]")} ${fmt.escape("—")} Pick a repo file for next message
+/files ${fmt.escape("or")} ${fmt.code("tg files [query]")} ${fmt.escape("—")} Open file picker popup for next message
 /link ${fmt.escape("or")} ${fmt.code("tg link")} ${fmt.escape("—")} Add this chat as a channel
 /unlink ${fmt.escape("or")} ${fmt.code("tg unlink")} ${fmt.escape("—")} Remove this chat as a channel
 /help ${fmt.escape("or")} ${fmt.code("tg help")} ${fmt.escape("—")} Show this help

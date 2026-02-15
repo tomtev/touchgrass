@@ -1,6 +1,24 @@
+import { randomBytes } from "crypto";
 import type { InboundMessage } from "../../channel/types";
 import type { RouterContext } from "../command-router";
 import type { RemoteSession } from "../../session/manager";
+
+const FILE_PICKER_TTL_MS = 10 * 60 * 1000;
+const WEB_APP_PARAM = "tgfp";
+const MAX_WEBAPP_FILES = 60;
+
+interface WebAppSelectionPayload {
+  kind: "tg_files_pick";
+  token: string;
+  file: string;
+}
+
+interface WebAppOpenPayload {
+  v: 1;
+  token: string;
+  files: string[];
+  query: string;
+}
 
 function normalizeRelativePath(path: string): string {
   return path.replace(/^\.?\//, "").trim();
@@ -103,8 +121,68 @@ function resolveTargetRemote(msg: InboundMessage, ctx: RouterContext): RemoteSes
   return null;
 }
 
+function getWebAppBaseUrl(ctx: RouterContext): string {
+  const tgCredentials = ctx.config.channels.telegram?.credentials as Record<string, unknown> | undefined;
+  const fromConfig = typeof tgCredentials?.webAppUrl === "string" ? tgCredentials.webAppUrl.trim() : "";
+  const fromEnv = (process.env.TG_TELEGRAM_FILE_PICKER_URL || "").trim();
+  return fromConfig || fromEnv;
+}
+
+function buildWebAppUrl(baseUrl: string, payload: WebAppOpenPayload): string {
+  const encoded = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+  try {
+    const url = new URL(baseUrl);
+    url.searchParams.set(WEB_APP_PARAM, encoded);
+    return url.toString();
+  } catch {
+    const sep = baseUrl.includes("?") ? "&" : "?";
+    return `${baseUrl}${sep}${WEB_APP_PARAM}=${encodeURIComponent(encoded)}`;
+  }
+}
+
+function parseWebAppSelectionPayload(raw: string): WebAppSelectionPayload | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+
+  const candidates = new Set<string>([trimmed]);
+  if (trimmed.includes("%")) {
+    try {
+      candidates.add(decodeURIComponent(trimmed));
+    } catch {
+      // ignore malformed URI input
+    }
+  }
+  if (/^[A-Za-z0-9_-]+$/.test(trimmed)) {
+    try {
+      candidates.add(Buffer.from(trimmed, "base64url").toString("utf8"));
+    } catch {
+      // ignore malformed base64 input
+    }
+  }
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate) as Partial<WebAppSelectionPayload>;
+      if (parsed.kind !== "tg_files_pick") continue;
+      if (typeof parsed.token !== "string" || !parsed.token.trim()) continue;
+      if (typeof parsed.file !== "string" || !parsed.file.trim()) continue;
+      return {
+        kind: "tg_files_pick",
+        token: parsed.token.trim(),
+        file: normalizeRelativePath(parsed.file),
+      };
+    } catch {
+      // not JSON
+    }
+  }
+
+  return null;
+}
+
 export const __filePickerTestUtils = {
+  buildWebAppUrl,
   fileScore,
+  parseWebAppSelectionPayload,
   rankFiles,
   subsequenceScore,
 };
@@ -138,34 +216,88 @@ export async function handleFilesCommand(
     return;
   }
 
-  const ranked = rankFiles(files, query).slice(0, 9);
+  const ranked = rankFiles(files, query).slice(0, MAX_WEBAPP_FILES);
   if (ranked.length === 0) {
     await ctx.channel.send(chatId, `No files matched ${fmt.code(fmt.escape(query))}.`);
     return;
   }
 
-  const mentions = ranked.map((path) => `@${path}`);
-
-  if (!ctx.channel.sendPoll) {
-    const lines = mentions.map((m, idx) => `${idx + 1}. ${fmt.code(fmt.escape(m))}`);
+  const baseUrl = getWebAppBaseUrl(ctx);
+  if (!ctx.channel.sendWebAppButton || !baseUrl || !baseUrl.startsWith("https://")) {
+    const preview = ranked.slice(0, 12).map((path) => fmt.code(fmt.escape(`@${path}`))).join("\n");
     await ctx.channel.send(
       chatId,
-      `File picker requires action buttons on this channel.\nTop matches:\n${lines.join("\n")}`
+      `${fmt.bold("File picker popup is not configured.")}\nSet ${fmt.code("channels.telegram.credentials.webAppUrl")} in ${fmt.code("~/.touchgrass/config.json")} to an ${fmt.code("https://")} URL for the picker web app.\n\n${fmt.bold("Top matches:")}\n${preview}`
     );
     return;
   }
 
-  const question = query.trim()
-    ? `Pick a file for next message (${query.trim()})`
-    : "Pick a file for next message";
-
-  const poll = await ctx.channel.sendPoll(chatId, question, ranked, false);
-  ctx.sessionManager.registerFilePicker({
-    pollId: poll.pollId,
-    messageId: poll.messageId,
+  const token = `wfp-${randomBytes(8).toString("hex")}`;
+  ctx.sessionManager.registerWebFilePicker({
+    token,
     chatId,
     ownerUserId: userId,
     sessionId: remote.id,
-    fileMentions: mentions,
+    files: ranked,
+    expiresAt: Date.now() + FILE_PICKER_TTL_MS,
   });
+
+  const openUrl = buildWebAppUrl(baseUrl, {
+    v: 1,
+    token,
+    files: ranked,
+    query: query.trim(),
+  });
+
+  const title = query.trim()
+    ? `${fmt.bold("File picker")} ${fmt.escape(`(${query.trim()})`)}`
+    : fmt.bold("File picker");
+  await ctx.channel.sendWebAppButton(
+    chatId,
+    `${fmt.escape("📎")} ${title}\n${fmt.escape("Open the popup and choose a file for your next message.")}`,
+    "Open file picker",
+    openUrl
+  );
+}
+
+export async function handleFilesPickCommand(
+  msg: InboundMessage,
+  payloadRaw: string,
+  ctx: RouterContext
+): Promise<void> {
+  const { fmt } = ctx.channel;
+  const chatId = msg.chatId;
+  const parsed = parseWebAppSelectionPayload(payloadRaw);
+  if (!parsed) {
+    await ctx.channel.send(chatId, "Invalid file picker payload.");
+    return;
+  }
+
+  const picker = ctx.sessionManager.consumeWebFilePicker(parsed.token);
+  if (!picker) {
+    await ctx.channel.send(chatId, "That picker expired. Run /files again.");
+    return;
+  }
+
+  if (picker.ownerUserId !== msg.userId || picker.chatId !== chatId) {
+    await ctx.channel.send(chatId, "This picker belongs to a different user or chat.");
+    return;
+  }
+
+  if (!picker.files.includes(parsed.file)) {
+    await ctx.channel.send(chatId, "That file is not in the current picker results.");
+    return;
+  }
+
+  const mention = `@${parsed.file}`;
+  ctx.sessionManager.setPendingFileMentions(
+    picker.sessionId,
+    picker.chatId,
+    picker.ownerUserId,
+    [mention]
+  );
+  await ctx.channel.send(
+    chatId,
+    `${fmt.escape("📎")} File selected for next message: ${fmt.code(fmt.escape(mention))}`
+  );
 }

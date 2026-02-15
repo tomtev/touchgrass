@@ -9,7 +9,7 @@ import { handlePair } from "./handlers/pair";
 import { handleHelp } from "./handlers/help";
 import { handleSessionMgmt } from "./handlers/session-mgmt";
 import { handleStdinInput } from "./handlers/stdin-input";
-import { handleFilesCommand } from "./handlers/files";
+import { handleFilesCommand, handleFilesPickCommand } from "./handlers/files";
 import { logger } from "../daemon/logger";
 
 export interface RouterContext {
@@ -108,10 +108,17 @@ export async function routeMessage(
     return;
   }
 
-  // /files [query] — pick a repository file and insert as @path in next message
+  // /files [query] — open file picker popup and insert selected @path into next message
   if (text === "/files" || text.startsWith("/files ")) {
     const query = text.slice("/files".length).trim();
     await handleFilesCommand({ ...msg, text }, query, ctx);
+    return;
+  }
+
+  // /files-pick <payload> — internal command posted by Telegram Web App
+  if (text.startsWith("/files-pick ")) {
+    const payload = text.slice("/files-pick ".length).trim();
+    await handleFilesPickCommand({ ...msg, text }, payload, ctx);
     return;
   }
 

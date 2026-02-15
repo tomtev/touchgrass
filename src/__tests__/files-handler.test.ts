@@ -26,3 +26,21 @@ describe("file picker ranking", () => {
     expect(ranked[1]).toBe("README.md");
   });
 });
+
+describe("web app selection payload parsing", () => {
+  it("parses raw JSON payload", () => {
+    const parsed = __filePickerTestUtils.parseWebAppSelectionPayload(
+      JSON.stringify({ kind: "tg_files_pick", token: "abc", file: "src/app.ts" })
+    );
+    expect(parsed).toEqual({ kind: "tg_files_pick", token: "abc", file: "src/app.ts" });
+  });
+
+  it("parses base64url encoded payload", () => {
+    const raw = Buffer.from(
+      JSON.stringify({ kind: "tg_files_pick", token: "def", file: "./README.md" }),
+      "utf8"
+    ).toString("base64url");
+    const parsed = __filePickerTestUtils.parseWebAppSelectionPayload(raw);
+    expect(parsed).toEqual({ kind: "tg_files_pick", token: "def", file: "README.md" });
+  });
+});

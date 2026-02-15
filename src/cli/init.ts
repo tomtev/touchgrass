@@ -115,6 +115,28 @@ export async function runInit(): Promise<void> {
       config.channels.telegram.credentials.botToken = token;
     }
 
+    const existingWebAppUrl = typeof config.channels.telegram.credentials.webAppUrl === "string"
+      ? String(config.channels.telegram.credentials.webAppUrl).trim()
+      : "";
+    const webAppAnswer = (
+      await rl.question(
+        existingWebAppUrl
+          ? `Telegram Web App URL for /files popup (https://..., Enter to keep, "-" to clear): `
+          : "Telegram Web App URL for /files popup (optional, https://...): "
+      )
+    ).trim();
+    if (webAppAnswer === "-") {
+      delete config.channels.telegram.credentials.webAppUrl;
+    } else if (webAppAnswer) {
+      if (!webAppAnswer.startsWith("https://")) {
+        console.log("Skipping Web App URL: must start with https://");
+      } else {
+        config.channels.telegram.credentials.webAppUrl = webAppAnswer;
+      }
+    } else if (!existingWebAppUrl) {
+      delete config.channels.telegram.credentials.webAppUrl;
+    }
+
     await saveConfig(config);
     console.log(`\n✅ Config saved to ${paths.config}`);
 
