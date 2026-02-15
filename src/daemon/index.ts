@@ -387,15 +387,10 @@ export async function startDaemon(): Promise<void> {
     userId: ChannelUserId,
     chatId: ChannelChatId
   ): BackgroundJobSessionSummary[] => {
-    const candidates = new Set<string>();
-    const attached = sessionManager.getAttachedRemote(chatId);
-    if (attached && attached.ownerUserId === userId) {
-      candidates.add(attached.id);
-    } else {
-      for (const remote of sessionManager.listRemotesForUser(userId)) {
-        candidates.add(remote.id);
-      }
-    }
+    const attachedId = sessionManager.getAttachedRemote(chatId)?.id;
+    const candidates = new Set<string>(
+      sessionManager.listRemotesForUser(userId).map((remote) => remote.id)
+    );
 
     const rows: BackgroundJobSessionSummary[] = [];
     for (const sessionId of candidates) {
@@ -419,6 +414,9 @@ export async function startDaemon(): Promise<void> {
     }
 
     rows.sort((a, b) => {
+      // Prefer the currently attached session in this chat if it has jobs.
+      if (attachedId && a.sessionId === attachedId && b.sessionId !== attachedId) return -1;
+      if (attachedId && b.sessionId === attachedId && a.sessionId !== attachedId) return 1;
       const aLatest = a.jobs[0]?.updatedAt || 0;
       const bLatest = b.jobs[0]?.updatedAt || 0;
       return bLatest - aLatest;
