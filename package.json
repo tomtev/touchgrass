@@ -1,6 +1,6 @@
 {
   "name": "touchgrass",
-  "version": "0.1.63",
+  "version": "0.1.64",
   "description": "touchgrass.sh — remote control your terminal AI CLIs from chat",
   "type": "module",
   "scripts": {
@@ -9,13 +9,9 @@
     "typecheck": "tsc --noEmit",
     "test": "bun test"
   },
-  "dependencies": {
-    "@whiskeysockets/baileys": "7.0.0-rc.9",
-    "qrcode-terminal": "^0.12.0"
-  },
+  "dependencies": {},
   "devDependencies": {
     "@types/bun": "latest",
-    "@types/qrcode-terminal": "^0.12.2",
     "typescript": "^5.7.0"
   }
 }

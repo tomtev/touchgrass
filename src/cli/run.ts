@@ -38,7 +38,7 @@ interface OwnerChannelResolution {
   ownerChatId: ChannelChatId;
 }
 
-function resolveOwnerChannel(config: TgConfig, preferredChannelType?: string): OwnerChannelResolution | null {
+function listOwnerChannels(config: TgConfig): OwnerChannelResolution[] {
   const candidates: OwnerChannelResolution[] = [];
   for (const [channelName, channelConfig] of Object.entries(config.channels)) {
     const paired = channelConfig.pairedUsers || [];
@@ -53,6 +53,11 @@ function resolveOwnerChannel(config: TgConfig, preferredChannelType?: string): O
     const ownerChatId = `${channelType}:${parts.slice(1).join(":")}`;
     candidates.push({ channelName, channelConfig, ownerUserId, ownerChatId });
   }
+  return candidates;
+}
+
+function resolveOwnerChannel(config: TgConfig, preferredChannelType?: string): OwnerChannelResolution | null {
+  const candidates = listOwnerChannels(config);
 
   if (preferredChannelType) {
     const preferred = candidates.find((c) => c.channelConfig.type === preferredChannelType);
@@ -654,6 +659,80 @@ function resolveChannelFlag(
   process.exit(1);
 }
 
+interface ChannelPickerOption {
+  label: string;
+  chatId: string;
+  busy: boolean;
+  title: string;
+  type: string;
+}
+
+function buildChannelPickerOptions(
+  channels: Array<{ chatId: string; title: string; type: string; busy: boolean; busyLabel?: string | null }>
+): ChannelPickerOption[] {
+  const options: ChannelPickerOption[] = [];
+  options.push({ label: "No channel", chatId: "", busy: false, title: "No channel", type: "none" });
+
+  const dms = channels.filter((c) => c.type === "dm");
+  const groups = channels.filter((c) => c.type === "group");
+  const topics = channels.filter((c) => c.type === "topic");
+
+  for (const dm of dms) {
+    const suffix = dm.busy && dm.busyLabel ? `\x1b[2m(DM) ← ${dm.busyLabel}\x1b[22m` : "\x1b[2m(DM)\x1b[22m";
+    options.push({
+      label: `${dm.title} ${suffix}`,
+      chatId: dm.chatId,
+      busy: dm.busy,
+      title: dm.title,
+      type: "dm",
+    });
+  }
+
+  const groupByChatId = new Set(groups.map((g) => g.chatId));
+  for (const group of groups) {
+    const suffix = group.busy && group.busyLabel ? `\x1b[2m(Group) ← ${group.busyLabel}\x1b[22m` : "\x1b[2m(Group)\x1b[22m";
+    options.push({
+      label: `${group.title} ${suffix}`,
+      chatId: group.chatId,
+      busy: group.busy,
+      title: group.title,
+      type: "group",
+    });
+
+    for (const topic of topics) {
+      const parts = topic.chatId.split(":");
+      if (parts.length < 3) continue;
+      const parent = `${parts[0]}:${parts[1]}`;
+      if (parent !== group.chatId) continue;
+      const topicSuffix = topic.busy && topic.busyLabel ? `\x1b[2m(Topic) ← ${topic.busyLabel}\x1b[22m` : "\x1b[2m(Topic)\x1b[22m";
+      options.push({
+        label: `  ${topic.title} ${topicSuffix}`,
+        chatId: topic.chatId,
+        busy: topic.busy,
+        title: topic.title,
+        type: "topic",
+      });
+    }
+  }
+
+  for (const topic of topics) {
+    const parts = topic.chatId.split(":");
+    if (parts.length < 3) continue;
+    const parent = `${parts[0]}:${parts[1]}`;
+    if (groupByChatId.has(parent)) continue;
+    const suffix = topic.busy && topic.busyLabel ? `\x1b[2m(Topic) ← ${topic.busyLabel}\x1b[22m` : "\x1b[2m(Topic)\x1b[22m";
+    options.push({
+      label: `  ${topic.title} ${suffix}`,
+      chatId: topic.chatId,
+      busy: topic.busy,
+      title: topic.title,
+      type: "topic",
+    });
+  }
+
+  return options;
+}
+
 function stripCodexTransportArgs(args: string[]): string[] {
   const out: string[] = [];
   for (const arg of args) {
@@ -802,151 +881,144 @@ export async function runRun(): Promise<void> {
   try {
     const config = await loadConfig();
     const pairedUsers = getAllPairedUsers(config);
-    const owner = resolveOwnerChannel(config, preferredChannelTypeFromFlag);
+    const ownerCandidates = listOwnerChannels(config);
     if (pairedUsers.length === 0) {
       console.error("No paired owner found. Run `tg pair` first.");
       process.exit(1);
     }
-    if (!owner) {
+    if (ownerCandidates.length === 0) {
       console.error("No usable paired channel owner found.");
       console.error("Ensure one paired user per channel in your config.");
       console.error(`Config: ${paths.config}`);
       process.exit(1);
     }
-    if (owner) {
-      const resolvedChannelName = owner.channelName;
-      const resolvedChannelConfig = owner.channelConfig;
-      ownerUserId = owner.ownerUserId;
-      chatId = owner.ownerChatId;
+    let preferredOwnerType = preferredChannelTypeFromFlag;
+    let selectedChatForBind: ChannelChatId | null = null;
+    let selectedLabelForPrint: string | null = null;
+    let selectedFromFlag = false;
 
-      try {
-        await ensureDaemon();
-        const res = await daemonRequest("/remote/register", "POST", {
-          command: fullCommand,
-          chatId,
-          ownerUserId,
-          cwd: process.cwd(),
+    try {
+      await ensureDaemon();
+      const channelRes = await daemonRequest("/channels");
+      const daemonChannels = (channelRes.channels as Array<{ chatId: string; title: string; type: string; busy: boolean; busyLabel?: string | null }>) || [];
+      const pickerOptions = buildChannelPickerOptions(daemonChannels);
+      const defaultOwner = resolveOwnerChannel(config, preferredOwnerType) || ownerCandidates[0];
+
+      if (channelFlag) {
+        const resolvedChatId = resolveChannelFlag(channelFlag, pickerOptions, defaultOwner.ownerChatId);
+        if (resolvedChatId) {
+          selectedChatForBind = resolvedChatId as ChannelChatId;
+          preferredOwnerType = resolvedChatId.split(":")[0];
+          const chosen = pickerOptions.find((o) => o.chatId === resolvedChatId);
+          if (chosen) {
+            const typeLabel = chosen.type === "dm" ? "DM" : chosen.type === "group" ? "Group" : chosen.type === "topic" ? "Topic" : "";
+            selectedLabelForPrint = `${chosen.title} (${typeLabel})`;
+          }
+        } else {
+          selectedLabelForPrint = "No channel";
+        }
+        selectedFromFlag = true;
+      } else {
+        const labels = pickerOptions.map((o) => o.label);
+        const disabled = new Set<number>();
+        pickerOptions.forEach((o, idx) => {
+          if (o.busy && o.chatId) disabled.add(idx);
         });
-        if (res.ok && res.sessionId) {
-          remoteId = res.sessionId as string;
-          const dmBusy = res.dmBusy as boolean;
-          const groups = (res.linkedGroups as Array<{ chatId: string; title?: string }>) || [];
-
-          // Build all options: DM (bot name) + all linked groups/topics (including busy from full list)
-          const allGroups = (res.allLinkedGroups as Array<{ chatId: string; title?: string; busyLabel?: string }>) || groups;
-          const dmBusyLabel = res.dmBusyLabel as string | undefined;
-          const options: Array<{ label: string; chatId: string; busy: boolean; title: string; type: string }> = [];
-          // Allow opting out of channel binding immediately.
-          options.push({ label: "No channel", chatId: "", busy: false, title: "No channel", type: "none" });
-          let dmLabel = "DM";
-          // Create channel early for bot name lookup
-          const tempChannel = createChannel(resolvedChannelName, resolvedChannelConfig);
-          try {
-            if (tempChannel.getBotName) dmLabel = await tempChannel.getBotName();
-          } catch {}
-          const dmSuffix = dmBusy && dmBusyLabel ? `\x1b[2m(DM) ← ${dmBusyLabel}\x1b[22m` : "\x1b[2m(DM)\x1b[22m";
-          options.push({ label: `${dmLabel} ${dmSuffix}`, chatId: chatId!, busy: dmBusy, title: dmLabel, type: "dm" });
-
-          // Separate groups and topics, then interleave topics under their parent group
-          const groupEntries: Array<{ chatId: string; title?: string; busy: boolean; busyLabel?: string }> = [];
-          const topicEntries: Array<{ chatId: string; title?: string; busy: boolean; busyLabel?: string; parentChatId: string }> = [];
-          for (const g of allGroups) {
-            const isBusy = !groups.some((av) => av.chatId === g.chatId);
-            const parts = g.chatId.split(":");
-            if (parts.length >= 3) {
-              topicEntries.push({ ...g, busy: isBusy, parentChatId: `${parts[0]}:${parts[1]}` });
-            } else {
-              groupEntries.push({ ...g, busy: isBusy });
-            }
-          }
-          for (const g of groupEntries) {
-            const suffix = g.busy && g.busyLabel ? `\x1b[2m(Group) ← ${g.busyLabel}\x1b[22m` : "\x1b[2m(Group)\x1b[22m";
-            options.push({ label: `${g.title || g.chatId} ${suffix}`, chatId: g.chatId, busy: g.busy, title: g.title || g.chatId, type: "group" });
-            // Insert topics belonging to this group immediately after
-            for (const t of topicEntries) {
-              if (t.parentChatId === g.chatId) {
-                const tSuffix = t.busy && t.busyLabel ? `\x1b[2m(Topic) ← ${t.busyLabel}\x1b[22m` : "\x1b[2m(Topic)\x1b[22m";
-                options.push({ label: `  ${t.title || "Topic"} ${tSuffix}`, chatId: t.chatId, busy: t.busy, title: t.title || "Topic", type: "topic" });
-              }
-            }
-          }
-          // Orphan topics (parent group not linked) — show at the end
-          for (const t of topicEntries) {
-            if (!groupEntries.some((g) => g.chatId === t.parentChatId)) {
-              const tSuffix = t.busy && t.busyLabel ? `\x1b[2m(Topic) ← ${t.busyLabel}\x1b[22m` : "\x1b[2m(Topic)\x1b[22m";
-              options.push({ label: `  ${t.title || "Topic"} ${tSuffix}`, chatId: t.chatId, busy: t.busy, title: t.title || "Topic", type: "topic" });
-            }
-          }
-
-          if (channelFlag) {
-            // --channel flag: resolve to a chatId and bind directly, skip picker
-            const resolvedChatId = resolveChannelFlag(channelFlag, options, chatId!);
-            if (resolvedChatId) {
-              try {
-                await daemonRequest("/remote/bind-chat", "POST", {
-                  sessionId: remoteId,
-                  chatId: resolvedChatId,
-                  ownerUserId,
-                });
-                chatId = resolvedChatId as ChannelChatId;
-                didBindChat = true;
-              } catch (bindErr) {
-                console.error(`\x1b[33m⚠ ${(bindErr as Error).message}\x1b[0m`);
-                process.exit(1);
-              }
-            }
-            // resolvedChatId === null means "none" — skip binding
-          } else if (options.length === 2 && !dmBusy) {
-            // Only DM + No channel, no groups — auto-bind to DM silently
-            await daemonRequest("/remote/bind-chat", "POST", {
-              sessionId: remoteId,
-              chatId,
-              ownerUserId,
-            });
-            didBindChat = true;
+        const choice = await terminalPicker(
+          "⛳ Select a channel:",
+          labels,
+          "Use `tg links` to manage linked channels (busy channels are disabled)",
+          disabled
+        );
+        if (choice >= 0 && choice < pickerOptions.length) {
+          const chosen = pickerOptions[choice];
+          if (chosen.chatId) {
+            selectedChatForBind = chosen.chatId as ChannelChatId;
+            preferredOwnerType = chosen.chatId.split(":")[0];
+            const typeLabel = chosen.type === "dm" ? "DM" : chosen.type === "group" ? "Group" : chosen.type === "topic" ? "Topic" : "";
+            selectedLabelForPrint = `${chosen.title} (${typeLabel})`;
           } else {
-            const labels = options.map((o) => o.label);
-            const disabled = new Set<number>();
-            options.forEach((o, idx) => {
-              if (o.busy && o.chatId) disabled.add(idx);
-            });
-            const choice = await terminalPicker(
-              "⛳ Select a channel:",
-              labels,
-              "Use `tg links` to manage linked channels (busy channels are disabled)",
-              disabled
-            );
-            if (choice >= 0 && choice < options.length) {
-              const chosen = options[choice];
-              const typeLabel = chosen.type === "dm" ? "DM" : chosen.type === "group" ? "Group" : chosen.type === "topic" ? "Topic" : "";
-              const selectedLabel = chosen.type === "none" ? "No channel" : `${chosen.title} (${typeLabel})`;
-              if (!chosen.chatId) {
-                console.log(`⛳️ Channel linked: ${selectedLabel}`);
-              } else {
-                try {
-                  await daemonRequest("/remote/bind-chat", "POST", {
-                    sessionId: remoteId,
-                    chatId: chosen.chatId,
-                    ownerUserId,
-                  });
-                  chatId = chosen.chatId as ChannelChatId;
-                  didBindChat = true;
-                  console.log(`⛳️ Channel linked: ${selectedLabel}`);
-                } catch (bindErr) {
-                  console.error(`\x1b[33m⚠ ${(bindErr as Error).message}. Keeping current channel binding.\x1b[0m`);
-                }
-              }
-            }
+            selectedLabelForPrint = "No channel";
           }
         }
-      } catch {
-        // Daemon failed to start — local-only mode
       }
-
-      // Set up channel for JSONL watching
-      channel = createChannel(resolvedChannelName, resolvedChannelConfig);
-
+    } catch {
+      // Daemon failed to start — local-only mode
     }
+
+    let owner = preferredOwnerType
+      ? ownerCandidates.find((c) => c.channelConfig.type === preferredOwnerType) || null
+      : null;
+    if (!owner) owner = ownerCandidates[0];
+    if (!owner) {
+      console.error("No usable paired channel owner found.");
+      process.exit(1);
+    }
+
+    const resolvedChannelName = owner.channelName;
+    const resolvedChannelConfig = owner.channelConfig;
+    ownerUserId = owner.ownerUserId;
+    chatId = owner.ownerChatId;
+
+    if (selectedChatForBind && selectedChatForBind.split(":")[0] !== owner.channelConfig.type) {
+      const msg = `Selected channel ${selectedChatForBind} does not match configured owner channel type (${owner.channelConfig.type}).`;
+      if (selectedFromFlag) {
+        console.error(msg);
+        process.exit(1);
+      }
+      console.error(`\x1b[33m⚠ ${msg} Skipping bind for this run.\x1b[0m`);
+      selectedChatForBind = null;
+      selectedLabelForPrint = "No channel";
+    }
+
+    try {
+      await ensureDaemon();
+      const res = await daemonRequest("/remote/register", "POST", {
+        command: fullCommand,
+        chatId,
+        ownerUserId,
+        cwd: process.cwd(),
+      });
+      if (res.ok && res.sessionId) {
+        remoteId = res.sessionId as string;
+
+        let targetBindChat = selectedChatForBind;
+        if (!channelFlag && !targetBindChat) {
+          const dmBusy = res.dmBusy as boolean;
+          if (!dmBusy) {
+            targetBindChat = chatId;
+            selectedLabelForPrint = selectedLabelForPrint || "DM";
+          }
+        }
+
+        if (targetBindChat) {
+          try {
+            await daemonRequest("/remote/bind-chat", "POST", {
+              sessionId: remoteId,
+              chatId: targetBindChat,
+              ownerUserId,
+            });
+            chatId = targetBindChat as ChannelChatId;
+            didBindChat = true;
+            if (selectedLabelForPrint) {
+              console.log(`⛳️ Channel linked: ${selectedLabelForPrint}`);
+            }
+          } catch (bindErr) {
+            const errText = `\x1b[33m⚠ ${(bindErr as Error).message}\x1b[0m`;
+            if (selectedFromFlag) {
+              console.error(errText);
+              process.exit(1);
+            }
+            console.error(`${errText}. Keeping current channel binding.`);
+          }
+        }
+      }
+    } catch {
+      // Daemon failed to start — local-only mode
+    }
+
+    // Set up channel for JSONL watching
+    channel = createChannel(resolvedChannelName, resolvedChannelConfig);
   } catch {
     // Config load failed — local-only mode
   }

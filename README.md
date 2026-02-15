@@ -1,6 +1,6 @@
 # ⛳ touchgrass.sh
 
-Remote control Claude Code, Codex and more with Telegram, WhatsApp and Slack.
+Remote control Claude Code, Codex and more with Telegram.
 
 touchgrass is terminal-first:
 - you run the real CLI locally (`claude`, `codex`, `pi`)
@@ -30,8 +30,6 @@ tg claude
 
 Current channels:
 - Telegram
-- Slack
-- WhatsApp
 
 ## Setup
 
@@ -50,8 +48,6 @@ tg pair
 
 3. Pair from your chat:
 - Telegram: `/pair <code>`
-- Slack: `tg pair <code>`
-- WhatsApp: `tg pair <code>`
 
 4. Optional group/channel/thread linking:
 - Use `/link` or `tg link` inside the group/thread you want as a destination
@@ -64,7 +60,7 @@ tg codex
 tg pi
 ```
 
-## Channel setup guides
+## Channel setup guide
 
 ### Telegram
 
@@ -75,26 +71,6 @@ tg pi
 
 Group note:
 - Disable BotFather group privacy (`/setprivacy` -> Disable) so non-command messages are visible.
-
-### Slack
-
-1. Create Slack app with Socket Mode enabled
-2. Install app to workspace
-3. Copy bot token (`xoxb-...`) and app token (`xapp-...`)
-4. Run `tg setup` and choose Slack
-5. Run `tg pair`, then send `tg pair <code>` in bot DM
-
-Channel note:
-- Invite bot into private channels before using them.
-
-### WhatsApp
-
-1. Run `tg setup` and choose WhatsApp
-2. Scan QR from Linked Devices
-3. Run `tg pair`, then send `tg pair <code>` in direct chat
-
-Relink note:
-- If session expires, run `tg setup` again and relink by QR.
 
 ## Commands
 
@@ -173,7 +149,7 @@ No. This project is focused on remote terminal control only.
 ## Requirements
 
 - Bun runtime
-- Telegram, Slack, or WhatsApp account
+- Telegram account
 - Local Claude/Codex/PI CLI installed
 
 ## License

@@ -57,24 +57,53 @@ export async function startDaemon(): Promise<void> {
 
   // Create channel instances from config
   const configuredChannels = Object.entries(config.channels);
-  if (configuredChannels.length > 1) {
-    await logger.error("Multiple channels configured; only one is supported right now", {
-      channels: configuredChannels.map(([name, cfg]) => `${name}:${cfg.type}`),
-    });
-    console.error("Multiple channels are configured. Keep one active channel and re-run `tg init`.");
-    process.exit(1);
-  }
-
   const channels: Channel[] = [];
+  const channelByType = new Map<string, Channel>();
   for (const [name, cfg] of configuredChannels) {
-    channels.push(createChannel(name, cfg));
+    const channel = createChannel(name, cfg);
+    channels.push(channel);
+    channelByType.set(cfg.type, channel);
   }
 
   if (channels.length === 0) {
-    await logger.error("No channels configured. Run `tg init` first.");
-    console.error("No channels configured. Run `tg init` first.");
+    await logger.error("No channels configured. Run `tg setup` first.");
+    console.error("No channels configured. Run `tg setup` first.");
     process.exit(1);
   }
+
+  const getChannelForType = (type: string): Channel | null => channelByType.get(type) || null;
+  const getChannelForChat = (chatId: ChannelChatId): Channel | null => {
+    const type = chatId.split(":")[0];
+    return getChannelForType(type);
+  };
+  const getFormatterForChat = (chatId: ChannelChatId): Formatter => {
+    return getChannelForChat(chatId)?.fmt || channels[0].fmt;
+  };
+  const sendToChat = (chatId: ChannelChatId, content: string): void => {
+    const channel = getChannelForChat(chatId);
+    if (!channel) return;
+    channel.send(chatId, content).catch(() => {});
+  };
+  const setTypingForChat = (chatId: ChannelChatId, active: boolean): void => {
+    const channel = getChannelForChat(chatId);
+    if (!channel) return;
+    channel.setTyping(chatId, active);
+  };
+  const sendPollToChat = async (
+    chatId: ChannelChatId,
+    question: string,
+    options: string[],
+    multiSelect: boolean
+  ): Promise<{ pollId: string; messageId: string } | null> => {
+    const channel = getChannelForChat(chatId);
+    if (!channel?.sendPoll) return null;
+    return channel.sendPoll(chatId, question, options, multiSelect);
+  };
+  const closePollForChat = (chatId: ChannelChatId, messageId: string): void => {
+    const channel = getChannelForChat(chatId);
+    if (!channel?.closePoll) return;
+    channel.closePoll(chatId, messageId).catch(() => {});
+  };
 
   // Auto-stop timer: shut down when all sessions disconnect
   const AUTO_STOP_DELAY = 30_000;
@@ -103,10 +132,6 @@ export async function startDaemon(): Promise<void> {
       }
     }, AUTO_STOP_DELAY);
   }
-
-  // Use the first channel for sending notifications (daemon-initiated messages)
-  const primaryChannel = channels[0];
-  const fmt = primaryChannel.fmt;
 
   // Wire dead chat detection — clean up subscriptions and linked groups when sends fail permanently
   for (const channel of channels) {
@@ -149,16 +174,16 @@ export async function startDaemon(): Promise<void> {
     const optionLabels = q.options.slice(0, 9).map((o) => o.label);
     optionLabels.push("Other (type a reply)");
 
-    if (!primaryChannel.sendPoll) return;
-
     try {
       const questionText = q.question.length > 300 ? q.question.slice(0, 297) + "..." : q.question;
-      const { pollId, messageId } = await primaryChannel.sendPoll(
+      const sent = await sendPollToChat(
         pending.chatId,
         questionText,
         optionLabels,
         q.multiSelect
       );
+      if (!sent) return;
+      const { pollId, messageId } = sent;
       sessionManager.registerPoll(pollId, {
         sessionId,
         chatId: pending.chatId,
@@ -194,9 +219,7 @@ export async function startDaemon(): Promise<void> {
     }
 
     // Close the poll
-    if (primaryChannel.closePoll) {
-      primaryChannel.closePoll(poll.chatId, poll.messageId).catch(() => {});
-    }
+    closePollForChat(poll.chatId, poll.messageId);
     sessionManager.removePoll(answer.pollId);
 
     const otherIdx = poll.optionCount; // "Other" is the last option
@@ -370,8 +393,9 @@ export async function startDaemon(): Promise<void> {
     const reaped = sessionManager.reapStaleRemotes(REAP_MAX_AGE);
     for (const remote of reaped) {
       await logger.info("Reaped stale remote session", { id: remote.id, command: remote.command });
+      const fmt = getFormatterForChat(remote.chatId);
       const msg = `${fmt.escape("⛳️")} ${fmt.bold(fmt.escape(sessionLabel(remote.command, remote.cwd)))} disconnected (CLI stopped responding)`;
-      primaryChannel.send(remote.chatId, msg);
+      sendToChat(remote.chatId, msg);
     }
     if (reaped.length > 0 && sessionManager.remoteCount() === 0) {
       scheduleAutoStop();
@@ -422,12 +446,11 @@ export async function startDaemon(): Promise<void> {
       // DM channels: one per paired user per bot
       for (const user of pairedUsers) {
         const dmChatId = user.userId;
+        const channelType = dmChatId.split(":")[0];
+        const channel = getChannelForType(channelType);
         let title = "DM";
-        for (const ch of channels) {
-          if (ch.getBotName) {
-            try { title = await ch.getBotName(); } catch {}
-            break;
-          }
+        if (channel?.getBotName) {
+          try { title = await channel.getBotName(); } catch {}
         }
         const bound = sessionManager.getAttachedRemote(dmChatId);
         results.push({
@@ -460,6 +483,7 @@ export async function startDaemon(): Promise<void> {
       cancelAutoStop();
       const isReconnect = !!existingId && !sessionManager.getRemote(existingId);
       const remote = sessionManager.registerRemote(command, chatId, ownerUserId, cwd, existingId);
+      const remoteType = remote.chatId.split(":")[0];
 
       // Restore group subscriptions (e.g. after daemon restart, CLI re-registers with saved groups)
       if (subscribedGroups) {
@@ -470,7 +494,8 @@ export async function startDaemon(): Promise<void> {
 
       if (isReconnect) {
         const label = sessionLabel(command, cwd);
-        primaryChannel.send(chatId, `${fmt.escape("⛳️")} ${fmt.bold(fmt.escape(label))} reconnected after daemon restart. Messages sent during restart may have been lost.`);
+        const fmt = getFormatterForChat(chatId);
+        sendToChat(chatId, `${fmt.escape("⛳️")} ${fmt.bold(fmt.escape(label))} reconnected after daemon restart. Messages sent during restart may have been lost.`);
       }
 
       const existingBound = sessionManager.getAttachedRemote(chatId);
@@ -478,13 +503,14 @@ export async function startDaemon(): Promise<void> {
       const dmBusyLabel = dmBusy && existingBound ? sessionLabel(existingBound.command, existingBound.cwd) : undefined;
 
       await refreshConfig();
-      const rawGroups = getAllLinkedGroups(config);
+      const rawGroups = getAllLinkedGroups(config).filter((g) => g.chatId.split(":")[0] === remoteType);
 
       // Validate groups still exist, remove dead ones
       const validGroups: Array<{ chatId: string; title?: string }> = [];
       for (const g of rawGroups) {
-        if (primaryChannel.validateChat) {
-          const alive = await primaryChannel.validateChat(g.chatId);
+        const groupChannel = getChannelForChat(g.chatId);
+        if (groupChannel?.validateChat) {
+          const alive = await groupChannel.validateChat(g.chatId);
           if (alive) {
             validGroups.push({ chatId: g.chatId, title: g.title });
           } else {
@@ -515,8 +541,9 @@ export async function startDaemon(): Promise<void> {
       if (!isOwnerDm && !isLinkedTarget) return { ok: false, error: "Group is not linked" };
 
       // Validate the chat still exists
-      if (!isOwnerDm && primaryChannel.validateChat) {
-        const alive = await primaryChannel.validateChat(chatId);
+      const targetChannel = getChannelForChat(chatId);
+      if (!isOwnerDm && targetChannel?.validateChat) {
+        const alive = await targetChannel.validateChat(chatId);
         if (!alive) {
           removeLinkedGroup(config, chatId);
           await saveConfig(config);
@@ -541,7 +568,8 @@ export async function startDaemon(): Promise<void> {
       if (isLinkedTarget) {
         sessionManager.subscribeGroup(sessionId, chatId);
       }
-      primaryChannel.send(chatId, `${fmt.escape("⛳️")} ${fmt.bold(fmt.escape(sessionLabel(remote.command, remote.cwd)))} connected`);
+      const fmt = getFormatterForChat(chatId);
+      sendToChat(chatId, `${fmt.escape("⛳️")} ${fmt.bold(fmt.escape(sessionLabel(remote.command, remote.cwd)))} connected`);
       return { ok: true };
     },
     canUserAccessSession(userId: ChannelUserId, sessionId: string): boolean {
@@ -566,10 +594,11 @@ export async function startDaemon(): Promise<void> {
       const remote = sessionManager.getRemote(sessionId);
       if (remote) {
         const status = exitCode === 0 ? "disconnected" : `disconnected (code ${exitCode ?? "unknown"})`;
-        const msg = `${fmt.escape("⛳️")} ${fmt.bold(fmt.escape(sessionLabel(remote.command, remote.cwd)))} ${fmt.escape(status)}`;
         const boundChat = sessionManager.getBoundChat(sessionId);
         if (boundChat) {
-          primaryChannel.send(boundChat, msg);
+          const fmt = getFormatterForChat(boundChat);
+          const msg = `${fmt.escape("⛳️")} ${fmt.bold(fmt.escape(sessionLabel(remote.command, remote.cwd)))} ${fmt.escape(status)}`;
+          sendToChat(boundChat, msg);
         }
         sessionManager.removeRemote(sessionId);
       }
@@ -586,9 +615,6 @@ export async function startDaemon(): Promise<void> {
     async sendFileToSession(sessionId: string, filePath: string, caption?: string): Promise<{ ok: boolean; error?: string }> {
       const remote = sessionManager.getRemote(sessionId);
       if (!remote) return { ok: false, error: "Session not found" };
-      if (!primaryChannel.sendDocument) {
-        return { ok: false, error: `Channel ${primaryChannel.type} does not support file sending` };
-      }
 
       let fileStats;
       try {
@@ -610,7 +636,11 @@ export async function startDaemon(): Promise<void> {
 
       const finalCaption = (caption && caption.trim()) || basename(filePath);
       for (const cid of targets) {
-        await primaryChannel.sendDocument(cid, filePath, finalCaption);
+        const channel = getChannelForChat(cid);
+        if (!channel?.sendDocument) {
+          return { ok: false, error: `Channel ${cid.split(":")[0]} does not support file sending` };
+        }
+        await channel.sendDocument(cid, filePath, finalCaption);
       }
       return { ok: true };
     },
@@ -631,11 +661,12 @@ export async function startDaemon(): Promise<void> {
       if (!remote) return;
       const targetChat = sessionManager.getBoundChat(sessionId);
       if (!targetChat) return;
+      const fmt = getFormatterForChat(targetChat);
       const html = formatToolCall(fmt, name, input);
       if (!html) return;
-      primaryChannel.send(targetChat, html);
+      sendToChat(targetChat, html);
       // Re-assert typing for channels that support typing state.
-      primaryChannel.setTyping(targetChat, true);
+      setTypingForChat(targetChat, true);
     },
     handleTyping(sessionId: string, active: boolean): void {
       const remote = sessionManager.getRemote(sessionId);
@@ -650,7 +681,7 @@ export async function startDaemon(): Promise<void> {
       if (targets.size === 0) return;
 
       for (const cid of targets) {
-        primaryChannel.setTyping(cid, active);
+        setTypingForChat(cid, active);
       }
     },
     handleApprovalNeeded(sessionId: string, name: string, input: Record<string, unknown>, promptText?: string, pollOptions?: string[]): void {
@@ -658,7 +689,6 @@ export async function startDaemon(): Promise<void> {
       if (!remote) return;
       const targetChat = sessionManager.getBoundChat(sessionId);
       if (!targetChat) return;
-      if (!primaryChannel.sendPoll) return;
       // Use the prompt text from Claude Code's terminal if available
       let question: string;
       if (promptText) {
@@ -671,8 +701,10 @@ export async function startDaemon(): Promise<void> {
         question = (label ? `${name}: ${label}` : name).slice(0, 300);
       }
       const options = pollOptions && pollOptions.length >= 2 ? pollOptions : ["Yes", "Yes, don't ask again", "No"];
-      primaryChannel.sendPoll(targetChat, question, options, false).then(
-        ({ pollId, messageId }) => {
+      sendPollToChat(targetChat, question, options, false).then(
+        (sent) => {
+          if (!sent) return;
+          const { pollId, messageId } = sent;
           sessionManager.registerPoll(pollId, {
             sessionId,
             chatId: targetChat,
@@ -693,7 +725,8 @@ export async function startDaemon(): Promise<void> {
       const targetChat = sessionManager.getBoundChat(sessionId);
       if (!targetChat) return;
       const truncated = text.length > 1000 ? text.slice(0, 1000) + "..." : text;
-      primaryChannel.send(targetChat, `${fmt.bold("Thinking")}\n${fmt.italic(fmt.escape(truncated))}`);
+      const fmt = getFormatterForChat(targetChat);
+      sendToChat(targetChat, `${fmt.bold("Thinking")}\n${fmt.italic(fmt.escape(truncated))}`);
     },
     handleAssistantText(sessionId: string, text: string): void {
       const remote = sessionManager.getRemote(sessionId);
@@ -707,10 +740,10 @@ export async function startDaemon(): Promise<void> {
       }
       if (targets.size === 0) return;
 
-      const html = fmt.fromMarkdown(text);
       for (const cid of targets) {
-        primaryChannel.setTyping(cid, false);
-        primaryChannel.send(cid, html);
+        const fmt = getFormatterForChat(cid);
+        setTypingForChat(cid, false);
+        sendToChat(cid, fmt.fromMarkdown(text));
       }
     },
     handleToolResult(sessionId: string, toolName: string, content: string, isError = false): void {
@@ -723,9 +756,10 @@ export async function startDaemon(): Promise<void> {
       const label = isError
         ? `${toolName || "Tool"} error`
         : (toolName === "Bash" ? "Output" : `${toolName} result`);
-      primaryChannel.send(targetChat, `${fmt.bold(fmt.escape(label))}\n${fmt.pre(fmt.escape(truncated))}`);
+      const fmt = getFormatterForChat(targetChat);
+      sendToChat(targetChat, `${fmt.bold(fmt.escape(label))}\n${fmt.pre(fmt.escape(truncated))}`);
       // Re-assert typing only for non-error results.
-      if (!isError) primaryChannel.setTyping(targetChat, true);
+      if (!isError) setTypingForChat(targetChat, true);
     },
     handleQuestion(sessionId: string, questions: unknown[]): void {
       const remote = sessionManager.getRemote(sessionId);

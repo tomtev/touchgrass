@@ -24,7 +24,7 @@ export async function routeMessage(
   let text = msg.text?.trim();
   if (!text) return;
 
-  // Channel-agnostic command aliases for platforms where slash commands are not practical (e.g. Slack).
+  // Channel-agnostic command aliases for platforms where slash commands are not practical.
   if (text === "tg help") text = "/help";
   else if (text === "tg sessions") text = "/sessions";
   else if (text === "tg link" || text.startsWith("tg link ")) text = `/link${text.slice("tg link".length)}`;

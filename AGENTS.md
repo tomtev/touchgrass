@@ -6,8 +6,6 @@ touchgrass is a terminal bridge for controlling local AI CLI sessions from chat.
 
 Supported channels:
 - Telegram
-- Slack
-- WhatsApp
 
 ## Runtime
 
@@ -60,12 +58,10 @@ tg kill <id>
 - `src/channel/types.ts` - channel interface contracts
 - `src/channel/factory.ts` - channel instance creation
 - `src/channels/telegram/*` - Telegram implementation
-- `src/channels/slack/*` - Slack implementation
-- `src/channels/whatsapp/*` - WhatsApp implementation
 
 ## Operational Notes
 
-- One configured channel per type is supported.
+- Telegram is the only supported channel.
 - Session IDs are tagged and partial matching is supported in several CLI commands.
 - Use `tg stop` first and `tg kill` only if needed.
 - Keep routing changes covered by tests in `src/__tests__/`.

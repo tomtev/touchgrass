@@ -27,7 +27,7 @@ export async function runChannels(): Promise<void> {
   }
 
   if (channels.length === 0) {
-    console.log("No channels available. Run `tg init` and `tg pair` first.");
+    console.log("No channels available. Run `tg setup` and `tg pair` first.");
     process.exit(0);
   }
 

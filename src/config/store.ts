@@ -55,6 +55,14 @@ export async function loadConfig(): Promise<TgConfig> {
     if (!validateConfig(parsed)) {
       throw new Error("Invalid config format");
     }
+
+    // Telegram-only runtime: drop unsupported channel entries on load.
+    for (const [name, ch] of Object.entries(parsed.channels)) {
+      if (name !== "telegram" || ch.type !== "telegram") {
+        delete parsed.channels[name];
+      }
+    }
+
     // Merge with defaults in case new settings were added
     parsed.settings = { ...defaultSettings, ...parsed.settings };
     // Ensure linkedGroups exists on all channels
