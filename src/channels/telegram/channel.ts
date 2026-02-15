@@ -170,27 +170,6 @@ export class TelegramChannel implements Channel {
     }
   }
 
-  async sendWebAppButton(
-    chatId: ChannelChatId,
-    text: string,
-    buttonText: string,
-    url: string
-  ): Promise<void> {
-    const { chatId: numChatId, threadId } = fromChatId(chatId);
-    try {
-      await this.api.sendInlineKeyboard(
-        numChatId,
-        text,
-        [[{ text: buttonText, web_app: { url } }]],
-        threadId
-      );
-    } catch (e) {
-      const err = e as Error;
-      await logger.error("Failed to send web app button", { chatId, error: err.message });
-      if (this.isDeadChatError(err.message)) this.onDeadChat?.(chatId, err);
-    }
-  }
-
   async validateChat(chatId: ChannelChatId): Promise<boolean> {
     const { chatId: numChatId } = fromChatId(chatId);
     try {
@@ -299,7 +278,7 @@ export class TelegramChannel implements Channel {
       await logger.info("Bot connected", { username: me.username, id: me.id });
       await this.api.setMyCommands([
         { command: "sessions", description: "List active sessions" },
-        { command: "files", description: "Open file picker popup" },
+        { command: "files", description: "Pick repo files for next message" },
         { command: "link", description: "Add this chat as a channel" },
         { command: "unlink", description: "Remove this chat as a channel" },
         { command: "help", description: "Show help" },
@@ -374,9 +353,7 @@ export class TelegramChannel implements Channel {
               }
 
               // Download photos/documents to local disk and use file paths
-              let text = msg.web_app_data?.data
-                ? `/files-pick ${msg.web_app_data.data}`
-                : msg.text?.trim() || "";
+              let text = msg.text?.trim() || "";
               const fileUrls: string[] = [];
 
               // Determine file_id to download: photos or documents (files sent uncompressed)

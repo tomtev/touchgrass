@@ -203,16 +203,22 @@ describe("removeRemote", () => {
     expect(mgr.remoteCount()).toBe(0);
   });
 
-  it("removes pending web file pickers and pending mentions for the session", () => {
+  it("removes pending file pickers and pending mentions for the session", () => {
     const mgr = createManager();
     const remote = mgr.registerRemote("claude", "telegram:100" as ChannelChatId, "telegram:100" as ChannelUserId);
-    mgr.registerWebFilePicker({
-      token: "picker-1",
+    mgr.registerFilePicker({
+      pollId: "picker-1",
+      messageId: "1",
       chatId: "telegram:100" as ChannelChatId,
       ownerUserId: "telegram:100" as ChannelUserId,
       sessionId: remote.id,
       files: ["README.md"],
-      expiresAt: Date.now() + 60_000,
+      query: "",
+      page: 0,
+      pageSize: 7,
+      totalPages: 1,
+      selectedMentions: [],
+      options: [{ kind: "toggle", mention: "@README.md" }],
     });
     mgr.setPendingFileMentions(
       remote.id,
@@ -222,7 +228,7 @@ describe("removeRemote", () => {
     );
 
     mgr.removeRemote(remote.id);
-    expect(mgr.consumeWebFilePicker("picker-1")).toBeUndefined();
+    expect(mgr.getFilePickerByPollId("picker-1")).toBeUndefined();
     expect(
       mgr.consumePendingFileMentions(
         remote.id,
@@ -233,38 +239,29 @@ describe("removeRemote", () => {
   });
 });
 
-describe("web file picker selection state", () => {
-  it("stores and consumes pending web file picker once", () => {
+describe("file picker selection state", () => {
+  it("stores and removes pending file picker", () => {
     const mgr = createManager();
     const remote = mgr.registerRemote("claude", "telegram:100" as ChannelChatId, "telegram:100" as ChannelUserId);
-    const now = Date.now();
-    mgr.registerWebFilePicker({
-      token: "tok-1",
+    mgr.registerFilePicker({
+      pollId: "tok-1",
+      messageId: "1",
       chatId: "telegram:100" as ChannelChatId,
       ownerUserId: "telegram:100" as ChannelUserId,
       sessionId: remote.id,
       files: ["README.md", "src/app.ts"],
-      expiresAt: now + 60_000,
+      query: "",
+      page: 0,
+      pageSize: 7,
+      totalPages: 1,
+      selectedMentions: ["@README.md"],
+      options: [{ kind: "toggle", mention: "@README.md" }],
     });
 
-    const first = mgr.consumeWebFilePicker("tok-1");
+    const first = mgr.getFilePickerByPollId("tok-1");
     expect(first?.files).toEqual(["README.md", "src/app.ts"]);
-    expect(mgr.consumeWebFilePicker("tok-1")).toBeUndefined();
-  });
-
-  it("drops expired pending web file pickers", () => {
-    const mgr = createManager();
-    const remote = mgr.registerRemote("claude", "telegram:100" as ChannelChatId, "telegram:100" as ChannelUserId);
-    mgr.registerWebFilePicker({
-      token: "tok-expired",
-      chatId: "telegram:100" as ChannelChatId,
-      ownerUserId: "telegram:100" as ChannelUserId,
-      sessionId: remote.id,
-      files: ["README.md"],
-      expiresAt: Date.now() - 1,
-    });
-
-    expect(mgr.consumeWebFilePicker("tok-expired")).toBeUndefined();
+    mgr.removeFilePicker("tok-1");
+    expect(mgr.getFilePickerByPollId("tok-1")).toBeUndefined();
   });
 
   it("stores and consumes pending file mentions once", () => {

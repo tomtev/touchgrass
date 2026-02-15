@@ -21,7 +21,7 @@ import { rotateDaemonAuthToken } from "../security/daemon-auth";
 import { createChannel } from "../channel/factory";
 import type { Formatter } from "../channel/formatter";
 import type { Channel, ChannelChatId, ChannelUserId } from "../channel/types";
-import type { AskQuestion } from "../session/manager";
+import type { AskQuestion, PendingFilePickerOption } from "../session/manager";
 import { stat } from "fs/promises";
 import { basename } from "path";
 
@@ -199,7 +199,176 @@ export async function startDaemon(): Promise<void> {
     }
   }
 
+  function buildFilePickerPage(
+    files: string[],
+    query: string,
+    page: number,
+    selectedMentions: string[],
+    pageSize: number
+  ): {
+    page: number;
+    totalPages: number;
+    options: PendingFilePickerOption[];
+    optionLabels: string[];
+    title: string;
+  } {
+    const totalPages = Math.max(1, Math.ceil(files.length / pageSize));
+    const currentPage = Math.max(0, Math.min(page, totalPages - 1));
+    const start = currentPage * pageSize;
+    const visible = files.slice(start, start + pageSize);
+    const selected = new Set(selectedMentions);
+
+    const options: PendingFilePickerOption[] = visible.map((path) => ({
+      kind: "toggle",
+      mention: `@${path}`,
+    }));
+    const optionLabels: string[] = visible.map((path) => {
+      const mention = `@${path}`;
+      return `${selected.has(mention) ? "✅" : "☑️"} ${mention}`;
+    });
+
+    if (totalPages > 1 && currentPage > 0) {
+      options.push({ kind: "prev" });
+      optionLabels.push("⬅️ Prev");
+    }
+    if (totalPages > 1 && currentPage < totalPages - 1) {
+      options.push({ kind: "next" });
+      optionLabels.push("➡️ Next");
+    }
+    if (selected.size > 0) {
+      options.push({ kind: "clear" });
+      optionLabels.push("🧹 Clear selected");
+    }
+    options.push({ kind: "cancel" });
+    optionLabels.push("❌ Cancel");
+
+    const q = query.trim();
+    const title = q
+      ? `Pick files (${q}) ${currentPage + 1}/${totalPages} • selected ${selected.size}`
+      : `Pick files ${currentPage + 1}/${totalPages} • selected ${selected.size}`;
+
+    return { page: currentPage, totalPages, options, optionLabels, title };
+  }
+
   function handlePollAnswer(answer: { pollId: string; userId: ChannelUserId; optionIds: number[] }) {
+    const filePicker = sessionManager.getFilePickerByPollId(answer.pollId);
+    if (filePicker) {
+      if (!isUserPaired(config, answer.userId)) {
+        logger.warn("Ignoring file picker answer from unpaired user", { userId: answer.userId, pollId: answer.pollId });
+        return;
+      }
+      if (filePicker.ownerUserId !== answer.userId) {
+        logger.warn("Ignoring file picker answer from non-owner", {
+          userId: answer.userId,
+          pollId: answer.pollId,
+          ownerUserId: filePicker.ownerUserId,
+        });
+        return;
+      }
+
+      closePollForChat(filePicker.chatId, filePicker.messageId);
+      sessionManager.removeFilePicker(answer.pollId);
+
+      const selectedIdx = answer.optionIds[0];
+      if (!Number.isFinite(selectedIdx)) return;
+      if (selectedIdx < 0 || selectedIdx >= filePicker.options.length) return;
+      const selected = filePicker.options[selectedIdx];
+
+      if (selected.kind === "cancel") {
+        const pickerFmt = getFormatterForChat(filePicker.chatId);
+        sendToChat(filePicker.chatId, `${pickerFmt.escape("📎")} File picker canceled.`);
+        return;
+      }
+
+      if (selected.kind === "clear") {
+        sessionManager.setPendingFileMentions(
+          filePicker.sessionId,
+          filePicker.chatId,
+          filePicker.ownerUserId,
+          []
+        );
+        const nextPage = buildFilePickerPage(
+          filePicker.files,
+          filePicker.query,
+          filePicker.page,
+          [],
+          filePicker.pageSize
+        );
+        sendPollToChat(filePicker.chatId, nextPage.title, nextPage.optionLabels, false)
+          .then((sent) => {
+            if (!sent) return;
+            sessionManager.registerFilePicker({
+              pollId: sent.pollId,
+              messageId: sent.messageId,
+              chatId: filePicker.chatId,
+              ownerUserId: filePicker.ownerUserId,
+              sessionId: filePicker.sessionId,
+              files: filePicker.files,
+              query: filePicker.query,
+              page: nextPage.page,
+              pageSize: filePicker.pageSize,
+              totalPages: nextPage.totalPages,
+              selectedMentions: [],
+              options: nextPage.options,
+            });
+          })
+          .catch(() => {});
+        return;
+      }
+
+      let nextSelected = filePicker.selectedMentions.slice();
+      let targetPage = filePicker.page;
+      if (selected.kind === "toggle") {
+        if (nextSelected.includes(selected.mention)) {
+          nextSelected = nextSelected.filter((m) => m !== selected.mention);
+        } else {
+          nextSelected.push(selected.mention);
+        }
+      } else if (selected.kind === "next") {
+        targetPage = filePicker.page + 1;
+      } else if (selected.kind === "prev") {
+        targetPage = filePicker.page - 1;
+      }
+
+      if (selected.kind === "toggle") {
+        sessionManager.setPendingFileMentions(
+          filePicker.sessionId,
+          filePicker.chatId,
+          filePicker.ownerUserId,
+          nextSelected
+        );
+      }
+
+      const nextPage = buildFilePickerPage(
+        filePicker.files,
+        filePicker.query,
+        targetPage,
+        nextSelected,
+        filePicker.pageSize
+      );
+
+      sendPollToChat(filePicker.chatId, nextPage.title, nextPage.optionLabels, false)
+        .then((sent) => {
+          if (!sent) return;
+          sessionManager.registerFilePicker({
+            pollId: sent.pollId,
+            messageId: sent.messageId,
+            chatId: filePicker.chatId,
+            ownerUserId: filePicker.ownerUserId,
+            sessionId: filePicker.sessionId,
+            files: filePicker.files,
+            query: filePicker.query,
+            page: nextPage.page,
+            pageSize: filePicker.pageSize,
+            totalPages: nextPage.totalPages,
+            selectedMentions: nextSelected,
+            options: nextPage.options,
+          });
+        })
+        .catch(() => {});
+      return;
+    }
+
     const poll = sessionManager.getPollByPollId(answer.pollId);
     if (!poll) return;
     if (!isUserPaired(config, answer.userId)) {

@@ -38,13 +38,26 @@ export interface PendingQuestionSet {
   answers: number[][]; // collected option_ids per question
 }
 
-export interface PendingWebFilePicker {
-  token: string;
+export type PendingFilePickerOption =
+  | { kind: "toggle"; mention: string }
+  | { kind: "next" }
+  | { kind: "prev" }
+  | { kind: "clear" }
+  | { kind: "cancel" };
+
+export interface PendingFilePicker {
+  pollId: string;
+  messageId: string;
   chatId: ChannelChatId;
   ownerUserId: ChannelUserId;
   sessionId: string;
   files: string[];
-  expiresAt: number;
+  query: string;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+  selectedMentions: string[];
+  options: PendingFilePickerOption[];
 }
 
 export class SessionManager {
@@ -57,8 +70,8 @@ export class SessionManager {
   private pendingPolls: Map<string, PendingPoll> = new Map();
   // Map: sessionId → pending question set (for multi-question flows)
   private pendingQuestions: Map<string, PendingQuestionSet> = new Map();
-  // Map: token → pending Telegram Web App file picker metadata
-  private pendingWebFilePickers: Map<string, PendingWebFilePicker> = new Map();
+  // Map: pollId → pending file picker metadata
+  private pendingFilePickers: Map<string, PendingFilePicker> = new Map();
   // Map: sessionId|chatId|userId → file mentions to prepend on next text input
   private pendingFileMentions: Map<string, string[]> = new Map();
 
@@ -147,7 +160,7 @@ export class SessionManager {
     this.remotes.clear();
     this.attachments.clear();
     this.groupSubscriptions.clear();
-    this.pendingWebFilePickers.clear();
+    this.pendingFilePickers.clear();
     this.pendingFileMentions.clear();
   }
 
@@ -212,8 +225,8 @@ export class SessionManager {
       this.remotes.delete(id);
       this.groupSubscriptions.delete(id);
       this.clearPendingQuestions(id);
-      for (const [token, picker] of this.pendingWebFilePickers) {
-        if (picker.sessionId === id) this.pendingWebFilePickers.delete(token);
+      for (const [pollId, picker] of this.pendingFilePickers) {
+        if (picker.sessionId === id) this.pendingFilePickers.delete(pollId);
       }
       for (const key of this.pendingFileMentions.keys()) {
         if (key.startsWith(`${id}|`)) this.pendingFileMentions.delete(key);
@@ -284,23 +297,16 @@ export class SessionManager {
     this.pendingQuestions.delete(sessionId);
   }
 
-  private pruneExpiredWebFilePickers(now: number = Date.now()): void {
-    for (const [token, picker] of this.pendingWebFilePickers) {
-      if (picker.expiresAt <= now) this.pendingWebFilePickers.delete(token);
-    }
+  registerFilePicker(picker: PendingFilePicker): void {
+    this.pendingFilePickers.set(picker.pollId, picker);
   }
 
-  registerWebFilePicker(picker: PendingWebFilePicker): void {
-    this.pruneExpiredWebFilePickers();
-    this.pendingWebFilePickers.set(picker.token, picker);
+  getFilePickerByPollId(pollId: string): PendingFilePicker | undefined {
+    return this.pendingFilePickers.get(pollId);
   }
 
-  consumeWebFilePicker(token: string): PendingWebFilePicker | undefined {
-    this.pruneExpiredWebFilePickers();
-    const picker = this.pendingWebFilePickers.get(token);
-    if (!picker) return undefined;
-    this.pendingWebFilePickers.delete(token);
-    return picker;
+  removeFilePicker(pollId: string): void {
+    this.pendingFilePickers.delete(pollId);
   }
 
   setPendingFileMentions(

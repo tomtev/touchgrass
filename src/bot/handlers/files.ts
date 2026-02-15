@@ -1,24 +1,9 @@
-import { randomBytes } from "crypto";
 import type { InboundMessage } from "../../channel/types";
 import type { RouterContext } from "../command-router";
-import type { RemoteSession } from "../../session/manager";
+import type { PendingFilePickerOption, RemoteSession } from "../../session/manager";
 
-const FILE_PICKER_TTL_MS = 10 * 60 * 1000;
-const WEB_APP_PARAM = "tgfp";
-const MAX_WEBAPP_FILES = 60;
-
-interface WebAppSelectionPayload {
-  kind: "tg_files_pick";
-  token: string;
-  file: string;
-}
-
-interface WebAppOpenPayload {
-  v: 1;
-  token: string;
-  files: string[];
-  query: string;
-}
+const FILE_PICKER_PAGE_SIZE = 5;
+const FILE_PICKER_MAX_FILES = 500;
 
 function normalizeRelativePath(path: string): string {
   return path.replace(/^\.?\//, "").trim();
@@ -121,68 +106,66 @@ function resolveTargetRemote(msg: InboundMessage, ctx: RouterContext): RemoteSes
   return null;
 }
 
-function getWebAppBaseUrl(ctx: RouterContext): string {
-  const tgCredentials = ctx.config.channels.telegram?.credentials as Record<string, unknown> | undefined;
-  const fromConfig = typeof tgCredentials?.webAppUrl === "string" ? tgCredentials.webAppUrl.trim() : "";
-  const fromEnv = (process.env.TG_TELEGRAM_FILE_PICKER_URL || "").trim();
-  return fromConfig || fromEnv;
-}
+export function buildFilePickerPage(
+  files: string[],
+  query: string,
+  page: number,
+  selectedMentions: string[] = [],
+  pageSize: number = FILE_PICKER_PAGE_SIZE
+): {
+  page: number;
+  totalPages: number;
+  options: PendingFilePickerOption[];
+  optionLabels: string[];
+  title: string;
+} {
+  const totalPages = Math.max(1, Math.ceil(files.length / pageSize));
+  const currentPage = Math.max(0, Math.min(page, totalPages - 1));
+  const start = currentPage * pageSize;
+  const visible = files.slice(start, start + pageSize);
+  const selected = new Set(selectedMentions);
 
-function buildWebAppUrl(baseUrl: string, payload: WebAppOpenPayload): string {
-  const encoded = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
-  try {
-    const url = new URL(baseUrl);
-    url.searchParams.set(WEB_APP_PARAM, encoded);
-    return url.toString();
-  } catch {
-    const sep = baseUrl.includes("?") ? "&" : "?";
-    return `${baseUrl}${sep}${WEB_APP_PARAM}=${encodeURIComponent(encoded)}`;
+  const options: PendingFilePickerOption[] = visible.map((path) => ({
+    kind: "toggle",
+    mention: `@${path}`,
+  }));
+  const optionLabels: string[] = visible.map((path) => {
+    const mention = `@${path}`;
+    return `${selected.has(mention) ? "✅" : "☑️"} ${mention}`;
+  });
+
+  if (totalPages > 1 && currentPage > 0) {
+    options.push({ kind: "prev" });
+    optionLabels.push("⬅️ Prev");
   }
-}
-
-function parseWebAppSelectionPayload(raw: string): WebAppSelectionPayload | null {
-  const trimmed = raw.trim();
-  if (!trimmed) return null;
-
-  const candidates = new Set<string>([trimmed]);
-  if (trimmed.includes("%")) {
-    try {
-      candidates.add(decodeURIComponent(trimmed));
-    } catch {
-      // ignore malformed URI input
-    }
+  if (totalPages > 1 && currentPage < totalPages - 1) {
+    options.push({ kind: "next" });
+    optionLabels.push("➡️ Next");
   }
-  if (/^[A-Za-z0-9_-]+$/.test(trimmed)) {
-    try {
-      candidates.add(Buffer.from(trimmed, "base64url").toString("utf8"));
-    } catch {
-      // ignore malformed base64 input
-    }
+  if (selected.size > 0) {
+    options.push({ kind: "clear" });
+    optionLabels.push("🧹 Clear selected");
   }
+  options.push({ kind: "cancel" });
+  optionLabels.push("❌ Cancel");
 
-  for (const candidate of candidates) {
-    try {
-      const parsed = JSON.parse(candidate) as Partial<WebAppSelectionPayload>;
-      if (parsed.kind !== "tg_files_pick") continue;
-      if (typeof parsed.token !== "string" || !parsed.token.trim()) continue;
-      if (typeof parsed.file !== "string" || !parsed.file.trim()) continue;
-      return {
-        kind: "tg_files_pick",
-        token: parsed.token.trim(),
-        file: normalizeRelativePath(parsed.file),
-      };
-    } catch {
-      // not JSON
-    }
-  }
+  const q = query.trim();
+  const title = q
+    ? `Pick files (${q}) ${currentPage + 1}/${totalPages} • selected ${selected.size}`
+    : `Pick files ${currentPage + 1}/${totalPages} • selected ${selected.size}`;
 
-  return null;
+  return {
+    page: currentPage,
+    totalPages,
+    options,
+    optionLabels,
+    title,
+  };
 }
 
 export const __filePickerTestUtils = {
-  buildWebAppUrl,
+  buildFilePickerPage,
   fileScore,
-  parseWebAppSelectionPayload,
   rankFiles,
   subsequenceScore,
 };
@@ -216,98 +199,35 @@ export async function handleFilesCommand(
     return;
   }
 
-  const ranked = rankFiles(files, query).slice(0, MAX_WEBAPP_FILES);
+  const ranked = rankFiles(files, query).slice(0, FILE_PICKER_MAX_FILES);
   if (ranked.length === 0) {
     await ctx.channel.send(chatId, `No files matched ${fmt.code(fmt.escape(query))}.`);
     return;
   }
 
-  const baseUrl = getWebAppBaseUrl(ctx);
-  if (!ctx.channel.sendWebAppButton || !baseUrl || !baseUrl.startsWith("https://")) {
+  if (!ctx.channel.sendPoll) {
     const preview = ranked.slice(0, 12).map((path) => fmt.code(fmt.escape(`@${path}`))).join("\n");
     await ctx.channel.send(
       chatId,
-      `${fmt.bold("File picker popup is not configured.")}\nSet ${fmt.code("channels.telegram.credentials.webAppUrl")} in ${fmt.code("~/.touchgrass/config.json")} to an ${fmt.code("https://")} URL for the picker web app.\n\n${fmt.bold("Top matches:")}\n${preview}`
+      `${fmt.bold("This channel does not support inline picker buttons.")}\n${fmt.bold("Top matches:")}\n${preview}`
     );
     return;
   }
 
-  // Telegram Web App inline keyboard buttons are only supported in private chats.
-  // In groups/topics Telegram returns BUTTON_TYPE_INVALID.
-  if (msg.isGroup) {
-    await ctx.channel.send(
-      chatId,
-      `${fmt.bold("Popup picker works in DM only.")}\nTelegram does not allow Web App popup buttons in groups/topics.\nOpen a private chat with the bot and run ${fmt.code("/files")} there.`
-    );
-    return;
-  }
-
-  const token = `wfp-${randomBytes(8).toString("hex")}`;
-  ctx.sessionManager.registerWebFilePicker({
-    token,
+  const firstPage = buildFilePickerPage(ranked, query, 0, [], FILE_PICKER_PAGE_SIZE);
+  const sent = await ctx.channel.sendPoll(chatId, firstPage.title, firstPage.optionLabels, false);
+  ctx.sessionManager.registerFilePicker({
+    pollId: sent.pollId,
+    messageId: sent.messageId,
     chatId,
     ownerUserId: userId,
     sessionId: remote.id,
     files: ranked,
-    expiresAt: Date.now() + FILE_PICKER_TTL_MS,
-  });
-
-  const openUrl = buildWebAppUrl(baseUrl, {
-    v: 1,
-    token,
-    files: ranked,
     query: query.trim(),
+    page: firstPage.page,
+    pageSize: FILE_PICKER_PAGE_SIZE,
+    totalPages: firstPage.totalPages,
+    selectedMentions: [],
+    options: firstPage.options,
   });
-
-  const title = query.trim()
-    ? `${fmt.bold("File picker")} ${fmt.escape(`(${query.trim()})`)}`
-    : fmt.bold("File picker");
-  await ctx.channel.sendWebAppButton(
-    chatId,
-    `${fmt.escape("📎")} ${title}\n${fmt.escape("Open the popup and choose a file for your next message.")}`,
-    "Open file picker",
-    openUrl
-  );
-}
-
-export async function handleFilesPickCommand(
-  msg: InboundMessage,
-  payloadRaw: string,
-  ctx: RouterContext
-): Promise<void> {
-  const { fmt } = ctx.channel;
-  const chatId = msg.chatId;
-  const parsed = parseWebAppSelectionPayload(payloadRaw);
-  if (!parsed) {
-    await ctx.channel.send(chatId, "Invalid file picker payload.");
-    return;
-  }
-
-  const picker = ctx.sessionManager.consumeWebFilePicker(parsed.token);
-  if (!picker) {
-    await ctx.channel.send(chatId, "That picker expired. Run /files again.");
-    return;
-  }
-
-  if (picker.ownerUserId !== msg.userId || picker.chatId !== chatId) {
-    await ctx.channel.send(chatId, "This picker belongs to a different user or chat.");
-    return;
-  }
-
-  if (!picker.files.includes(parsed.file)) {
-    await ctx.channel.send(chatId, "That file is not in the current picker results.");
-    return;
-  }
-
-  const mention = `@${parsed.file}`;
-  ctx.sessionManager.setPendingFileMentions(
-    picker.sessionId,
-    picker.chatId,
-    picker.ownerUserId,
-    [mention]
-  );
-  await ctx.channel.send(
-    chatId,
-    `${fmt.escape("📎")} File selected for next message: ${fmt.code(fmt.escape(mention))}`
-  );
 }

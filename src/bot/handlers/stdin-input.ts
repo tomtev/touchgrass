@@ -40,7 +40,7 @@ export async function handleStdinInput(
   const applyPendingFileMentions = (remoteSession: RemoteSession, rawText: string): string => {
     const mentions = ctx.sessionManager.consumePendingFileMentions(remoteSession.id, chatId, userId);
     if (mentions.length === 0) return rawText;
-    return `${mentions.join(" ")} ${rawText}`.trim();
+    return `${mentions.join(" ")} - ${rawText}`.trim();
   };
 
   // 1. Check attached remote sessions

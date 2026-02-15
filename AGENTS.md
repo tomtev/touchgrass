@@ -64,6 +64,12 @@ tg kill <id>
 
 - Telegram is the only supported channel.
 - If the user asks to "update", that means running the curl installer command above.
+- After every new release/update, always restart the daemon before testing:
+```bash
+old_pid=$(cat ~/.touchgrass/daemon.pid 2>/dev/null || true)
+[ -n "$old_pid" ] && kill "$old_pid" 2>/dev/null || true
+tg channels
+```
 - Session IDs are tagged and partial matching is supported in several CLI commands.
 - Use `tg stop` first and `tg kill` only if needed.
 - Keep routing changes covered by tests in `src/__tests__/`.
