@@ -188,7 +188,7 @@ export async function startDaemon(): Promise<void> {
     const matches = text.match(/https?:\/\/[^\s<>)\]}]+/gi) || [];
     const deduped = new Set<string>();
     for (const raw of matches) {
-      const url = raw.replace(/[),.;!?]+$/g, "");
+      const url = raw.replace(/^[('"`]+|[),.;!?'"`]+$/g, "");
       if (!url) continue;
       deduped.add(url);
       if (deduped.size >= 5) break;

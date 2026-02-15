@@ -156,4 +156,49 @@ describe("background job parser", () => {
       },
     ]);
   });
+
+  it("strips trailing quotes from detected URLs", () => {
+    __cliRunTestUtils.resetParserState();
+
+    __cliRunTestUtils.parseJsonlMessage({
+      type: "assistant",
+      message: {
+        content: [
+          {
+            type: "tool_use",
+            id: "toolu_q1",
+            name: "Bash",
+            input: { command: "node server.js --port 8789", run_in_background: true },
+          },
+        ],
+      },
+    });
+
+    const parsed = __cliRunTestUtils.parseJsonlMessage({
+      type: "user",
+      message: {
+        role: "user",
+        content: [
+          {
+            tool_use_id: "toolu_q1",
+            type: "tool_result",
+            content:
+              "Command running in background with ID: bg_8789. Output is being written to: /tmp/bg_8789.output\nURL: http://localhost:8789'",
+            is_error: false,
+          },
+        ],
+      },
+      toolUseResult: { backgroundTaskId: "bg_8789" },
+    });
+
+    expect(parsed.backgroundJobEvents).toEqual([
+      {
+        taskId: "bg_8789",
+        status: "running",
+        command: "node server.js --port 8789",
+        outputFile: "/tmp/bg_8789.output",
+        urls: ["http://localhost:8789"],
+      },
+    ]);
+  });
 });
