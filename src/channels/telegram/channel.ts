@@ -383,6 +383,7 @@ export class TelegramChannel implements Channel {
       await this.api.setMyCommands([
         { command: "files", description: "Pick repo paths for next message" },
         { command: "resume", description: "Pick and resume a previous session" },
+        { command: "background_jobs", description: "List running background jobs" },
         { command: "link", description: "Add this chat as a channel" },
         { command: "unlink", description: "Remove this chat as a channel" },
         { command: "help", description: "Show help" },

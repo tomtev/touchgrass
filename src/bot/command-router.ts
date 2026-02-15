@@ -39,6 +39,7 @@ export async function routeMessage(
   else if (text === "tg sessions") text = "/sessions";
   else if (text === "tg files" || text.startsWith("tg files ")) text = `/files${text.slice("tg files".length)}`;
   else if (text === "tg resume") text = "/resume";
+  else if (text === "tg background_jobs" || text.startsWith("tg background_jobs ")) text = "/background_jobs";
   else if (text === "tg background-jobs" || text.startsWith("tg background-jobs ")) text = "/background-jobs";
   else if (text === "tg link" || text.startsWith("tg link ")) text = `/link${text.slice("tg link".length)}`;
   else if (text === "tg unlink") text = "/unlink";
@@ -133,7 +134,7 @@ export async function routeMessage(
   }
 
   // /background-jobs — list currently running background jobs
-  if (text === "/background-jobs") {
+  if (text === "/background-jobs" || text === "/background_jobs") {
     await handleBackgroundJobsCommand({ ...msg, text }, ctx);
     return;
   }

@@ -103,4 +103,42 @@ describe("background jobs handler", () => {
     expect(sent[0]).toContain("Background jobs (1 running)");
     expect(sent[0]).toContain("bg_42");
   });
+
+  it("routes /background_jobs command through command router", async () => {
+    const sent: string[] = [];
+    const config = {
+      channels: {
+        telegram: {
+          type: "telegram",
+          credentials: {},
+          pairedUsers: [{ userId: "telegram:1", pairedAt: new Date().toISOString() }],
+          linkedGroups: [],
+        },
+      },
+      settings: defaultSettings,
+    };
+    const sessionManager = new SessionManager(defaultSettings);
+    const ctx = {
+      config,
+      sessionManager,
+      channel: {
+        fmt,
+        send: async (_chatId: string, content: string) => sent.push(content),
+      },
+      listBackgroundJobs: () => [{
+        sessionId: "r-def456",
+        command: "claude",
+        cwd: "/tmp/touchgrass",
+        jobs: [{ taskId: "bg_99", updatedAt: Date.now() - 1_000 }],
+      }],
+    } as any;
+
+    await routeMessage(
+      { userId: "telegram:1", chatId: "telegram:100", text: "/background_jobs" },
+      ctx
+    );
+
+    expect(sent[0]).toContain("Background jobs (1 running)");
+    expect(sent[0]).toContain("bg_99");
+  });
 });

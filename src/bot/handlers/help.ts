@@ -13,7 +13,7 @@ ${fmt.bold("Commands:")}
 ${fmt.code("@?query")} ${fmt.escape("—")} Shorthand for file picker (same as /files query)
 ${fmt.code("@?query - prompt")} ${fmt.escape("—")} Resolve top path and send as @path - prompt
 /resume ${fmt.escape("or")} ${fmt.code("tg resume")} ${fmt.escape("—")} Pick a previous session and restart this tool on it
-/background-jobs ${fmt.escape("or")} ${fmt.code("tg background-jobs")} ${fmt.escape("—")} Show currently running background jobs
+/background_jobs ${fmt.escape("or")} ${fmt.code("/background-jobs")} ${fmt.escape("or")} ${fmt.code("tg background-jobs")} ${fmt.escape("—")} Show currently running background jobs
 /link ${fmt.escape("or")} ${fmt.code("tg link")} ${fmt.escape("—")} Add this chat as a channel
 /unlink ${fmt.escape("or")} ${fmt.code("tg unlink")} ${fmt.escape("—")} Remove this chat as a channel
 /help ${fmt.escape("or")} ${fmt.code("tg help")} ${fmt.escape("—")} Show this help
