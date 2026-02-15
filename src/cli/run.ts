@@ -31,6 +31,11 @@ export const __cliRunTestUtils = {
   encodeBracketedPaste,
   buildResumeCommandArgs,
   parseCodexResumeArgs,
+  parseJsonlMessage,
+  resetParserState: () => {
+    toolUseIdToName.clear();
+    toolUseIdToInput.clear();
+  },
 };
 
 interface OwnerChannelResolution {
@@ -69,7 +74,7 @@ function resolveOwnerChannel(config: TgConfig, preferredChannelType?: string): O
 }
 
 // Arrow-key picker for terminal selection
-function terminalPicker(title: string, options: string[], hint?: string, disabled?: Set<number>): Promise<number> {
+export function terminalPicker(title: string, options: string[], hint?: string, disabled?: Set<number>): Promise<number> {
   return new Promise((resolve) => {
     const dis = disabled || new Set<number>();
     // Start cursor on first non-disabled option
@@ -252,16 +257,27 @@ interface ToolResultInfo {
   isError: boolean;
 }
 
+interface BackgroundJobEventInfo {
+  taskId: string;
+  status: "running" | "completed" | "failed" | "killed";
+  command?: string;
+  outputFile?: string;
+  summary?: string;
+  urls?: string[];
+}
+
 interface ParsedMessage {
   assistantText: string | null;
   thinking: string | null;
   questions: unknown[] | null;
   toolCalls: ToolCallInfo[];
   toolResults: ToolResultInfo[];
+  backgroundJobEvents: BackgroundJobEventInfo[];
 }
 
 // Map tool_use_id/call_id → tool name so we can label tool_results
 const toolUseIdToName = new Map<string, string>();
+const toolUseIdToInput = new Map<string, Record<string, unknown>>();
 
 // Only forward results for tools where the output is useful to see on Telegram
 const FORWARD_RESULT_TOOLS = new Set([
@@ -275,8 +291,25 @@ const isToolRejection = (text: string) =>
   text.includes("The user doesn't want to proceed with this tool use");
 
 const EMPTY_PARSED: ParsedMessage = {
-  assistantText: null, thinking: null, questions: null, toolCalls: [], toolResults: [],
+  assistantText: null, thinking: null, questions: null, toolCalls: [], toolResults: [], backgroundJobEvents: [],
 };
+
+function extractTaskNotificationTag(content: string, tag: string): string | undefined {
+  const match = content.match(new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`, "i"));
+  return match?.[1]?.trim() || undefined;
+}
+
+function extractUrls(text: string): string[] {
+  if (!text) return [];
+  const matches = text.match(/https?:\/\/[^\s<>)\]}]+/gi) || [];
+  const deduped = new Set<string>();
+  for (const raw of matches) {
+    const url = raw.replace(/[),.;!?]+$/g, "");
+    if (url) deduped.add(url);
+    if (deduped.size >= 3) break;
+  }
+  return Array.from(deduped);
+}
 
 function parseJsonlMessage(msg: Record<string, unknown>): ParsedMessage {
   // Claude assistant — text, thinking, tool calls, and questions in one loop
@@ -300,7 +333,10 @@ function parseJsonlMessage(msg: Record<string, unknown>): ParsedMessage {
           const name = block.name as string;
           if (!name) break;
           const toolId = (block.id as string) || "";
-          if (toolId) toolUseIdToName.set(toolId, name);
+          if (toolId) {
+            toolUseIdToName.set(toolId, name);
+            toolUseIdToInput.set(toolId, ((block.input as Record<string, unknown>) || {}));
+          }
           if (name === "AskUserQuestion") {
             const input = block.input as Record<string, unknown> | undefined;
             if (input?.questions && Array.isArray(input.questions)) {
@@ -316,7 +352,7 @@ function parseJsonlMessage(msg: Record<string, unknown>): ParsedMessage {
     capIdMap();
     const assistantText = texts.join("\n").trim() || null;
     const thinking = thinkings.join("\n").trim() || null;
-    return { assistantText, thinking, questions, toolCalls, toolResults: [] };
+    return { assistantText, thinking, questions, toolCalls, toolResults: [], backgroundJobEvents: [] };
   }
 
   // PI format — role determines assistant vs tool result
@@ -341,8 +377,12 @@ function parseJsonlMessage(msg: Record<string, unknown>): ParsedMessage {
             const name = block.name as string;
             if (!name) break;
             const toolId = (block.id as string) || "";
-            if (toolId) toolUseIdToName.set(toolId, name);
-            toolCalls.push({ id: toolId, name, input: (block.arguments as Record<string, unknown>) || {} });
+            const input = (block.arguments as Record<string, unknown>) || {};
+            if (toolId) {
+              toolUseIdToName.set(toolId, name);
+              toolUseIdToInput.set(toolId, input);
+            }
+            toolCalls.push({ id: toolId, name, input });
             break;
           }
         }
@@ -350,7 +390,7 @@ function parseJsonlMessage(msg: Record<string, unknown>): ParsedMessage {
       capIdMap();
       const assistantText = texts.join("\n").trim() || null;
       const thinking = thinkings.join("\n").trim() || null;
-      return { assistantText, thinking, questions: null, toolCalls, toolResults: [] };
+      return { assistantText, thinking, questions: null, toolCalls, toolResults: [], backgroundJobEvents: [] };
     }
 
     if (m.role === "toolResult") {
@@ -377,9 +417,16 @@ function parseJsonlMessage(msg: Record<string, unknown>): ParsedMessage {
     if (!m?.content || !Array.isArray(m.content)) return EMPTY_PARSED;
     const content = m.content as Array<Record<string, unknown>>;
     const toolResults: ToolResultInfo[] = [];
+    const backgroundJobEvents: BackgroundJobEventInfo[] = [];
+    const seenBackgroundIds = new Set<string>();
+    const rootToolUseResult = msg.toolUseResult as Record<string, unknown> | undefined;
+    const rootBackgroundTaskId = typeof rootToolUseResult?.backgroundTaskId === "string"
+      ? rootToolUseResult.backgroundTaskId
+      : undefined;
     for (const block of content) {
       if (block.type !== "tool_result") continue;
-      const toolName = toolUseIdToName.get(block.tool_use_id as string) ?? "";
+      const toolUseId = (block.tool_use_id as string) || "";
+      const toolName = toolUseIdToName.get(toolUseId) ?? "";
       const isError = block.is_error === true;
       if (!isError && !FORWARD_RESULT_TOOLS.has(toolName)) continue;
       let text = "";
@@ -393,10 +440,61 @@ function parseJsonlMessage(msg: Record<string, unknown>): ParsedMessage {
           .join("\n");
       }
       if (isError && isToolRejection(text)) continue;
-      if (text.trim()) toolResults.push({ toolName: toolName || "unknown", content: text.trim(), isError });
+      const trimmedText = text.trim();
+      if (trimmedText) toolResults.push({ toolName: toolName || "unknown", content: trimmedText, isError });
+
+      const startedIdFromText = trimmedText.match(/Command running in background with ID:\s*([A-Za-z0-9_-]+)/i)?.[1];
+      const taskId = startedIdFromText || rootBackgroundTaskId;
+      if (taskId && !seenBackgroundIds.has(taskId)) {
+        seenBackgroundIds.add(taskId);
+        const commandInput = toolUseIdToInput.get(toolUseId);
+        const command = typeof commandInput?.command === "string" ? commandInput.command : undefined;
+        const outputFile = trimmedText.match(/Output is being written to:\s*([^\s]+)/i)?.[1];
+        const urls = extractUrls(trimmedText);
+        backgroundJobEvents.push({
+          taskId,
+          status: "running",
+          command,
+          outputFile,
+          urls: urls.length > 0 ? urls : undefined,
+        });
+      }
     }
-    if (toolResults.length === 0) return EMPTY_PARSED;
-    return { ...EMPTY_PARSED, toolResults };
+    if (toolResults.length === 0 && backgroundJobEvents.length === 0) return EMPTY_PARSED;
+    return { ...EMPTY_PARSED, toolResults, backgroundJobEvents };
+  }
+
+  // Claude queue notifications for background job lifecycle
+  if (msg.type === "queue-operation") {
+    const operation = (msg.operation as string) || "";
+    if (operation !== "enqueue") return EMPTY_PARSED;
+    const content = (msg.content as string) || "";
+    if (!content.includes("<task-notification>")) return EMPTY_PARSED;
+    const taskId = extractTaskNotificationTag(content, "task-id");
+    const statusRaw = (extractTaskNotificationTag(content, "status") || "").toLowerCase();
+    if (!taskId || !statusRaw) return EMPTY_PARSED;
+    const summary = extractTaskNotificationTag(content, "summary");
+    const outputFile = extractTaskNotificationTag(content, "output-file");
+    const urls = extractUrls(content);
+    const commandMatch = summary?.match(/Background command \"([\\s\\S]+?)\" was/i);
+    const command = commandMatch?.[1];
+    let status: BackgroundJobEventInfo["status"] | null = null;
+    if (statusRaw === "running" || statusRaw === "started" || statusRaw === "start") status = "running";
+    else if (statusRaw === "completed" || statusRaw === "done" || statusRaw === "success") status = "completed";
+    else if (statusRaw === "failed" || statusRaw === "error") status = "failed";
+    else if (statusRaw === "killed" || statusRaw === "stopped" || statusRaw === "terminated") status = "killed";
+    if (!status) return EMPTY_PARSED;
+    return {
+      ...EMPTY_PARSED,
+      backgroundJobEvents: [{
+        taskId,
+        status,
+        summary,
+        outputFile,
+        command,
+        urls: urls.length > 0 ? urls : undefined,
+      }],
+    };
   }
 
   // Codex event_msg — assistant text or reasoning
@@ -426,6 +524,7 @@ function parseJsonlMessage(msg: Record<string, unknown>): ParsedMessage {
       if (typeof payload.arguments === "string") {
         try { input = JSON.parse(payload.arguments); } catch {}
       }
+      if (callId) toolUseIdToInput.set(callId, input);
       capIdMap();
       return { ...EMPTY_PARSED, toolCalls: [{ id: callId, name: payload.name, input }] };
     }
@@ -436,6 +535,7 @@ function parseJsonlMessage(msg: Record<string, unknown>): ParsedMessage {
       const input: Record<string, unknown> = typeof payload.input === "string"
         ? { content: payload.input }
         : {};
+      if (callId) toolUseIdToInput.set(callId, input);
       capIdMap();
       return { ...EMPTY_PARSED, toolCalls: [{ id: callId, name: payload.name, input }] };
     }
@@ -454,8 +554,14 @@ function parseJsonlMessage(msg: Record<string, unknown>): ParsedMessage {
 }
 
 function capIdMap() {
-  if (toolUseIdToName.size > 200) {
+  while (toolUseIdToName.size > 200) {
     const first = toolUseIdToName.keys().next().value!;
+    toolUseIdToName.delete(first);
+    toolUseIdToInput.delete(first);
+  }
+  while (toolUseIdToInput.size > 200) {
+    const first = toolUseIdToInput.keys().next().value!;
+    toolUseIdToInput.delete(first);
     toolUseIdToName.delete(first);
   }
 }
@@ -511,6 +617,7 @@ function watchSessionFile(
   onToolCall?: (calls: ToolCallInfo[]) => void,
   onThinking?: (text: string) => void,
   onToolResult?: (results: ToolResultInfo[]) => void,
+  onBackgroundJobEvent?: (events: BackgroundJobEventInfo[]) => void,
   onMessageParsed?: (msg: Record<string, unknown>) => void,
   startFromEnd?: boolean,
 ): FSWatcher {
@@ -587,6 +694,9 @@ function watchSessionFile(
             if (onQuestion && parsed.questions) onQuestion(parsed.questions);
             if (onToolCall && parsed.toolCalls.length > 0) onToolCall(parsed.toolCalls);
             if (onToolResult && parsed.toolResults.length > 0) onToolResult(parsed.toolResults);
+            if (onBackgroundJobEvent && parsed.backgroundJobEvents.length > 0) {
+              onBackgroundJobEvent(parsed.backgroundJobEvents);
+            }
             if (onThinking && parsed.thinking) onThinking(parsed.thinking);
           } catch {} // skip malformed JSONL lines
         }
@@ -1382,6 +1492,21 @@ export async function runRun(): Promise<void> {
             }
           : undefined;
 
+        const onBackgroundJobEvent = tgRemoteId
+          ? (events: BackgroundJobEventInfo[]) => {
+              for (const event of events) {
+                daemonRequest(`/remote/${tgRemoteId}/background-job`, "POST", {
+                  taskId: event.taskId,
+                  status: event.status,
+                  command: event.command,
+                  outputFile: event.outputFile,
+                  summary: event.summary,
+                  urls: event.urls,
+                }).catch(() => {});
+              }
+            }
+          : undefined;
+
         watcherRef.current = watchSessionFile(sessionFile, (text) => {
           // Determine target chats: bound chat + subscribed groups.
           const targets = new Set<ChannelChatId>();
@@ -1396,7 +1521,7 @@ export async function runRun(): Promise<void> {
           for (const cid of targets) {
             tgChannel.send(cid, formatted).catch(() => {});
           }
-        }, onQuestion, onToolCall, onThinking, onToolResult, (msg) => {
+        }, onQuestion, onToolCall, onThinking, onToolResult, onBackgroundJobEvent, (msg) => {
           if (typeof msg.sessionId === "string") activeClaudeSessionId = msg.sessionId;
         }, skipExisting);
       };

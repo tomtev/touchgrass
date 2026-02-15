@@ -1,5 +1,14 @@
 import { TelegramApi, type TelegramUpdate, type TelegramInlineKeyboardButton } from "./api";
-import type { Channel, ChannelChatId, InboundMessage, PollResult, PollAnswerHandler } from "../../channel/types";
+import type {
+  Channel,
+  ChannelChatId,
+  ClearStatusBoardOptions,
+  InboundMessage,
+  PollResult,
+  PollAnswerHandler,
+  StatusBoardResult,
+  StatusBoardOptions,
+} from "../../channel/types";
 import { TelegramFormatter } from "./telegram-formatter";
 import { escapeHtml, chunkText } from "./formatter";
 import { stripAnsi } from "../../utils/ansi";
@@ -53,6 +62,7 @@ export class TelegramChannel implements Channel {
   private topicNames: Map<string, string> = new Map();
   private actionPollById: Map<string, { chatId: ChannelChatId; messageId: number }> = new Map();
   private actionPollByMessage: Map<string, string> = new Map();
+  private statusBoards: Map<string, { messageId: number; pinned: boolean }> = new Map();
   onPollAnswer: PollAnswerHandler | null = null;
   onDeadChat: ((chatId: ChannelChatId, error: Error) => void) | null = null;
 
@@ -231,6 +241,98 @@ export class TelegramChannel implements Channel {
     } catch {
       // Poll may already be closed
     }
+  }
+
+  private statusBoardMapKey(chatId: ChannelChatId, boardKey: string): string {
+    return `${chatId}::${boardKey}`;
+  }
+
+  async upsertStatusBoard(
+    chatId: ChannelChatId,
+    boardKey: string,
+    html: string,
+    options?: StatusBoardOptions
+  ): Promise<StatusBoardResult | void> {
+    const key = this.statusBoardMapKey(chatId, boardKey);
+    const explicitMessageId = options?.messageId ? Number(options.messageId) : null;
+    const existing = this.statusBoards.get(key)
+      || (explicitMessageId && Number.isFinite(explicitMessageId)
+        ? { messageId: explicitMessageId, pinned: options?.pinned === true }
+        : undefined);
+    const { chatId: numChatId, threadId } = fromChatId(chatId);
+
+    let messageId = existing?.messageId ?? null;
+    let pinned = existing?.pinned ?? options?.pinned ?? false;
+
+    if (messageId) {
+      try {
+        await this.api.editMessageText(numChatId, messageId, html, "HTML", threadId);
+      } catch {
+        // Older Telegram messages can become non-editable; send a fresh status board.
+        try {
+          const sent = await this.api.sendMessage(numChatId, html, "HTML", threadId);
+          if (existing?.pinned) {
+            await this.api.unpinChatMessage(numChatId, existing.messageId).catch(() => {});
+            pinned = false;
+          }
+          messageId = sent.message_id;
+        } catch (e) {
+          const err = e as Error;
+          await logger.error("Failed to upsert status board", { chatId, boardKey, error: err.message });
+          if (this.isDeadChatError(err.message)) this.onDeadChat?.(chatId, err);
+          return;
+        }
+      }
+    } else {
+      try {
+        const sent = await this.api.sendMessage(numChatId, html, "HTML", threadId);
+        messageId = sent.message_id;
+      } catch (e) {
+        const err = e as Error;
+        await logger.error("Failed to send status board", { chatId, boardKey, error: err.message });
+        if (this.isDeadChatError(err.message)) this.onDeadChat?.(chatId, err);
+        return;
+      }
+    }
+
+    if (options?.pin && !pinned && messageId) {
+      try {
+        await this.api.pinChatMessage(numChatId, messageId, true);
+        pinned = true;
+      } catch {
+        // Pin is optional; keep board updates working even without pin permission.
+      }
+    }
+
+    if (messageId) {
+      this.statusBoards.set(key, { messageId, pinned });
+      return { messageId: String(messageId), pinned };
+    }
+  }
+
+  async clearStatusBoard(
+    chatId: ChannelChatId,
+    boardKey: string,
+    options?: ClearStatusBoardOptions
+  ): Promise<StatusBoardResult | void> {
+    const key = this.statusBoardMapKey(chatId, boardKey);
+    const explicitMessageId = options?.messageId ? Number(options.messageId) : null;
+    const existing = this.statusBoards.get(key)
+      || (explicitMessageId && Number.isFinite(explicitMessageId)
+        ? { messageId: explicitMessageId, pinned: options?.pinned === true }
+        : undefined);
+    if (!existing) return;
+    this.statusBoards.delete(key);
+
+    if (options?.unpin && existing.pinned) {
+      const { chatId: numChatId } = fromChatId(chatId);
+      try {
+        await this.api.unpinChatMessage(numChatId, existing.messageId);
+      } catch {
+        // Ignore unpin failures (message may already be unpinned/deleted).
+      }
+    }
+    return { messageId: String(existing.messageId), pinned: false };
   }
 
   // Strip @BotUsername from text (Telegram adds this in groups)

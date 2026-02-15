@@ -20,6 +20,23 @@ export interface PollResult {
   messageId: string;
 }
 
+export interface StatusBoardOptions {
+  pin?: boolean;
+  messageId?: string;
+  pinned?: boolean;
+}
+
+export interface ClearStatusBoardOptions {
+  unpin?: boolean;
+  messageId?: string;
+  pinned?: boolean;
+}
+
+export interface StatusBoardResult {
+  messageId?: string;
+  pinned?: boolean;
+}
+
 export type PollAnswerHandler = (answer: {
   pollId: string;
   userId: ChannelUserId;
@@ -41,6 +58,17 @@ export interface Channel {
   // Optional capabilities — not all channels support these
   sendPoll?(chatId: ChannelChatId, question: string, options: string[], multiSelect: boolean): Promise<PollResult>;
   closePoll?(chatId: ChannelChatId, messageId: string): Promise<void>;
+  upsertStatusBoard?(
+    chatId: ChannelChatId,
+    boardKey: string,
+    html: string,
+    options?: StatusBoardOptions
+  ): Promise<StatusBoardResult | void>;
+  clearStatusBoard?(
+    chatId: ChannelChatId,
+    boardKey: string,
+    options?: ClearStatusBoardOptions
+  ): Promise<StatusBoardResult | void>;
   onPollAnswer?: PollAnswerHandler | null;
   validateChat?(chatId: ChannelChatId): Promise<boolean>;
   getBotName?(): Promise<string>;

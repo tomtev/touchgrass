@@ -279,4 +279,19 @@ export class TelegramApi {
   async answerCallbackQuery(callbackQueryId: string): Promise<boolean> {
     return this.call<boolean>("answerCallbackQuery", { callback_query_id: callbackQueryId });
   }
+
+  async pinChatMessage(chatId: number, messageId: number, disableNotification = true): Promise<boolean> {
+    return this.call<boolean>("pinChatMessage", {
+      chat_id: chatId,
+      message_id: messageId,
+      disable_notification: disableNotification,
+    });
+  }
+
+  async unpinChatMessage(chatId: number, messageId: number): Promise<boolean> {
+    return this.call<boolean>("unpinChatMessage", {
+      chat_id: chatId,
+      message_id: messageId,
+    });
+  }
 }

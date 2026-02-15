@@ -16,6 +16,7 @@ import { startControlServer, type ChannelInfo } from "./control-server";
 import { routeMessage } from "../bot/command-router";
 import { buildResumePickerPage } from "../bot/handlers/resume";
 import { SessionManager } from "../session/manager";
+import { paths } from "../config/paths";
 import { generatePairingCode } from "../security/pairing";
 import { isUserPaired } from "../security/allowlist";
 import { rotateDaemonAuthToken } from "../security/daemon-auth";
@@ -23,8 +24,8 @@ import { createChannel } from "../channel/factory";
 import type { Formatter } from "../channel/formatter";
 import type { Channel, ChannelChatId, ChannelUserId } from "../channel/types";
 import type { AskQuestion, PendingFilePickerOption } from "../session/manager";
-import { stat } from "fs/promises";
-import { basename } from "path";
+import { chmod, open, readFile, stat, writeFile } from "fs/promises";
+import { basename, join } from "path";
 
 const DAEMON_STARTED_AT = Date.now();
 
@@ -33,6 +34,44 @@ function sessionLabel(command: string, cwd: string): string {
   const tool = command.split(" ")[0];
   const folder = cwd.split("/").pop();
   return folder ? `${tool} (${folder})` : tool;
+}
+
+type BackgroundJobStatus = "running" | "completed" | "failed" | "killed";
+
+interface BackgroundJobState {
+  taskId: string;
+  status: BackgroundJobStatus;
+  command?: string;
+  outputFile?: string;
+  summary?: string;
+  urls?: string[];
+  updatedAt: number;
+}
+
+interface BackgroundJobEvent {
+  taskId: string;
+  status: string;
+  command?: string;
+  outputFile?: string;
+  summary?: string;
+  urls?: string[];
+}
+
+interface PersistedStatusBoardEntry {
+  chatId: string;
+  boardKey: string;
+  messageId: string;
+  pinned: boolean;
+  updatedAt: number;
+}
+
+interface SessionManifest {
+  id: string;
+  command: string;
+  cwd: string;
+  pid: number;
+  jsonlFile: string | null;
+  startedAt: string;
 }
 
 export async function startDaemon(): Promise<void> {
@@ -105,6 +144,335 @@ export async function startDaemon(): Promise<void> {
     if (!channel?.closePoll) return;
     channel.closePoll(chatId, messageId).catch(() => {});
   };
+  const backgroundJobsBySession = new Map<string, Map<string, BackgroundJobState>>();
+  const persistedStatusBoards = new Map<string, PersistedStatusBoardEntry>();
+  const backgroundBoardKey = (sessionId: string) => `background-jobs:${sessionId}`;
+  const statusBoardMapKey = (chatId: string, boardKey: string) => `${chatId}::${boardKey}`;
+  const sessionIdFromBoardKey = (boardKey: string): string | null => {
+    if (!boardKey.startsWith("background-jobs:")) return null;
+    return boardKey.slice("background-jobs:".length) || null;
+  };
+  const BACKGROUND_RECONCILE_INTERVAL_MS = 30_000;
+  const BACKGROUND_BOARD_STALE_MS = 5 * 60_000;
+  const STATUS_BOARD_STORE_PATH = paths.statusBoardsFile;
+  let persistStatusBoardsTimer: ReturnType<typeof setTimeout> | null = null;
+  let reconcilingBackgroundState = false;
+
+  const normalizeBackgroundStatus = (status: string): BackgroundJobStatus | null => {
+    const value = status.toLowerCase();
+    if (value === "running" || value === "started" || value === "start") return "running";
+    if (value === "completed" || value === "done" || value === "success") return "completed";
+    if (value === "failed" || value === "error") return "failed";
+    if (
+      value === "killed" ||
+      value === "stopped" ||
+      value === "terminated" ||
+      value === "cancelled" ||
+      value === "canceled"
+    ) {
+      return "killed";
+    }
+    return null;
+  };
+
+  const extractTaskNotificationTag = (content: string, tag: string): string | undefined => {
+    const match = content.match(new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`, "i"));
+    return match?.[1]?.trim() || undefined;
+  };
+
+  const extractUrls = (text: string): string[] => {
+    if (!text) return [];
+    const matches = text.match(/https?:\/\/[^\s<>)\]}]+/gi) || [];
+    const deduped = new Set<string>();
+    for (const raw of matches) {
+      const url = raw.replace(/[),.;!?]+$/g, "");
+      if (!url) continue;
+      deduped.add(url);
+      if (deduped.size >= 5) break;
+    }
+    return Array.from(deduped);
+  };
+
+  const mergeUrls = (base?: string[], incoming?: string[]): string[] | undefined => {
+    const merged = new Set<string>();
+    for (const url of base || []) merged.add(url);
+    for (const url of incoming || []) merged.add(url);
+    if (merged.size === 0) return undefined;
+    return Array.from(merged).slice(0, 5);
+  };
+
+  const persistStatusBoardsNow = async (): Promise<void> => {
+    try {
+      const jobs: Record<string, BackgroundJobState[]> = {};
+      for (const [sessionId, jobMap] of backgroundJobsBySession) {
+        jobs[sessionId] = Array.from(jobMap.values());
+      }
+      const payload = {
+        version: 1,
+        boards: Array.from(persistedStatusBoards.values()),
+        jobs,
+      };
+      await writeFile(STATUS_BOARD_STORE_PATH, JSON.stringify(payload, null, 2) + "\n", {
+        encoding: "utf-8",
+        mode: 0o600,
+      });
+      await chmod(STATUS_BOARD_STORE_PATH, 0o600).catch(() => {});
+    } catch (e) {
+      await logger.error("Failed to persist status board registry", { error: (e as Error).message });
+    }
+  };
+
+  const schedulePersistStatusBoards = (): void => {
+    if (persistStatusBoardsTimer) return;
+    persistStatusBoardsTimer = setTimeout(async () => {
+      persistStatusBoardsTimer = null;
+      await persistStatusBoardsNow();
+    }, 250);
+  };
+
+  const setPersistedStatusBoard = (
+    chatId: string,
+    boardKey: string,
+    messageId: string,
+    pinned: boolean
+  ): void => {
+    persistedStatusBoards.set(statusBoardMapKey(chatId, boardKey), {
+      chatId,
+      boardKey,
+      messageId,
+      pinned,
+      updatedAt: Date.now(),
+    });
+    schedulePersistStatusBoards();
+  };
+
+  const removePersistedStatusBoard = (chatId: string, boardKey: string): void => {
+    persistedStatusBoards.delete(statusBoardMapKey(chatId, boardKey));
+    schedulePersistStatusBoards();
+  };
+
+  const loadPersistedStatusBoards = async (): Promise<void> => {
+    try {
+      const raw = await readFile(STATUS_BOARD_STORE_PATH, "utf-8");
+      const parsed = JSON.parse(raw) as {
+        boards?: PersistedStatusBoardEntry[];
+        jobs?: Record<string, BackgroundJobState[]>;
+      } | null;
+      const boards = Array.isArray(parsed?.boards) ? parsed.boards : [];
+      for (const entry of boards) {
+        if (!entry || typeof entry !== "object") continue;
+        if (typeof entry.chatId !== "string" || !entry.chatId) continue;
+        if (typeof entry.boardKey !== "string" || !entry.boardKey) continue;
+        if (typeof entry.messageId !== "string" || !entry.messageId) continue;
+        persistedStatusBoards.set(statusBoardMapKey(entry.chatId, entry.boardKey), {
+          chatId: entry.chatId,
+          boardKey: entry.boardKey,
+          messageId: entry.messageId,
+          pinned: entry.pinned === true,
+          updatedAt: typeof entry.updatedAt === "number" ? entry.updatedAt : Date.now(),
+        });
+      }
+      const jobs = parsed?.jobs && typeof parsed.jobs === "object" ? parsed.jobs : {};
+      for (const [sessionId, list] of Object.entries(jobs)) {
+        if (!sessionId || !Array.isArray(list)) continue;
+        const jobMap = new Map<string, BackgroundJobState>();
+        for (const rawJob of list) {
+          if (!rawJob || typeof rawJob !== "object") continue;
+          const taskId = typeof rawJob.taskId === "string" ? rawJob.taskId : "";
+          const status = normalizeBackgroundStatus(String(rawJob.status || ""));
+          if (!taskId || status !== "running") continue;
+          const urls = Array.isArray(rawJob.urls)
+            ? rawJob.urls.filter((u): u is string => typeof u === "string" && /^https?:\/\//i.test(u))
+            : undefined;
+          jobMap.set(taskId, {
+            taskId,
+            status,
+            command: typeof rawJob.command === "string" ? rawJob.command : undefined,
+            outputFile: typeof rawJob.outputFile === "string" ? rawJob.outputFile : undefined,
+            summary: typeof rawJob.summary === "string" ? rawJob.summary : undefined,
+            urls: urls && urls.length > 0 ? urls.slice(0, 5) : undefined,
+            updatedAt: typeof rawJob.updatedAt === "number" ? rawJob.updatedAt : Date.now(),
+          });
+        }
+        if (jobMap.size > 0) {
+          backgroundJobsBySession.set(sessionId, jobMap);
+        }
+      }
+    } catch {
+      // No persisted registry yet (or malformed file) — continue with an empty set.
+    }
+  };
+
+  const readTail = async (filePath: string, maxBytes: number): Promise<string> => {
+    const stats = await stat(filePath);
+    const size = stats.size;
+    const start = Math.max(0, size - maxBytes);
+    const length = size - start;
+    if (length <= 0) return "";
+    const fd = await open(filePath, "r");
+    try {
+      const buffer = Buffer.alloc(length);
+      const { bytesRead } = await fd.read(buffer, 0, length, start);
+      return buffer.toString("utf-8", 0, bytesRead);
+    } finally {
+      await fd.close();
+    }
+  };
+
+  const readSessionManifest = async (sessionId: string): Promise<SessionManifest | null> => {
+    const manifestPath = join(paths.sessionsDir, `${sessionId}.json`);
+    try {
+      const raw = await readFile(manifestPath, "utf-8");
+      const parsed = JSON.parse(raw) as SessionManifest;
+      if (!parsed || typeof parsed !== "object") return null;
+      return parsed;
+    } catch {
+      return null;
+    }
+  };
+
+  const readStoppedClaudeTasks = async (
+    jsonlFile: string,
+    taskIds: Set<string>
+  ): Promise<Set<string>> => {
+    const stopped = new Set<string>();
+    if (!jsonlFile || taskIds.size === 0) return stopped;
+    try {
+      const tail = await readTail(jsonlFile, 300_000);
+      const lines = tail.split("\n");
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const msg = JSON.parse(line) as Record<string, unknown>;
+          if (msg.type !== "queue-operation" || msg.operation !== "enqueue") continue;
+          const content = typeof msg.content === "string" ? msg.content : "";
+          if (!content.includes("<task-notification>")) continue;
+          const taskId = extractTaskNotificationTag(content, "task-id");
+          const status = (extractTaskNotificationTag(content, "status") || "").toLowerCase();
+          if (!taskId || !taskIds.has(taskId)) continue;
+          if (status === "completed" || status === "failed" || status === "killed" || status === "stopped") {
+            stopped.add(taskId);
+          }
+        } catch {
+          // Skip malformed JSON lines.
+        }
+      }
+    } catch {
+      // JSONL may not exist yet.
+    }
+    return stopped;
+  };
+
+  const getBackgroundTargets = (sessionId: string): Set<ChannelChatId> => {
+    const targets = new Set<ChannelChatId>();
+    const remote = sessionManager.getRemote(sessionId);
+    if (!remote) return targets;
+    const targetChat = sessionManager.getBoundChat(sessionId) || remote.chatId;
+    if (targetChat) targets.add(targetChat);
+    for (const groupChatId of sessionManager.getSubscribedGroups(sessionId)) {
+      targets.add(groupChatId);
+    }
+    return targets;
+  };
+
+  const renderBackgroundBoard = (chatId: ChannelChatId, jobs: BackgroundJobState[]): string => {
+    const fmt = getFormatterForChat(chatId);
+    const header = `${fmt.escape("⛳️")} ${fmt.bold(fmt.escape(`Background jobs (${jobs.length} running)`))}`;
+    const lines: string[] = [];
+    for (const job of jobs.slice(0, 8)) {
+      const command = (job.command || "running").trim();
+      lines.push(`• ${fmt.code(fmt.escape(job.taskId))} ${fmt.escape("—")} ${fmt.escape(command)}`);
+      const url = job.urls?.[0];
+      if (url && /^https?:\/\//i.test(url)) {
+        lines.push(`  ↳ ${fmt.link(fmt.escape(url), url)}`);
+      }
+    }
+    if (jobs.length > 8) {
+      lines.push(fmt.escape(`+${jobs.length - 8} more`));
+    }
+    return [header, ...lines].join("\n");
+  };
+
+  const refreshBackgroundBoards = async (sessionId: string): Promise<void> => {
+    const board = backgroundJobsBySession.get(sessionId);
+    const jobs = board ? Array.from(board.values()) : [];
+    const targets = getBackgroundTargets(sessionId);
+    const key = backgroundBoardKey(sessionId);
+    const entriesForSession = Array.from(persistedStatusBoards.values()).filter((e) => e.boardKey === key);
+
+    // Unpin stale boards if the chat is no longer a target for this session.
+    for (const entry of entriesForSession) {
+      if (targets.has(entry.chatId)) continue;
+      const channel = getChannelForChat(entry.chatId);
+      try {
+        await channel?.clearStatusBoard?.(entry.chatId, key, {
+          unpin: true,
+          messageId: entry.messageId,
+          pinned: entry.pinned,
+        });
+      } catch {}
+      removePersistedStatusBoard(entry.chatId, key);
+    }
+
+    for (const chatId of targets) {
+      const channel = getChannelForChat(chatId);
+      if (!channel) continue;
+      const persisted = persistedStatusBoards.get(statusBoardMapKey(chatId, key));
+      if (jobs.length === 0) {
+        try {
+          await channel.clearStatusBoard?.(chatId, key, {
+            unpin: true,
+            messageId: persisted?.messageId,
+            pinned: persisted?.pinned,
+          });
+        } catch {}
+        removePersistedStatusBoard(chatId, key);
+        continue;
+      }
+      if (!channel.upsertStatusBoard) continue;
+      const html = renderBackgroundBoard(chatId, jobs);
+      try {
+        const result = await channel.upsertStatusBoard(chatId, key, html, {
+          pin: true,
+          messageId: persisted?.messageId,
+          pinned: persisted?.pinned,
+        });
+        const messageId = result?.messageId || persisted?.messageId;
+        const pinned = result?.pinned ?? persisted?.pinned ?? true;
+        if (messageId) {
+          setPersistedStatusBoard(chatId, key, messageId, pinned);
+        }
+      } catch {}
+    }
+    if (jobs.length === 0) {
+      backgroundJobsBySession.delete(sessionId);
+    }
+  };
+
+  const clearBackgroundBoards = async (sessionId: string): Promise<void> => {
+    const key = backgroundBoardKey(sessionId);
+    const entriesForSession = Array.from(persistedStatusBoards.values()).filter((e) => e.boardKey === key);
+    for (const entry of entriesForSession) {
+      const channel = getChannelForChat(entry.chatId);
+      try {
+        await channel?.clearStatusBoard?.(entry.chatId, key, {
+          unpin: true,
+          messageId: entry.messageId,
+          pinned: entry.pinned,
+        });
+      } catch {}
+      removePersistedStatusBoard(entry.chatId, key);
+    }
+    // Also clear from currently bound targets in case a board wasn't persisted yet.
+    for (const chatId of getBackgroundTargets(sessionId)) {
+      const channel = getChannelForChat(chatId);
+      try {
+        await channel?.clearStatusBoard?.(chatId, key, { unpin: true });
+      } catch {}
+      removePersistedStatusBoard(chatId, key);
+    }
+    backgroundJobsBySession.delete(sessionId);
+  };
 
   // Auto-stop timer: shut down when all sessions disconnect
   const AUTO_STOP_DELAY = 30_000;
@@ -134,6 +502,72 @@ export async function startDaemon(): Promise<void> {
     }, AUTO_STOP_DELAY);
   }
 
+  const cleanupStalePersistedBoards = async (): Promise<void> => {
+    const now = Date.now();
+    const entries = Array.from(persistedStatusBoards.values());
+    for (const entry of entries) {
+      const sessionId = sessionIdFromBoardKey(entry.boardKey);
+      if (sessionId && sessionManager.getRemote(sessionId)) continue;
+      if (now - entry.updatedAt < BACKGROUND_BOARD_STALE_MS) continue;
+      const channel = getChannelForChat(entry.chatId);
+      try {
+        await channel?.clearStatusBoard?.(entry.chatId, entry.boardKey, {
+          unpin: true,
+          messageId: entry.messageId,
+          pinned: entry.pinned,
+        });
+      } catch {}
+      removePersistedStatusBoard(entry.chatId, entry.boardKey);
+    }
+  };
+
+  const reconcileBackgroundState = async (): Promise<void> => {
+    if (reconcilingBackgroundState) return;
+    reconcilingBackgroundState = true;
+    try {
+      for (const sessionId of backgroundJobsBySession.keys()) {
+        const remote = sessionManager.getRemote(sessionId);
+        if (!remote) {
+          const hasPersistedBoard = Array.from(persistedStatusBoards.values()).some(
+            (entry) => sessionIdFromBoardKey(entry.boardKey) === sessionId
+          );
+          if (!hasPersistedBoard) {
+            backgroundJobsBySession.delete(sessionId);
+          }
+          continue;
+        }
+
+        // Periodically confirm stop events from Claude JSONL in case a watcher event was missed.
+        if (remote.command.split(" ")[0] === "claude") {
+          const jobs = backgroundJobsBySession.get(sessionId);
+          const runningTaskIds = new Set(Array.from(jobs?.keys() || []));
+          if (runningTaskIds.size > 0) {
+            const manifest = await readSessionManifest(sessionId);
+            if (manifest?.jsonlFile) {
+              const stopped = await readStoppedClaudeTasks(manifest.jsonlFile, runningTaskIds);
+              if (stopped.size > 0 && jobs) {
+                for (const taskId of stopped) jobs.delete(taskId);
+              }
+            }
+          }
+        }
+
+        await refreshBackgroundBoards(sessionId);
+      }
+
+      await cleanupStalePersistedBoards();
+    } finally {
+      reconcilingBackgroundState = false;
+    }
+  };
+
+  await loadPersistedStatusBoards();
+  void cleanupStalePersistedBoards();
+  const backgroundBoardRefreshTimer = setInterval(() => {
+    void reconcileBackgroundState();
+  }, BACKGROUND_RECONCILE_INTERVAL_MS);
+  void reconcileBackgroundState();
+
   // Wire dead chat detection — clean up subscriptions and linked groups when sends fail permanently
   for (const channel of channels) {
     if ("onDeadChat" in channel) {
@@ -145,6 +579,12 @@ export async function startDaemon(): Promise<void> {
         }
         // Detach from any bound session
         sessionManager.detach(deadChatId);
+        // Drop persisted status boards for dead chats.
+        for (const entry of Array.from(persistedStatusBoards.values())) {
+          if (entry.chatId === deadChatId) {
+            removePersistedStatusBoard(entry.chatId, entry.boardKey);
+          }
+        }
         // Remove from linked groups config
         await refreshConfig();
         if (removeLinkedGroup(config, deadChatId)) {
@@ -395,7 +835,10 @@ export async function startDaemon(): Promise<void> {
       const selected = resumePicker.options[selectedIdx];
 
       if (selected.kind === "more") {
-        const nextPage = buildResumePickerPage(resumePicker.sessions, selected.nextOffset);
+        const nextPage = buildResumePickerPage(
+          resumePicker.sessions,
+          selected.nextOffset
+        );
         sendPollToChat(resumePicker.chatId, nextPage.title, nextPage.optionLabels, false)
           .then((sent) => {
             if (!sent) return;
@@ -628,6 +1071,7 @@ export async function startDaemon(): Promise<void> {
   const reaperTimer = setInterval(async () => {
     const reaped = sessionManager.reapStaleRemotes(REAP_MAX_AGE);
     for (const remote of reaped) {
+      await clearBackgroundBoards(remote.id);
       await logger.info("Reaped stale remote session", { id: remote.id, command: remote.command });
       const fmt = getFormatterForChat(remote.chatId);
       const msg = `${fmt.escape("⛳️")} ${fmt.bold(fmt.escape(sessionLabel(remote.command, remote.cwd)))} disconnected (CLI stopped responding)`;
@@ -640,6 +1084,12 @@ export async function startDaemon(): Promise<void> {
 
   onShutdown(async () => {
     clearInterval(reaperTimer);
+    clearInterval(backgroundBoardRefreshTimer);
+    if (persistStatusBoardsTimer) {
+      clearTimeout(persistStatusBoardsTimer);
+      persistStatusBoardsTimer = null;
+    }
+    await persistStatusBoardsNow();
     cancelAutoStop();
     for (const ch of channels) ch.stopReceiving();
     sessionManager.killAll();
@@ -662,6 +1112,12 @@ export async function startDaemon(): Promise<void> {
     },
     async shutdown() {
       cancelAutoStop();
+      clearInterval(backgroundBoardRefreshTimer);
+      if (persistStatusBoardsTimer) {
+        clearTimeout(persistStatusBoardsTimer);
+        persistStatusBoardsTimer = null;
+      }
+      await persistStatusBoardsNow();
       for (const ch of channels) ch.stopReceiving();
       sessionManager.killAll();
       await removeAuthToken();
@@ -830,6 +1286,7 @@ export async function startDaemon(): Promise<void> {
       const remote = sessionManager.getRemote(sessionId);
       if (remote) {
         const status = exitCode === 0 ? "disconnected" : `disconnected (code ${exitCode ?? "unknown"})`;
+        void clearBackgroundBoards(sessionId);
         const boundChat = sessionManager.getBoundChat(sessionId);
         if (boundChat) {
           const fmt = getFormatterForChat(boundChat);
@@ -997,6 +1454,36 @@ export async function startDaemon(): Promise<void> {
       sendToChat(targetChat, `${fmt.bold(fmt.escape(label))}\n${fmt.pre(fmt.escape(truncated))}`);
       // Re-assert typing only for non-error results.
       if (!isError) setTypingForChat(targetChat, true);
+    },
+    handleBackgroundJob(
+      sessionId: string,
+      event: BackgroundJobEvent
+    ): void {
+      const remote = sessionManager.getRemote(sessionId);
+      if (!remote) return;
+      const status = normalizeBackgroundStatus(event.status);
+      if (!status) return;
+      if (!event.taskId) return;
+
+      if (status === "running") {
+        const sessionJobs = backgroundJobsBySession.get(sessionId) || new Map<string, BackgroundJobState>();
+        const existing = sessionJobs.get(event.taskId);
+        sessionJobs.set(event.taskId, {
+          taskId: event.taskId,
+          status,
+          command: event.command || existing?.command,
+          outputFile: event.outputFile || existing?.outputFile,
+          summary: event.summary || existing?.summary,
+          urls: mergeUrls(existing?.urls, event.urls),
+          updatedAt: Date.now(),
+        });
+        backgroundJobsBySession.set(sessionId, sessionJobs);
+      } else {
+        const sessionJobs = backgroundJobsBySession.get(sessionId);
+        sessionJobs?.delete(event.taskId);
+      }
+
+      void refreshBackgroundBoards(sessionId);
     },
     handleQuestion(sessionId: string, questions: unknown[]): void {
       const remote = sessionManager.getRemote(sessionId);

@@ -38,6 +38,17 @@ export interface DaemonContext {
   handleThinking: (sessionId: string, text: string) => void;
   handleAssistantText: (sessionId: string, text: string) => void;
   handleToolResult: (sessionId: string, toolName: string, content: string, isError?: boolean) => void;
+  handleBackgroundJob: (
+    sessionId: string,
+    event: {
+      taskId: string;
+      status: string;
+      command?: string;
+      outputFile?: string;
+      summary?: string;
+      urls?: string[];
+    }
+  ) => void;
   sendFileToSession: (sessionId: string, filePath: string, caption?: string) => Promise<{ ok: boolean; error?: string }>;
   stopSessionById: (sessionId: string) => { ok: boolean; error?: string };
   killSessionById: (sessionId: string) => { ok: boolean; error?: string };
@@ -147,7 +158,7 @@ export async function startControlServer(ctx: DaemonContext): Promise<void> {
       }
 
       // Match /remote/:id/* actions
-      const remoteMatch = path.match(/^\/remote\/(r-[a-f0-9]+)\/(input|exit|subscribed-groups|question|tool-call|thinking|assistant|tool-result|approval-needed|typing|send-input|send-file)$/);
+      const remoteMatch = path.match(/^\/remote\/(r-[a-f0-9]+)\/(input|exit|subscribed-groups|question|tool-call|thinking|assistant|tool-result|approval-needed|typing|background-job|send-input|send-file)$/);
       if (remoteMatch) {
         const [, sessionId, action] = remoteMatch;
         if (action === "assistant" && req.method === "POST") {
@@ -168,6 +179,22 @@ export async function startControlServer(ctx: DaemonContext): Promise<void> {
             return Response.json({ ok: false, error: "Missing toolName or content" }, { status: 400 });
           }
           ctx.handleToolResult(sessionId, toolName, content, isError);
+          return Response.json({ ok: true });
+        }
+        if (action === "background-job" && req.method === "POST") {
+          const body = await readJsonBody(req);
+          const taskId = body.taskId as string;
+          const status = body.status as string;
+          const command = body.command as string | undefined;
+          const outputFile = body.outputFile as string | undefined;
+          const summary = body.summary as string | undefined;
+          const urls = Array.isArray(body.urls)
+            ? (body.urls as unknown[]).filter((v): v is string => typeof v === "string" && v.length > 0)
+            : undefined;
+          if (!taskId || !status) {
+            return Response.json({ ok: false, error: "Missing taskId or status" }, { status: 400 });
+          }
+          ctx.handleBackgroundJob(sessionId, { taskId, status, command, outputFile, summary, urls });
           return Response.json({ ok: true });
         }
         if (action === "thinking" && req.method === "POST") {

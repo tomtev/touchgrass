@@ -16,6 +16,7 @@ export const paths = {
   logFile: join(TG_DIR, "logs", "daemon.log"),
   sessionsDir: join(TG_DIR, "sessions"),
   uploadsDir: join(TG_DIR, "uploads"),
+  statusBoardsFile: join(TG_DIR, "status-boards.json"),
 };
 
 export function useTcpControlServer(): boolean {
