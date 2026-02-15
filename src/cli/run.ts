@@ -311,6 +311,77 @@ function extractUrls(text: string): string[] {
   return Array.from(deduped);
 }
 
+function inferUrlsFromCommand(command?: string): string[] {
+  if (!command) return [];
+  const deduped = new Set<string>(extractUrls(command));
+  const portPatterns: RegExp[] = [
+    /(?:localhost|127\.0\.0\.1):(\d{2,5})/gi,
+    /\.listen\((\d{2,5})\)/gi,
+    /--port(?:=|\s+)(\d{2,5})/gi,
+    /-p(?:=|\s+)(\d{2,5})/gi,
+  ];
+  for (const pattern of portPatterns) {
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(command)) !== null) {
+      const port = Number(match[1]);
+      if (!Number.isFinite(port) || port < 1 || port > 65535) continue;
+      deduped.add(`http://localhost:${port}`);
+    }
+  }
+  return Array.from(deduped).slice(0, 3);
+}
+
+function mergeUrls(primary?: string[], secondary?: string[]): string[] | undefined {
+  const merged = new Set<string>();
+  for (const url of primary || []) merged.add(url);
+  for (const url of secondary || []) merged.add(url);
+  if (merged.size === 0) return undefined;
+  return Array.from(merged).slice(0, 3);
+}
+
+function extractStoppedTaskFromResult(
+  text: string,
+  toolUseResult?: Record<string, unknown>
+): { taskId: string; command?: string } | null {
+  const trimmed = text.trim();
+  if (!trimmed && !toolUseResult) return null;
+
+  const fromToolUseResultTaskId = typeof toolUseResult?.task_id === "string" ? toolUseResult.task_id : "";
+  const fromToolUseResultMessage = typeof toolUseResult?.message === "string" ? toolUseResult.message : "";
+  const fromToolUseResultCommand = typeof toolUseResult?.command === "string" ? toolUseResult.command : undefined;
+  if (
+    fromToolUseResultTaskId &&
+    /stopped task|killed task|terminated task|cancelled task|canceled task/i.test(fromToolUseResultMessage)
+  ) {
+    return { taskId: fromToolUseResultTaskId, command: fromToolUseResultCommand };
+  }
+
+  if (!trimmed) return null;
+  try {
+    const parsed = JSON.parse(trimmed) as Record<string, unknown>;
+    const taskId = typeof parsed.task_id === "string"
+      ? parsed.task_id
+      : typeof parsed.taskId === "string"
+      ? parsed.taskId
+      : "";
+    const command = typeof parsed.command === "string" ? parsed.command : undefined;
+    const message = typeof parsed.message === "string" ? parsed.message : "";
+    const status = typeof parsed.status === "string" ? parsed.status.toLowerCase() : "";
+    const stoppedByStatus = status === "killed" || status === "stopped" || status === "terminated" || status === "cancelled" || status === "canceled";
+    const stoppedByMessage = /stopped task|killed task|terminated task|cancelled task|canceled task/i.test(message);
+    if (taskId && (stoppedByStatus || stoppedByMessage)) {
+      return { taskId, command };
+    }
+  } catch {
+    // Not JSON.
+  }
+
+  const stoppedId = trimmed.match(/Successfully stopped task:\s*([A-Za-z0-9_-]+)/i)?.[1];
+  if (!stoppedId) return null;
+  const command = trimmed.match(/Successfully stopped task:\s*[A-Za-z0-9_-]+\s*\(([\s\S]+)\)/i)?.[1];
+  return { taskId: stoppedId, command };
+}
+
 function parseJsonlMessage(msg: Record<string, unknown>): ParsedMessage {
   // Claude assistant — text, thinking, tool calls, and questions in one loop
   if (msg.type === "assistant") {
@@ -428,7 +499,6 @@ function parseJsonlMessage(msg: Record<string, unknown>): ParsedMessage {
       const toolUseId = (block.tool_use_id as string) || "";
       const toolName = toolUseIdToName.get(toolUseId) ?? "";
       const isError = block.is_error === true;
-      if (!isError && !FORWARD_RESULT_TOOLS.has(toolName)) continue;
       let text = "";
       const c = block.content;
       if (typeof c === "string") {
@@ -441,22 +511,41 @@ function parseJsonlMessage(msg: Record<string, unknown>): ParsedMessage {
       }
       if (isError && isToolRejection(text)) continue;
       const trimmedText = text.trim();
-      if (trimmedText) toolResults.push({ toolName: toolName || "unknown", content: trimmedText, isError });
+
+      const commandInput = toolUseIdToInput.get(toolUseId);
+      const command = typeof commandInput?.command === "string" ? commandInput.command : undefined;
+
+      const stoppedTask = extractStoppedTaskFromResult(trimmedText, rootToolUseResult);
+      if (stoppedTask?.taskId && !seenBackgroundIds.has(stoppedTask.taskId)) {
+        seenBackgroundIds.add(stoppedTask.taskId);
+        backgroundJobEvents.push({
+          taskId: stoppedTask.taskId,
+          status: "killed",
+          command: stoppedTask.command || command,
+          urls: mergeUrls(
+            extractUrls(trimmedText),
+            inferUrlsFromCommand(stoppedTask.command || command)
+          ),
+        });
+      }
+
+      const shouldForwardToolResult = isError || FORWARD_RESULT_TOOLS.has(toolName);
+      if (trimmedText && shouldForwardToolResult) {
+        toolResults.push({ toolName: toolName || "unknown", content: trimmedText, isError });
+      }
 
       const startedIdFromText = trimmedText.match(/Command running in background with ID:\s*([A-Za-z0-9_-]+)/i)?.[1];
       const taskId = startedIdFromText || rootBackgroundTaskId;
       if (taskId && !seenBackgroundIds.has(taskId)) {
         seenBackgroundIds.add(taskId);
-        const commandInput = toolUseIdToInput.get(toolUseId);
-        const command = typeof commandInput?.command === "string" ? commandInput.command : undefined;
         const outputFile = trimmedText.match(/Output is being written to:\s*([^\s]+)/i)?.[1];
-        const urls = extractUrls(trimmedText);
+        const urls = mergeUrls(extractUrls(trimmedText), inferUrlsFromCommand(command));
         backgroundJobEvents.push({
           taskId,
           status: "running",
           command,
           outputFile,
-          urls: urls.length > 0 ? urls : undefined,
+          urls,
         });
       }
     }

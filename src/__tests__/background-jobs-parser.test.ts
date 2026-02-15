@@ -65,4 +65,95 @@ describe("background job parser", () => {
       },
     ]);
   });
+
+  it("extracts stop events from TaskStop tool results", () => {
+    __cliRunTestUtils.resetParserState();
+
+    __cliRunTestUtils.parseJsonlMessage({
+      type: "assistant",
+      message: {
+        content: [
+          {
+            type: "tool_use",
+            id: "toolu_stop1",
+            name: "TaskStop",
+            input: { task_id: "bg_live_1" },
+          },
+        ],
+      },
+    });
+
+    const parsed = __cliRunTestUtils.parseJsonlMessage({
+      type: "user",
+      message: {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "toolu_stop1",
+            content:
+              "{\"message\":\"Successfully stopped task: bg_live_1 (node server.js --port 9001)\",\"task_id\":\"bg_live_1\",\"command\":\"node server.js --port 9001\"}",
+          },
+        ],
+      },
+      toolUseResult: {
+        task_id: "bg_live_1",
+        message: "Successfully stopped task: bg_live_1 (node server.js --port 9001)",
+        command: "node server.js --port 9001",
+      },
+    });
+
+    expect(parsed.backgroundJobEvents).toEqual([
+      {
+        taskId: "bg_live_1",
+        status: "killed",
+        command: "node server.js --port 9001",
+        urls: ["http://localhost:9001"],
+      },
+    ]);
+  });
+
+  it("infers a localhost URL from the background command when tool output has no URL", () => {
+    __cliRunTestUtils.resetParserState();
+
+    __cliRunTestUtils.parseJsonlMessage({
+      type: "assistant",
+      message: {
+        content: [
+          {
+            type: "tool_use",
+            id: "toolu_bg1",
+            name: "Bash",
+            input: { command: "node server.js --port 8788", run_in_background: true },
+          },
+        ],
+      },
+    });
+
+    const parsed = __cliRunTestUtils.parseJsonlMessage({
+      type: "user",
+      message: {
+        role: "user",
+        content: [
+          {
+            tool_use_id: "toolu_bg1",
+            type: "tool_result",
+            content: "Command running in background with ID: bg_8788. Output is being written to: /tmp/bg_8788.output",
+            is_error: false,
+          },
+        ],
+      },
+      toolUseResult: { backgroundTaskId: "bg_8788" },
+    });
+
+    expect(parsed.backgroundJobEvents).toEqual([
+      {
+        taskId: "bg_8788",
+        status: "running",
+        command: "node server.js --port 8788",
+        outputFile: "/tmp/bg_8788.output",
+        urls: ["http://localhost:8788"],
+      },
+    ]);
+  });
 });

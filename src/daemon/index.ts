@@ -196,6 +196,57 @@ export async function startDaemon(): Promise<void> {
     return Array.from(deduped);
   };
 
+  const inferUrlsFromCommand = (command?: string): string[] => {
+    if (!command) return [];
+    const urls = new Set<string>();
+    const directMatches = extractUrls(command);
+    for (const url of directMatches) urls.add(url);
+
+    const portPatterns: RegExp[] = [
+      /(?:localhost|127\.0\.0\.1):(\d{2,5})/gi,
+      /\.listen\((\d{2,5})\)/gi,
+      /--port(?:=|\s+)(\d{2,5})/gi,
+      /-p(?:=|\s+)(\d{2,5})/gi,
+    ];
+    for (const pattern of portPatterns) {
+      let match: RegExpExecArray | null;
+      while ((match = pattern.exec(command)) !== null) {
+        const port = Number(match[1]);
+        if (!Number.isFinite(port) || port < 1 || port > 65535) continue;
+        urls.add(`http://localhost:${port}`);
+      }
+    }
+    return Array.from(urls).slice(0, 5);
+  };
+
+  const extractStoppedTaskFromText = (text: string): { taskId: string; command?: string } | null => {
+    const trimmed = text.trim();
+    if (!trimmed) return null;
+    try {
+      const parsed = JSON.parse(trimmed) as Record<string, unknown>;
+      const taskId = typeof parsed.task_id === "string"
+        ? parsed.task_id
+        : typeof parsed.taskId === "string"
+        ? parsed.taskId
+        : "";
+      const command = typeof parsed.command === "string" ? parsed.command : undefined;
+      const message = typeof parsed.message === "string" ? parsed.message : "";
+      const status = typeof parsed.status === "string" ? parsed.status.toLowerCase() : "";
+      const stoppedByStatus = status === "killed" || status === "stopped" || status === "terminated" || status === "cancelled" || status === "canceled";
+      const stoppedByMessage = /stopped task|killed task|terminated task|cancelled task|canceled task/i.test(message);
+      if (taskId && (stoppedByStatus || stoppedByMessage)) {
+        return { taskId, command };
+      }
+    } catch {
+      // Not JSON payload.
+    }
+
+    const stoppedId = trimmed.match(/Successfully stopped task:\s*([A-Za-z0-9_-]+)/i)?.[1];
+    if (!stoppedId) return null;
+    const command = trimmed.match(/Successfully stopped task:\s*[A-Za-z0-9_-]+\s*\(([\s\S]+)\)/i)?.[1];
+    return { taskId: stoppedId, command };
+  };
+
   const mergeUrls = (base?: string[], incoming?: string[]): string[] | undefined => {
     const merged = new Set<string>();
     for (const url of base || []) merged.add(url);
@@ -284,16 +335,18 @@ export async function startDaemon(): Promise<void> {
           const taskId = typeof rawJob.taskId === "string" ? rawJob.taskId : "";
           const status = normalizeBackgroundStatus(String(rawJob.status || ""));
           if (!taskId || status !== "running") continue;
+          const command = typeof rawJob.command === "string" ? rawJob.command : undefined;
           const urls = Array.isArray(rawJob.urls)
             ? rawJob.urls.filter((u): u is string => typeof u === "string" && /^https?:\/\//i.test(u))
             : undefined;
+          const mergedUrls = mergeUrls(urls && urls.length > 0 ? urls.slice(0, 5) : undefined, inferUrlsFromCommand(command));
           jobMap.set(taskId, {
             taskId,
             status,
-            command: typeof rawJob.command === "string" ? rawJob.command : undefined,
+            command,
             outputFile: typeof rawJob.outputFile === "string" ? rawJob.outputFile : undefined,
             summary: typeof rawJob.summary === "string" ? rawJob.summary : undefined,
-            urls: urls && urls.length > 0 ? urls.slice(0, 5) : undefined,
+            urls: mergedUrls,
             updatedAt: typeof rawJob.updatedAt === "number" ? rawJob.updatedAt : Date.now(),
           });
         }
@@ -347,14 +400,47 @@ export async function startDaemon(): Promise<void> {
         if (!line.trim()) continue;
         try {
           const msg = JSON.parse(line) as Record<string, unknown>;
-          if (msg.type !== "queue-operation" || msg.operation !== "enqueue") continue;
-          const content = typeof msg.content === "string" ? msg.content : "";
-          if (!content.includes("<task-notification>")) continue;
-          const taskId = extractTaskNotificationTag(content, "task-id");
-          const status = (extractTaskNotificationTag(content, "status") || "").toLowerCase();
-          if (!taskId || !taskIds.has(taskId)) continue;
-          if (status === "completed" || status === "failed" || status === "killed" || status === "stopped") {
-            stopped.add(taskId);
+          if (msg.type === "queue-operation" && msg.operation === "enqueue") {
+            const content = typeof msg.content === "string" ? msg.content : "";
+            if (!content.includes("<task-notification>")) continue;
+            const taskId = extractTaskNotificationTag(content, "task-id");
+            const status = (extractTaskNotificationTag(content, "status") || "").toLowerCase();
+            if (!taskId || !taskIds.has(taskId)) continue;
+            if (status === "completed" || status === "failed" || status === "killed" || status === "stopped") {
+              stopped.add(taskId);
+            }
+            continue;
+          }
+
+          if (msg.type !== "user") continue;
+          const rootToolUseResult = msg.toolUseResult as Record<string, unknown> | undefined;
+          const rootStoppedTaskId = typeof rootToolUseResult?.task_id === "string" ? rootToolUseResult.task_id : "";
+          const rootStopMessage = typeof rootToolUseResult?.message === "string" ? rootToolUseResult.message : "";
+          if (
+            rootStoppedTaskId &&
+            taskIds.has(rootStoppedTaskId) &&
+            /stopped task|killed task|terminated task|cancelled task|canceled task/i.test(rootStopMessage)
+          ) {
+            stopped.add(rootStoppedTaskId);
+            continue;
+          }
+
+          const message = msg.message as Record<string, unknown> | undefined;
+          if (!message?.content || !Array.isArray(message.content)) continue;
+          for (const block of message.content as Array<Record<string, unknown>>) {
+            if (block.type !== "tool_result") continue;
+            let text = "";
+            const content = block.content;
+            if (typeof content === "string") text = content;
+            else if (Array.isArray(content)) {
+              text = (content as Array<{ type: string; text?: string }>)
+                .filter((segment) => segment.type === "text")
+                .map((segment) => segment.text ?? "")
+                .join("\n");
+            }
+            const stoppedTask = extractStoppedTaskFromText(text);
+            if (!stoppedTask?.taskId || !taskIds.has(stoppedTask.taskId)) continue;
+            stopped.add(stoppedTask.taskId);
           }
         } catch {
           // Skip malformed JSON lines.
@@ -370,6 +456,7 @@ export async function startDaemon(): Promise<void> {
     jsonlFile: string
   ): Promise<Map<string, BackgroundJobState>> => {
     const running = new Map<string, BackgroundJobState>();
+    const toolUseIdToInput = new Map<string, Record<string, unknown>>();
     if (!jsonlFile) return running;
     try {
       const tail = await readTail(jsonlFile, 500_000);
@@ -382,6 +469,24 @@ export async function startDaemon(): Promise<void> {
             ? Date.parse(msg.timestamp)
             : Date.now();
           const updatedAt = Number.isFinite(ts) ? ts : Date.now();
+
+          if (msg.type === "assistant") {
+            const m = msg.message as Record<string, unknown> | undefined;
+            if (m?.content && Array.isArray(m.content)) {
+              for (const block of m.content as Array<Record<string, unknown>>) {
+                if (block.type !== "tool_use") continue;
+                const toolUseId = typeof block.id === "string" ? block.id : "";
+                const input = (block.input as Record<string, unknown> | undefined) || undefined;
+                if (!toolUseId || !input) continue;
+                toolUseIdToInput.set(toolUseId, input);
+                if (toolUseIdToInput.size > 2000) {
+                  const firstKey = toolUseIdToInput.keys().next().value as string | undefined;
+                  if (firstKey) toolUseIdToInput.delete(firstKey);
+                }
+              }
+            }
+            continue;
+          }
 
           if (msg.type === "user") {
             const rootToolUseResult = msg.toolUseResult as Record<string, unknown> | undefined;
@@ -403,19 +508,27 @@ export async function startDaemon(): Promise<void> {
               }
               const trimmedText = text.trim();
               if (!trimmedText) continue;
+              const toolUseId = typeof block.tool_use_id === "string" ? block.tool_use_id : "";
+              const commandInput = toolUseId ? toolUseIdToInput.get(toolUseId) : undefined;
+              const command = typeof commandInput?.command === "string" ? commandInput.command : undefined;
+              const stoppedTask = extractStoppedTaskFromText(trimmedText);
+              if (stoppedTask?.taskId) {
+                running.delete(stoppedTask.taskId);
+                continue;
+              }
               const startedIdFromText = trimmedText.match(/Command running in background with ID:\s*([A-Za-z0-9_-]+)/i)?.[1];
               const taskId = startedIdFromText || rootBackgroundTaskId;
               if (!taskId) continue;
               const outputFile = trimmedText.match(/Output is being written to:\s*([^\s]+)/i)?.[1];
-              const urls = extractUrls(trimmedText);
+              const urls = mergeUrls(extractUrls(trimmedText), inferUrlsFromCommand(command));
               const existing = running.get(taskId);
               running.set(taskId, {
                 taskId,
                 status: "running",
-                command: existing?.command,
+                command: command || existing?.command,
                 outputFile: outputFile || existing?.outputFile,
                 summary: existing?.summary,
-                urls: mergeUrls(existing?.urls, urls.length > 0 ? urls : undefined),
+                urls: mergeUrls(existing?.urls, urls),
                 updatedAt: Math.max(updatedAt, existing?.updatedAt ?? 0),
               });
             }
@@ -435,15 +548,17 @@ export async function startDaemon(): Promise<void> {
           if (statusRaw === "running" || statusRaw === "started" || statusRaw === "start") {
             const summary = extractTaskNotificationTag(content, "summary");
             const outputFile = extractTaskNotificationTag(content, "output-file");
-            const urls = extractUrls(content);
+            const commandMatch = summary?.match(/Background command \"([\s\S]+?)\" was/i);
+            const command = commandMatch?.[1];
+            const urls = mergeUrls(extractUrls(content), inferUrlsFromCommand(command));
             const existing = running.get(taskId);
             running.set(taskId, {
               taskId,
               status: "running",
-              command: existing?.command,
+              command: command || existing?.command,
               outputFile: outputFile || existing?.outputFile,
               summary: summary || existing?.summary,
-              urls: mergeUrls(existing?.urls, urls.length > 0 ? urls : undefined),
+              urls: mergeUrls(existing?.urls, urls),
               updatedAt: Math.max(updatedAt, existing?.updatedAt ?? 0),
             });
           }
@@ -521,7 +636,7 @@ export async function startDaemon(): Promise<void> {
             .map((job) => ({
               taskId: job.taskId,
               command: job.command,
-              urls: job.urls,
+              urls: mergeUrls(job.urls, inferUrlsFromCommand(job.command)),
               updatedAt: job.updatedAt,
             })),
         });
@@ -530,6 +645,23 @@ export async function startDaemon(): Promise<void> {
     };
 
     let rows = buildRows();
+    if (rows.length > 0) {
+      for (const sessionId of candidateIds) {
+        const remote = sessionManager.getRemote(sessionId);
+        if (!remote || remote.command.split(" ")[0] !== "claude") continue;
+        const jobs = backgroundJobsBySession.get(sessionId);
+        if (!jobs || jobs.size === 0) continue;
+        const manifest = await readSessionManifest(sessionId);
+        if (!manifest?.jsonlFile) continue;
+        const stopped = await readStoppedClaudeTasks(manifest.jsonlFile, new Set(jobs.keys()));
+        if (stopped.size === 0) continue;
+        for (const taskId of stopped) jobs.delete(taskId);
+        if (jobs.size === 0) {
+          backgroundJobsBySession.delete(sessionId);
+        }
+      }
+      rows = buildRows();
+    }
     if (rows.length === 0 && candidateIds.length > 0) {
       await hydrateBackgroundJobsFromClaudeLogs(candidateIds);
       rows = buildRows();
@@ -1691,7 +1823,10 @@ export async function startDaemon(): Promise<void> {
       if (status === "running") {
         const sessionJobs = backgroundJobsBySession.get(sessionId) || new Map<string, BackgroundJobState>();
         const existing = sessionJobs.get(event.taskId);
-        const mergedUrls = mergeUrls(existing?.urls, event.urls);
+        const mergedUrls = mergeUrls(
+          existing?.urls,
+          mergeUrls(event.urls, inferUrlsFromCommand(event.command || existing?.command))
+        );
         sessionJobs.set(event.taskId, {
           taskId: event.taskId,
           status,
@@ -1721,7 +1856,10 @@ export async function startDaemon(): Promise<void> {
           taskId: event.taskId,
           command: event.command || existing?.command,
           summary: event.summary || existing?.summary,
-          urls: mergeUrls(existing?.urls, event.urls),
+          urls: mergeUrls(
+            existing?.urls,
+            mergeUrls(event.urls, inferUrlsFromCommand(event.command || existing?.command))
+          ),
         });
       }
 
