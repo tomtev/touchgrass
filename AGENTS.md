@@ -35,6 +35,12 @@ tg stop <id>
 tg kill <id>
 ```
 
+Telegram chat shorthands:
+- `/files` or `tg files <query>` opens the file picker (`.gitignore` aware when in a git repo)
+- `@?<query>` is shorthand for the same picker
+- `@?<query> - <prompt>` auto-resolves top fuzzy match and sends `@path - prompt`
+- `/resume` or `tg resume` opens a picker of recent local sessions and restarts the same tool on the selected session
+
 ## Architecture
 
 1. CLI process (`tg claude/codex/pi`):

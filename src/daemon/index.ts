@@ -14,6 +14,7 @@ import {
 } from "./lifecycle";
 import { startControlServer, type ChannelInfo } from "./control-server";
 import { routeMessage } from "../bot/command-router";
+import { buildResumePickerPage } from "../bot/handlers/resume";
 import { SessionManager } from "../session/manager";
 import { generatePairingCode } from "../security/pairing";
 import { isUserPaired } from "../security/allowlist";
@@ -367,6 +368,71 @@ export async function startDaemon(): Promise<void> {
           });
         })
         .catch(() => {});
+      return;
+    }
+
+    const resumePicker = sessionManager.getResumePickerByPollId(answer.pollId);
+    if (resumePicker) {
+      if (!isUserPaired(config, answer.userId)) {
+        logger.warn("Ignoring resume picker answer from unpaired user", { userId: answer.userId, pollId: answer.pollId });
+        return;
+      }
+      if (resumePicker.ownerUserId !== answer.userId) {
+        logger.warn("Ignoring resume picker answer from non-owner", {
+          userId: answer.userId,
+          pollId: answer.pollId,
+          ownerUserId: resumePicker.ownerUserId,
+        });
+        return;
+      }
+
+      closePollForChat(resumePicker.chatId, resumePicker.messageId);
+      sessionManager.removeResumePicker(answer.pollId);
+
+      const selectedIdx = answer.optionIds[0];
+      if (!Number.isFinite(selectedIdx)) return;
+      if (selectedIdx < 0 || selectedIdx >= resumePicker.options.length) return;
+      const selected = resumePicker.options[selectedIdx];
+
+      if (selected.kind === "more") {
+        const nextPage = buildResumePickerPage(resumePicker.sessions, selected.nextOffset);
+        sendPollToChat(resumePicker.chatId, nextPage.title, nextPage.optionLabels, false)
+          .then((sent) => {
+            if (!sent) return;
+            sessionManager.registerResumePicker({
+              pollId: sent.pollId,
+              messageId: sent.messageId,
+              chatId: resumePicker.chatId,
+              ownerUserId: resumePicker.ownerUserId,
+              sessionId: resumePicker.sessionId,
+              tool: resumePicker.tool,
+              sessions: resumePicker.sessions,
+              offset: nextPage.offset,
+              options: nextPage.options,
+            });
+          })
+          .catch(() => {});
+        return;
+      }
+
+      const remote = sessionManager.getRemote(resumePicker.sessionId);
+      if (!remote) {
+        const pickerFmt = getFormatterForChat(resumePicker.chatId);
+        sendToChat(resumePicker.chatId, `${pickerFmt.escape("⛳️")} Session is no longer active.`);
+        return;
+      }
+
+      if (!sessionManager.requestRemoteResume(remote.id, selected.sessionRef)) {
+        const pickerFmt = getFormatterForChat(resumePicker.chatId);
+        sendToChat(resumePicker.chatId, `${pickerFmt.escape("⛳️")} Could not request resume on current session.`);
+        return;
+      }
+
+      const pickerFmt = getFormatterForChat(resumePicker.chatId);
+      sendToChat(
+        resumePicker.chatId,
+        `${pickerFmt.escape("⛳️")} Switching to ${pickerFmt.code(pickerFmt.escape(selected.label))}...`
+      );
       return;
     }
 
@@ -772,6 +838,7 @@ export async function startDaemon(): Promise<void> {
         }
         sessionManager.removeRemote(sessionId);
       }
+
       if (sessionManager.remoteCount() === 0) {
         scheduleAutoStop();
       }

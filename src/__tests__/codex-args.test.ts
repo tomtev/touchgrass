@@ -50,3 +50,44 @@ describe("remote terminal input encoding", () => {
     expect(encoded.toString()).toBe("\x1b[200~hello @\x1b[201~");
   });
 });
+
+describe("resume restart arg building", () => {
+  it("preserves claude dangerous flags while swapping resume target", () => {
+    const args = __cliRunTestUtils.buildResumeCommandArgs(
+      "claude",
+      ["--dangerously-skip-permissions", "--resume", "old-id", "--append-system-prompt", "AGENTS.md"],
+      "new-id"
+    );
+
+    expect(args).toContain("--dangerously-skip-permissions");
+    expect(args).toContain("--append-system-prompt");
+    expect(args).toContain("AGENTS.md");
+    expect(args.slice(-2)).toEqual(["--resume", "new-id"]);
+    expect(args).not.toContain("old-id");
+  });
+
+  it("preserves codex dangerous flags while swapping resume target", () => {
+    const args = __cliRunTestUtils.buildResumeCommandArgs(
+      "codex",
+      ["--dangerously-bypass-approvals-and-sandbox", "resume", "019c-old"],
+      "019c-new"
+    );
+
+    expect(args).toContain("--dangerously-bypass-approvals-and-sandbox");
+    expect(args.slice(-2)).toEqual(["resume", "019c-new"]);
+    expect(args).not.toContain("019c-old");
+  });
+
+  it("uses --session for pi and preserves other args", () => {
+    const args = __cliRunTestUtils.buildResumeCommandArgs(
+      "pi",
+      ["--provider", "google", "--session", "/tmp/old.jsonl"],
+      "/tmp/new.jsonl"
+    );
+
+    expect(args).toContain("--provider");
+    expect(args).toContain("google");
+    expect(args.slice(-2)).toEqual(["--session", "/tmp/new.jsonl"]);
+    expect(args).not.toContain("/tmp/old.jsonl");
+  });
+});

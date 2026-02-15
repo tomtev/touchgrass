@@ -1,7 +1,19 @@
-export type RemoteControlAction = "stop" | "kill";
+export interface RemoteResumeControlAction {
+  type: "resume";
+  sessionRef: string;
+}
+
+export type RemoteControlAction = "stop" | "kill" | RemoteResumeControlAction;
+
+function isResumeControlAction(value: unknown): value is RemoteResumeControlAction {
+  if (!value || typeof value !== "object") return false;
+  const raw = value as Record<string, unknown>;
+  return raw.type === "resume" && typeof raw.sessionRef === "string" && raw.sessionRef.length > 0;
+}
 
 export function parseRemoteControlAction(value: unknown): RemoteControlAction | null {
   if (value === "stop" || value === "kill") return value;
+  if (isResumeControlAction(value)) return { type: "resume", sessionRef: value.sessionRef };
   return null;
 }
 
@@ -11,5 +23,7 @@ export function mergeRemoteControlAction(
 ): RemoteControlAction {
   if (incoming === "kill") return "kill";
   if (current === "kill") return "kill";
+  if (incoming !== "stop") return incoming;
+  if (current && current !== "stop") return current;
   return "stop";
 }

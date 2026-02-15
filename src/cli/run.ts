@@ -29,6 +29,7 @@ const APPROVAL_PATTERNS: Record<string, { promptText: string; optionText: string
 // Test-only accessors for CLI arg parsing behavior.
 export const __cliRunTestUtils = {
   encodeBracketedPaste,
+  buildResumeCommandArgs,
   parseCodexResumeArgs,
 };
 
@@ -848,6 +849,45 @@ function findLatestCodexSessionFile(): string | null {
   return newestPath;
 }
 
+function stripFlagWithOptionalValue(args: string[], longFlag: string, shortFlag?: string): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === longFlag || (shortFlag && arg === shortFlag)) {
+      if (i + 1 < args.length && !args[i + 1].startsWith("-")) i++;
+      continue;
+    }
+    if (arg.startsWith(`${longFlag}=`)) continue;
+    out.push(arg);
+  }
+  return out;
+}
+
+function buildResumeCommandArgs(
+  command: "claude" | "codex" | "pi",
+  currentArgs: string[],
+  sessionRef: string
+): string[] {
+  if (command === "claude") {
+    const cleaned = stripFlagWithOptionalValue(
+      stripFlagWithOptionalValue(currentArgs, "--continue", "-c"),
+      "--resume",
+      "-r"
+    );
+    return [...cleaned, "--resume", sessionRef];
+  }
+
+  if (command === "codex") {
+    const parsed = parseCodexResumeArgs(currentArgs);
+    return [...parsed.baseArgs, "resume", sessionRef];
+  }
+
+  const withoutContinue = stripFlagWithOptionalValue(currentArgs, "--continue", "-c");
+  const withoutResume = stripFlagWithOptionalValue(withoutContinue, "--resume", "-r");
+  const withoutSession = stripFlagWithOptionalValue(withoutResume, "--session");
+  return [...withoutSession, "--session", sessionRef];
+}
+
 export async function runRun(): Promise<void> {
   // Determine command: `tg claude [args]` or `tg codex [args]`
   const cmdName = process.argv[2];
@@ -873,7 +913,7 @@ export async function runRun(): Promise<void> {
     : undefined;
 
   const executable = SUPPORTED_COMMANDS[cmdName][0];
-  const fullCommand = [executable, ...cmdArgs].join(" ");
+  let fullCommand = [executable, ...cmdArgs].join(" ");
   const displayName = process.cwd().split("/").pop() || "";
 
   // Try to register with daemon as a remote session
@@ -1043,397 +1083,506 @@ export async function runRun(): Promise<void> {
     await writeManifest(manifest);
   }
 
-  // Detect resume flags to find existing session JSONL file
-  // - Claude: --resume <session-id>
-  // - Codex: resume <session-id>
-  // - PI: --continue/-c (latest session), --session <path>
-  let resumeSessionFile: string | null = null;
-
-  // Snapshot existing JSONL files BEFORE spawning so the tool's new file is detected
-  const projectDir = channel && chatId ? getSessionDir(cmdName) : "";
-  const existingFiles = new Set<string>();
-  if (projectDir) {
-    try {
-      for (const f of readdirSync(projectDir)) {
-        if (f.endsWith(".jsonl")) existingFiles.add(f);
-      }
-    } catch {}
-
-    // Check for resume session ID in args
-    let resumeId: string | null = null;
-    let codexResumeLast = false;
-    if (cmdName === "codex") {
-      const parsed = parseCodexResumeArgs(cmdArgs);
-      resumeId = parsed.resumeId;
-      codexResumeLast = parsed.useResumeLast;
-    } else {
-      const resumeIdx = cmdArgs.findIndex((a) => a === "--resume" || a === "-r");
-      if (resumeIdx !== -1 && resumeIdx + 1 < cmdArgs.length) {
-        resumeId = cmdArgs[resumeIdx + 1];
-      }
-      if (!resumeId) {
-        const resumeEq = cmdArgs.find((a) => a.startsWith("--resume="));
-        if (resumeEq) {
-          const value = resumeEq.slice("--resume=".length);
-          if (value) resumeId = value;
-        }
-      }
-    }
-
-    if (resumeId) {
-      // Search for JSONL file matching the session ID
-      try {
-        // Claude/PI: <id>.jsonl in project dir, or filename contains ID
-        if (existingFiles.has(`${resumeId}.jsonl`)) {
-          resumeSessionFile = join(projectDir, `${resumeId}.jsonl`);
-        } else {
-          for (const f of existingFiles) {
-            if (f.includes(resumeId)) {
-              resumeSessionFile = join(projectDir, f);
-              break;
-            }
-          }
-        }
-
-        // Codex: session may be in a different date directory — search recursively
-        if (!resumeSessionFile && cmdName === "codex") {
-          resumeSessionFile = findCodexSessionFileById(resumeId);
-        }
-      } catch {}
-    }
-
-    // Codex resume --last should tail whichever session file was active most recently.
-    if (!resumeSessionFile && cmdName === "codex" && codexResumeLast) {
-      resumeSessionFile = findLatestCodexSessionFile();
-    }
-
-    // PI --continue/-c: use the most recent JSONL file
-    if (!resumeSessionFile && (cmdArgs.includes("--continue") || cmdArgs.includes("-c"))) {
-      try {
-        let newest = "";
-        let newestMtime = 0;
-        for (const f of existingFiles) {
-          const s = statSync(join(projectDir, f));
-          if (s.mtimeMs > newestMtime) {
-            newestMtime = s.mtimeMs;
-            newest = f;
-          }
-        }
-        if (newest) resumeSessionFile = join(projectDir, newest);
-      } catch {}
-    }
-  }
-
   // Use raw mode if stdin is a TTY so keypresses are forwarded immediately
   if (process.stdin.isTTY) {
     process.stdin.setRawMode(true);
   }
 
-  // PTY output buffer for detecting approval prompts (per-CLI patterns)
-  const approvalPattern = APPROVAL_PATTERNS[cmdName];
-  let ptyBuffer = "";
-  let lastNotifiedPrompt = "";
-  // Track the last tool call so we can report it when the approval prompt appears
-  let lastToolCall: { name: string; input: Record<string, unknown> } | null = null;
-  const onApprovalPrompt = remoteId
-    ? (promptText: string, pollOptions?: string[]) => {
-        daemonRequest(`/remote/${remoteId}/approval-needed`, "POST", {
-          name: lastToolCall?.name || "unknown",
-          input: lastToolCall?.input || {},
-          promptText,
-          pollOptions,
-        }).catch(() => {});
-      }
-    : null;
-
-  const proc = Bun.spawn([executable, ...cmdArgs], {
-    terminal: {
-      cols: process.stdout.columns || 80,
-      rows: process.stdout.rows || 24,
-      data(_terminal, data) {
-        process.stdout.write(data);
-        // Buffer last ~1000 chars of PTY output for prompt detection
-        // Uses stripAnsiReadable to replace ANSI codes with spaces (preserves word boundaries)
-        const text = Buffer.from(data).toString("utf-8");
-        ptyBuffer += stripAnsiReadable(text);
-        if (ptyBuffer.length > 2000) ptyBuffer = ptyBuffer.slice(-1000);
-
-        if (!approvalPattern) return; // No approval detection for this CLI
-        const promptIdx = ptyBuffer.lastIndexOf(approvalPattern.promptText);
-        const hasOption = ptyBuffer.includes(approvalPattern.optionText);
-        if (promptIdx >= 0 && hasOption) {
-          // Extract the prompt sentence: "Do you want to ...?"
-          const afterPrompt = ptyBuffer.slice(promptIdx);
-          const endIdx = afterPrompt.indexOf("?");
-          const promptText = endIdx >= 0 ? afterPrompt.slice(0, endIdx + 1).trim() : approvalPattern.promptText;
-          // Extract poll options from text after the "?": "1. Yes", "2. Yes, allow ...", "3. No"
-          // Search only after the "?" to avoid matching digits in filenames (e.g. "poem-7.md")
-          const optionsText = endIdx >= 0 ? afterPrompt.slice(endIdx + 1) : "";
-          const options: string[] = [];
-          // Find positions of "1. ", "2. ", "3. " markers
-          const idx1 = optionsText.indexOf("1.");
-          const idx2 = optionsText.indexOf("2.");
-          const idx3 = optionsText.indexOf("3.");
-          if (idx1 >= 0 && idx2 > idx1 && idx3 > idx2) {
-            options.push(optionsText.slice(idx1 + 2, idx2).trim().replace(/\s+/g, " "));
-            options.push(optionsText.slice(idx2 + 2, idx3).trim().replace(/\s+/g, " "));
-            // Stop at footer text: "Esc to cancel" (Claude) or "Press enter" (Codex)
-            let opt3 = optionsText.slice(idx3 + 2);
-            for (const stop of ["Esc", "Press"]) {
-              const stopIdx = opt3.indexOf(stop);
-              if (stopIdx > 0) opt3 = opt3.slice(0, stopIdx);
-            }
-            options.push(opt3.trim().replace(/\s+/g, " "));
-          }
-          // Strip keyboard shortcut hints like (y), (p), (esc), (shift+tab) from options
-          for (let i = 0; i < options.length; i++) {
-            options[i] = options[i].replace(/\s*\([a-z+\-]+\)\s*$/i, "").trim().slice(0, 100);
-          }
-          // Only notify if this is a different prompt than the last one we notified about
-          // Delay slightly so the tool notification (from JSONL) arrives in Telegram first
-          if (promptText !== lastNotifiedPrompt) {
-            lastNotifiedPrompt = promptText;
-            const pollOptions = options.length >= 2 ? options : undefined;
-            setTimeout(() => onApprovalPrompt?.(promptText, pollOptions), 1000);
-          }
-        }
-      },
-    },
-    env: {
-      ...process.env,
-      TERM: process.env.TERM || "xterm-256color",
-    },
-  });
-
-  const terminal = proc.terminal!;
-
-  // Prevent idle sleep on macOS while the tool is running
-  let caffeinateProc: { kill(): void } | null = null;
-  if (platform() === "darwin") {
-    try {
-      caffeinateProc = Bun.spawn(["caffeinate", "-i", "-w", String(proc.pid)], {
-        stdout: "ignore",
-        stderr: "ignore",
-      });
-    } catch {}
-  }
-
-  // Forward stdin to the PTY
-  process.stdin.on("data", (data: Buffer) => {
-    terminal.write(data);
-  });
-
-  // Handle terminal resize
-  process.stdout.on("resize", () => {
-    terminal.resize(process.stdout.columns, process.stdout.rows);
-  });
-
-  // Track group chats subscribed to this session's output
-  const subscribedGroups = new Set<ChannelChatId>();
-  // Track which chat this session is bound to (may differ from chatId if bound to a group)
-  let boundChat: ChannelChatId | null = remoteId && didBindChat ? chatId : null;
-  let nullBoundPolls = 0;
-  let groupPollTimer: ReturnType<typeof setInterval> | null = null;
-  const getPrimaryTargetChat = (): ChannelChatId | null => remoteId ? boundChat : chatId;
-  if (remoteId && chatId && ownerUserId) {
-    const pollRemoteId = remoteId;
-    const pollBinding = async () => {
-      try {
-        const res = await daemonRequest(`/remote/${pollRemoteId}/subscribed-groups`);
-        const chatIds = res.chatIds as string[] | undefined;
-        if (chatIds) {
-          subscribedGroups.clear();
-          for (const id of chatIds) subscribedGroups.add(id);
-        }
-        if (typeof res.boundChat === "string") {
-          boundChat = res.boundChat as ChannelChatId;
-          nullBoundPolls = 0;
-        } else if (boundChat === null) {
-          nullBoundPolls = 0;
-        } else if (++nullBoundPolls >= 3) {
-          // Prevent single transient races from bouncing output to an old fallback chat.
-          boundChat = null;
-          nullBoundPolls = 0;
-        }
-      } catch {}
-    };
-    await pollBinding();
-    groupPollTimer = setInterval(() => {
-      pollBinding().catch(() => {});
-    }, 500);
-  }
-
-  // Watch session JSONL for assistant responses.
-  const watcherRef: { current: FSWatcher | null; dir: FSWatcher | null } = { current: null, dir: null };
-  let dirScanTimer: ReturnType<typeof setInterval> | null = null;
-  if (channel && chatId && projectDir) {
-    const tgChannel = channel;
-    const tgRemoteId = remoteId;
-    let activeSessionFile: string | null = null;
-    let activeClaudeSessionId: string | null = null;
-
-    const startFileWatch = (sessionFile: string, skipExisting = false, replaceCurrent = false) => {
-      if (activeSessionFile === sessionFile) return;
-      if (watcherRef.current) {
-        if (!replaceCurrent) return; // already locked to a session
-        watcherRef.current.close();
-        watcherRef.current = null;
-      }
-      activeSessionFile = sessionFile;
-      activeClaudeSessionId = null;
-
-      // Update manifest with discovered JSONL file
-      if (manifest) {
-        manifest.jsonlFile = sessionFile;
-        writeManifest(manifest).catch(() => {});
-      }
-      const onQuestion = tgRemoteId
-        ? (questions: unknown[]) => {
-            daemonRequest(`/remote/${tgRemoteId}/question`, "POST", { questions }).catch(() => {});
-          }
-        : undefined;
-
-      // Track tool calls for typing indicators and notifications.
-      // Approval detection is handled by the PTY buffer (see APPROVAL_PROMPT_TEXT).
-      const onToolCall = tgRemoteId
-        ? (calls: ToolCallInfo[]) => {
-            // Tool is working — assert typing on all target chats
-            const typingTarget = getPrimaryTargetChat();
-            if (typingTarget) tgChannel.setTyping(typingTarget, true);
-            for (const gid of subscribedGroups) tgChannel.setTyping(gid, true);
-
-            for (const call of calls) {
-              // Only track approvable tools for approval prompt attribution
-              if (APPROVABLE_TOOLS.has(call.name)) {
-                lastToolCall = { name: call.name, input: call.input };
-              }
-              // Send tool notification immediately (no poll)
-              daemonRequest(`/remote/${tgRemoteId}/tool-call`, "POST", {
-                name: call.name,
-                input: call.input,
-              }).catch(() => {});
-            }
-          }
-        : undefined;
-
-      // Thinking is disabled by default — enable via future config option
-      const onThinking = undefined;
-
-      const onToolResult = tgRemoteId
-        ? (results: ToolResultInfo[]) => {
-            for (const result of results) {
-              daemonRequest(`/remote/${tgRemoteId}/tool-result`, "POST", {
-                toolName: result.toolName,
-                content: result.content,
-                isError: result.isError,
-              }).catch(() => {});
-            }
-          }
-        : undefined;
-
-      watcherRef.current = watchSessionFile(sessionFile, (text) => {
-        // Determine target chats: bound chat + subscribed groups.
-        const targets = new Set<ChannelChatId>();
-        const targetChat = getPrimaryTargetChat();
-        if (targetChat) targets.add(targetChat);
-        for (const gid of subscribedGroups) targets.add(gid);
-        if (targets.size === 0) return;
-
-        for (const cid of targets) tgChannel.setTyping(cid, false);
-
-        const formatted = tgChannel.fmt.fromMarkdown(text);
-        for (const cid of targets) {
-          tgChannel.send(cid, formatted).catch(() => {});
-        }
-      }, onQuestion, onToolCall, onThinking, onToolResult, (msg) => {
-        if (typeof msg.sessionId === "string") activeClaudeSessionId = msg.sessionId;
-      }, skipExisting);
-    };
-
-    // If resuming, watch the existing session file — skip old content
-    if (resumeSessionFile) {
-      startFileWatch(resumeSessionFile, true);
+  let finalExitCode: number | null = null;
+  while (true) {
+    fullCommand = [executable, ...cmdArgs].join(" ");
+    if (manifest) {
+      manifest.command = fullCommand;
+      writeManifest(manifest).catch(() => {});
     }
 
-    const maybeSwitchToRolloverSession = (sessionFile: string): void => {
-      if (cmdName !== "claude") return;
-      if (!activeClaudeSessionId) return;
-      const seenIds = readSessionIdsFromJsonl(sessionFile);
-      if (seenIds.has(activeClaudeSessionId)) {
-        startFileWatch(sessionFile, false, true);
-      }
-    };
+    // Detect resume flags to find existing session JSONL file
+    // - Claude: --resume <session-id>
+    // - Codex: resume <session-id>
+    // - PI: --continue/-c (latest session), --session <path>
+    let resumeSessionFile: string | null = null;
 
-    // Check for files that appeared between snapshot and now (e.g. PI creates file at startup)
-    const checkForNewFiles = () => {
+    // Snapshot existing JSONL files BEFORE spawning so the tool's new file is detected
+    const projectDir = channel && chatId ? getSessionDir(cmdName) : "";
+    const existingFiles = new Set<string>();
+    if (projectDir) {
       try {
         for (const f of readdirSync(projectDir)) {
-          if (!f.endsWith(".jsonl")) continue;
-          if (existingFiles.has(f)) continue;
-          existingFiles.add(f);
-          const filePath = join(projectDir, f);
+          if (f.endsWith(".jsonl")) existingFiles.add(f);
+        }
+      } catch {}
+
+      // Check for resume session ID in args
+      let resumeId: string | null = null;
+      let codexResumeLast = false;
+      if (cmdName === "codex") {
+        const parsed = parseCodexResumeArgs(cmdArgs);
+        resumeId = parsed.resumeId;
+        codexResumeLast = parsed.useResumeLast;
+      } else {
+        const resumeIdx = cmdArgs.findIndex((a) => a === "--resume" || a === "-r");
+        if (resumeIdx !== -1 && resumeIdx + 1 < cmdArgs.length) {
+          resumeId = cmdArgs[resumeIdx + 1];
+        }
+        if (!resumeId) {
+          const resumeEq = cmdArgs.find((a) => a.startsWith("--resume="));
+          if (resumeEq) {
+            const value = resumeEq.slice("--resume=".length);
+            if (value) resumeId = value;
+          }
+        }
+      }
+
+      if (resumeId) {
+        // Search for JSONL file matching the session ID
+        try {
+          // Claude/PI: <id>.jsonl in project dir, or filename contains ID
+          if (existingFiles.has(`${resumeId}.jsonl`)) {
+            resumeSessionFile = join(projectDir, `${resumeId}.jsonl`);
+          } else {
+            for (const f of existingFiles) {
+              if (f.includes(resumeId)) {
+                resumeSessionFile = join(projectDir, f);
+                break;
+              }
+            }
+          }
+
+          // Codex: session may be in a different date directory — search recursively
+          if (!resumeSessionFile && cmdName === "codex") {
+            resumeSessionFile = findCodexSessionFileById(resumeId);
+          }
+        } catch {}
+      }
+
+      // Codex resume --last should tail whichever session file was active most recently.
+      if (!resumeSessionFile && cmdName === "codex" && codexResumeLast) {
+        resumeSessionFile = findLatestCodexSessionFile();
+      }
+
+      // PI --continue/-c: use the most recent JSONL file
+      if (!resumeSessionFile && (cmdArgs.includes("--continue") || cmdArgs.includes("-c"))) {
+        try {
+          let newest = "";
+          let newestMtime = 0;
+          for (const f of existingFiles) {
+            const s = statSync(join(projectDir, f));
+            if (s.mtimeMs > newestMtime) {
+              newestMtime = s.mtimeMs;
+              newest = f;
+            }
+          }
+          if (newest) resumeSessionFile = join(projectDir, newest);
+        } catch {}
+      }
+    }
+
+    // PTY output buffer for detecting approval prompts (per-CLI patterns)
+    const approvalPattern = APPROVAL_PATTERNS[cmdName];
+    let ptyBuffer = "";
+    let lastNotifiedPrompt = "";
+    // Track the last tool call so we can report it when the approval prompt appears
+    let lastToolCall: { name: string; input: Record<string, unknown> } | null = null;
+    const onApprovalPrompt = remoteId
+      ? (promptText: string, pollOptions?: string[]) => {
+          daemonRequest(`/remote/${remoteId}/approval-needed`, "POST", {
+            name: lastToolCall?.name || "unknown",
+            input: lastToolCall?.input || {},
+            promptText,
+            pollOptions,
+          }).catch(() => {});
+        }
+      : null;
+
+    let requestedResumeSessionRef: string | null = null;
+    const proc = Bun.spawn([executable, ...cmdArgs], {
+      terminal: {
+        cols: process.stdout.columns || 80,
+        rows: process.stdout.rows || 24,
+        data(_terminal, data) {
+          process.stdout.write(data);
+          // Buffer last ~1000 chars of PTY output for prompt detection
+          // Uses stripAnsiReadable to replace ANSI codes with spaces (preserves word boundaries)
+          const text = Buffer.from(data).toString("utf-8");
+          ptyBuffer += stripAnsiReadable(text);
+          if (ptyBuffer.length > 2000) ptyBuffer = ptyBuffer.slice(-1000);
+
+          if (!approvalPattern) return; // No approval detection for this CLI
+          const promptIdx = ptyBuffer.lastIndexOf(approvalPattern.promptText);
+          const hasOption = ptyBuffer.includes(approvalPattern.optionText);
+          if (promptIdx >= 0 && hasOption) {
+            // Extract the prompt sentence: "Do you want to ...?"
+            const afterPrompt = ptyBuffer.slice(promptIdx);
+            const endIdx = afterPrompt.indexOf("?");
+            const promptText = endIdx >= 0 ? afterPrompt.slice(0, endIdx + 1).trim() : approvalPattern.promptText;
+            // Extract poll options from text after the "?": "1. Yes", "2. Yes, allow ...", "3. No"
+            // Search only after the "?" to avoid matching digits in filenames (e.g. "poem-7.md")
+            const optionsText = endIdx >= 0 ? afterPrompt.slice(endIdx + 1) : "";
+            const options: string[] = [];
+            // Find positions of "1. ", "2. ", "3. " markers
+            const idx1 = optionsText.indexOf("1.");
+            const idx2 = optionsText.indexOf("2.");
+            const idx3 = optionsText.indexOf("3.");
+            if (idx1 >= 0 && idx2 > idx1 && idx3 > idx2) {
+              options.push(optionsText.slice(idx1 + 2, idx2).trim().replace(/\s+/g, " "));
+              options.push(optionsText.slice(idx2 + 2, idx3).trim().replace(/\s+/g, " "));
+              // Stop at footer text: "Esc to cancel" (Claude) or "Press enter" (Codex)
+              let opt3 = optionsText.slice(idx3 + 2);
+              for (const stop of ["Esc", "Press"]) {
+                const stopIdx = opt3.indexOf(stop);
+                if (stopIdx > 0) opt3 = opt3.slice(0, stopIdx);
+              }
+              options.push(opt3.trim().replace(/\s+/g, " "));
+            }
+            // Strip keyboard shortcut hints like (y), (p), (esc), (shift+tab) from options
+            for (let i = 0; i < options.length; i++) {
+              options[i] = options[i].replace(/\s*\([a-z+\-]+\)\s*$/i, "").trim().slice(0, 100);
+            }
+            // Only notify if this is a different prompt than the last one we notified about
+            // Delay slightly so the tool notification (from JSONL) arrives in Telegram first
+            if (promptText !== lastNotifiedPrompt) {
+              lastNotifiedPrompt = promptText;
+              const pollOptions = options.length >= 2 ? options : undefined;
+              setTimeout(() => onApprovalPrompt?.(promptText, pollOptions), 1000);
+            }
+          }
+        },
+      },
+      env: {
+        ...process.env,
+        TERM: process.env.TERM || "xterm-256color",
+      },
+    });
+
+    const terminal = proc.terminal!;
+
+    // Prevent idle sleep on macOS while the tool is running
+    let caffeinateProc: { kill(): void } | null = null;
+    if (platform() === "darwin") {
+      try {
+        caffeinateProc = Bun.spawn(["caffeinate", "-i", "-w", String(proc.pid)], {
+          stdout: "ignore",
+          stderr: "ignore",
+        });
+      } catch {}
+    }
+
+    // Forward stdin to the PTY
+    const onStdinData = (data: Buffer) => {
+      terminal.write(data);
+    };
+    process.stdin.on("data", onStdinData);
+
+    // Handle terminal resize
+    const onResize = () => {
+      terminal.resize(process.stdout.columns, process.stdout.rows);
+    };
+    process.stdout.on("resize", onResize);
+
+    // Track group chats subscribed to this session's output
+    const subscribedGroups = new Set<ChannelChatId>();
+    // Track which chat this session is bound to (may differ from chatId if bound to a group)
+    let boundChat: ChannelChatId | null = remoteId && didBindChat ? chatId : null;
+    let nullBoundPolls = 0;
+    let groupPollTimer: ReturnType<typeof setInterval> | null = null;
+    const getPrimaryTargetChat = (): ChannelChatId | null => remoteId ? boundChat : chatId;
+    if (remoteId && chatId && ownerUserId) {
+      const pollRemoteId = remoteId;
+      const pollBinding = async () => {
+        try {
+          const res = await daemonRequest(`/remote/${pollRemoteId}/subscribed-groups`);
+          const chatIds = res.chatIds as string[] | undefined;
+          if (chatIds) {
+            subscribedGroups.clear();
+            for (const id of chatIds) subscribedGroups.add(id);
+          }
+          if (typeof res.boundChat === "string") {
+            boundChat = res.boundChat as ChannelChatId;
+            nullBoundPolls = 0;
+          } else if (boundChat === null) {
+            nullBoundPolls = 0;
+          } else if (++nullBoundPolls >= 3) {
+            // Prevent single transient races from bouncing output to an old fallback chat.
+            boundChat = null;
+            nullBoundPolls = 0;
+          }
+        } catch {}
+      };
+      await pollBinding();
+      groupPollTimer = setInterval(() => {
+        pollBinding().catch(() => {});
+      }, 500);
+    }
+
+    // Watch session JSONL for assistant responses.
+    const watcherRef: { current: FSWatcher | null; dir: FSWatcher | null } = { current: null, dir: null };
+    let dirScanTimer: ReturnType<typeof setInterval> | null = null;
+    if (channel && chatId && projectDir) {
+      const tgChannel = channel;
+      const tgRemoteId = remoteId;
+      let activeSessionFile: string | null = null;
+      let activeClaudeSessionId: string | null = null;
+
+      const startFileWatch = (sessionFile: string, skipExisting = false, replaceCurrent = false) => {
+        if (activeSessionFile === sessionFile) return;
+        if (watcherRef.current) {
+          if (!replaceCurrent) return; // already locked to a session
+          watcherRef.current.close();
+          watcherRef.current = null;
+        }
+        activeSessionFile = sessionFile;
+        activeClaudeSessionId = null;
+
+        // Update manifest with discovered JSONL file
+        if (manifest) {
+          manifest.jsonlFile = sessionFile;
+          writeManifest(manifest).catch(() => {});
+        }
+        const onQuestion = tgRemoteId
+          ? (questions: unknown[]) => {
+              daemonRequest(`/remote/${tgRemoteId}/question`, "POST", { questions }).catch(() => {});
+            }
+          : undefined;
+
+        // Track tool calls for typing indicators and notifications.
+        // Approval detection is handled by the PTY buffer (see APPROVAL_PROMPT_TEXT).
+        const onToolCall = tgRemoteId
+          ? (calls: ToolCallInfo[]) => {
+              // Tool is working — assert typing on all target chats
+              const typingTarget = getPrimaryTargetChat();
+              if (typingTarget) tgChannel.setTyping(typingTarget, true);
+              for (const gid of subscribedGroups) tgChannel.setTyping(gid, true);
+
+              for (const call of calls) {
+                // Only track approvable tools for approval prompt attribution
+                if (APPROVABLE_TOOLS.has(call.name)) {
+                  lastToolCall = { name: call.name, input: call.input };
+                }
+                // Send tool notification immediately (no poll)
+                daemonRequest(`/remote/${tgRemoteId}/tool-call`, "POST", {
+                  name: call.name,
+                  input: call.input,
+                }).catch(() => {});
+              }
+            }
+          : undefined;
+
+        // Thinking is disabled by default — enable via future config option
+        const onThinking = undefined;
+
+        const onToolResult = tgRemoteId
+          ? (results: ToolResultInfo[]) => {
+              for (const result of results) {
+                daemonRequest(`/remote/${tgRemoteId}/tool-result`, "POST", {
+                  toolName: result.toolName,
+                  content: result.content,
+                  isError: result.isError,
+                }).catch(() => {});
+              }
+            }
+          : undefined;
+
+        watcherRef.current = watchSessionFile(sessionFile, (text) => {
+          // Determine target chats: bound chat + subscribed groups.
+          const targets = new Set<ChannelChatId>();
+          const targetChat = getPrimaryTargetChat();
+          if (targetChat) targets.add(targetChat);
+          for (const gid of subscribedGroups) targets.add(gid);
+          if (targets.size === 0) return;
+
+          for (const cid of targets) tgChannel.setTyping(cid, false);
+
+          const formatted = tgChannel.fmt.fromMarkdown(text);
+          for (const cid of targets) {
+            tgChannel.send(cid, formatted).catch(() => {});
+          }
+        }, onQuestion, onToolCall, onThinking, onToolResult, (msg) => {
+          if (typeof msg.sessionId === "string") activeClaudeSessionId = msg.sessionId;
+        }, skipExisting);
+      };
+
+      // If resuming, watch the existing session file — skip old content
+      if (resumeSessionFile) {
+        startFileWatch(resumeSessionFile, true);
+      }
+
+      const maybeSwitchToRolloverSession = (sessionFile: string): void => {
+        if (cmdName !== "claude") return;
+        if (!activeClaudeSessionId) return;
+        const seenIds = readSessionIdsFromJsonl(sessionFile);
+        if (seenIds.has(activeClaudeSessionId)) {
+          startFileWatch(sessionFile, false, true);
+        }
+      };
+
+      // Check for files that appeared between snapshot and now (e.g. PI creates file at startup)
+      const checkForNewFiles = () => {
+        try {
+          for (const f of readdirSync(projectDir)) {
+            if (!f.endsWith(".jsonl")) continue;
+            if (existingFiles.has(f)) continue;
+            existingFiles.add(f);
+            const filePath = join(projectDir, f);
+            if (!watcherRef.current) {
+              startFileWatch(filePath);
+              return;
+            }
+            maybeSwitchToRolloverSession(filePath);
+          }
+        } catch {}
+      };
+
+      // Watch the project directory for new .jsonl files
+      try {
+        watcherRef.dir = watch(projectDir, (_event, filename) => {
+          if (!filename?.endsWith(".jsonl")) return;
+          if (existingFiles.has(filename)) return;
+          existingFiles.add(filename);
+          const filePath = join(projectDir, filename);
           if (!watcherRef.current) {
             startFileWatch(filePath);
             return;
           }
           maybeSwitchToRolloverSession(filePath);
-        }
+        });
       } catch {}
-    };
 
-    // Watch the project directory for new .jsonl files
-    try {
-      watcherRef.dir = watch(projectDir, (_event, filename) => {
-        if (!filename?.endsWith(".jsonl")) return;
-        if (existingFiles.has(filename)) return;
-        existingFiles.add(filename);
-        const filePath = join(projectDir, filename);
-        if (!watcherRef.current) {
-          startFileWatch(filePath);
+      // Immediate check + periodic poll for tools that create files before watcher is ready
+      checkForNewFiles();
+      const bootstrapScanTimer = setInterval(() => {
+        if (watcherRef.current) {
+          clearInterval(bootstrapScanTimer);
           return;
         }
-        maybeSwitchToRolloverSession(filePath);
-      });
-    } catch {}
-
-    // Immediate check + periodic poll for tools that create files before watcher is ready
-    checkForNewFiles();
-    const bootstrapScanTimer = setInterval(() => {
-      if (watcherRef.current) {
-        clearInterval(bootstrapScanTimer);
-        return;
-      }
-      checkForNewFiles();
-    }, 500);
-    setTimeout(() => clearInterval(bootstrapScanTimer), 30_000);
-
-    // Keep scanning for Claude rollovers (plan-mode handoff can create a new session file).
-    if (cmdName === "claude") {
-      dirScanTimer = setInterval(() => {
         checkForNewFiles();
-      }, 2000);
+      }, 500);
+      setTimeout(() => clearInterval(bootstrapScanTimer), 30_000);
+
+      // Keep scanning for Claude rollovers (plan-mode handoff can create a new session file).
+      if (cmdName === "claude") {
+        dirScanTimer = setInterval(() => {
+          checkForNewFiles();
+        }, 2000);
+      }
     }
-  }
 
-  // Poll daemon for remote input if registered
-  let pollTimer: ReturnType<typeof setInterval> | null = null;
-  let processingInput = false;
-  if (remoteId && chatId && ownerUserId) {
-    const recovery = createRemoteRecoveryController({
-      ensureDaemon,
-      daemonRequest,
-      log: () => {},
-      logErr: () => {},
-    });
+    // Poll daemon for remote input if registered
+    let pollTimer: ReturnType<typeof setInterval> | null = null;
+    let processingInput = false;
+    if (remoteId && chatId && ownerUserId) {
+      const recovery = createRemoteRecoveryController({
+        ensureDaemon,
+        daemonRequest,
+        log: () => {},
+        logErr: () => {},
+      });
 
-    pollTimer = setInterval(async () => {
-      if (processingInput || recovery.isRecovering()) return;
-      try {
-        const res = await daemonRequest(`/remote/${remoteId}/input`);
+      pollTimer = setInterval(async () => {
+        if (processingInput || recovery.isRecovering()) return;
+        try {
+          const res = await daemonRequest(`/remote/${remoteId}/input`);
 
-        // Daemon restarted and lost our session — re-register with the same ID
-        if (res.unknown) {
-          await recovery.recover("unknown", {
+          // Daemon restarted and lost our session — re-register with the same ID
+          if (res.unknown) {
+            await recovery.recover("unknown", {
+              remoteId,
+              fullCommand,
+              chatId,
+              ownerUserId,
+              cwd: process.cwd(),
+              subscribedGroups: Array.from(subscribedGroups),
+              boundChat,
+            });
+            return;
+          }
+
+          const remoteControl = parseRemoteControlAction((res as { controlAction?: unknown }).controlAction);
+          if (remoteControl === "stop") {
+            terminal.write(Buffer.from("\x03"));
+            return;
+          }
+          if (remoteControl === "kill") {
+            try {
+              proc.kill(9);
+            } catch {}
+            return;
+          }
+          if (remoteControl && typeof remoteControl === "object" && remoteControl.type === "resume") {
+            requestedResumeSessionRef = remoteControl.sessionRef;
+            try {
+              proc.kill(9);
+            } catch {}
+            return;
+          }
+
+          const lines = res.lines as string[] | undefined;
+          if (lines && lines.length > 0) {
+            processingInput = true;
+            const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+            for (const line of lines) {
+              // Poll next/submit: navigate Down to "Next"/"Submit" button, then Enter
+              // Format: \x1b[POLL_NEXT:lastPos:optionCount]
+              // UI items: options[0..N-1], "Type something"[N], then "Next"[N+1]
+              const nextMatch = line.match(/^\x1b\[POLL_NEXT:(\d+):(\d+)\]$/);
+              if (nextMatch || line === "\x1b[POLL_SUBMIT]") {
+                if (nextMatch) {
+                  const lastPos = parseInt(nextMatch[1]);
+                  const optionCount = parseInt(nextMatch[2]);
+                  // "Next" is 2 positions after last real option: options + "Type something" + Next
+                  const nextPos = optionCount + 1;
+                  const downs = nextPos - lastPos;
+                  const DOWN = Buffer.from("\x1b[B");
+                  for (let i = 0; i < downs; i++) {
+                    terminal.write(DOWN);
+                    await delay(50);
+                  }
+                }
+                // POLL_SUBMIT: cursor is already on "Submit answers" — just press Enter
+                terminal.write(Buffer.from("\r"));
+                await delay(300);
+                continue;
+              }
+
+              // Poll "Other" selected: navigate to "Other" option and press Enter
+              // Next text line will fill in the custom text
+              if (line === "\x1b[POLL_OTHER]") {
+                // "Other" is handled by the AskUserQuestion UI as a free-text input
+                // Just wait for the next text message to be typed
+                continue;
+              }
+
+              // Poll answer: \x1b[POLL:optionIds:multiSelect]
+              const pollMatch = line.match(/^\x1b\[POLL:([0-9,]+):([01])\]$/);
+              if (pollMatch) {
+                const optionIds = pollMatch[1].split(",").map(Number);
+                const multiSelect = pollMatch[2] === "1";
+                await writePollKeypresses(terminal, optionIds, multiSelect);
+                await delay(100);
+                continue;
+              }
+
+              // Regular text input — start typing indicator
+              if (channel && chatId) {
+                const typingTarget = getPrimaryTargetChat();
+                if (typingTarget) channel.setTyping(typingTarget, true);
+                for (const gid of subscribedGroups) channel.setTyping(gid, true);
+              }
+              // Send remote text as bracketed paste so special chars (like '@')
+              // stay literal and don't trigger interactive pickers/autocomplete.
+              terminal.write(encodeBracketedPaste(line));
+              // File paths need extra time for the tool to load/process the attachment
+              const hasFilePath = line.includes("/.touchgrass/uploads/");
+              await delay(hasFilePath ? 1500 : 100);
+              terminal.write(Buffer.from("\r"));
+              await delay(100);
+            }
+            processingInput = false;
+          }
+        } catch {
+          // Don't kill polling on transient errors — just retry next interval
+          processingInput = false;
+          await recovery.recover("unreachable", {
             remoteId,
             fullCommand,
             chatId,
@@ -1442,127 +1591,46 @@ export async function runRun(): Promise<void> {
             subscribedGroups: Array.from(subscribedGroups),
             boundChat,
           });
-          return;
         }
+      }, 200);
+    }
 
-        const remoteControl = parseRemoteControlAction((res as { controlAction?: unknown }).controlAction);
-        if (remoteControl === "stop") {
-          terminal.write(Buffer.from("\x03"));
-          return;
-        }
-        if (remoteControl === "kill") {
-          try {
-            proc.kill(9);
-          } catch {}
-          return;
-        }
+    const exitCode = await proc.exited;
+    finalExitCode = exitCode ?? 1;
 
-        const lines = res.lines as string[] | undefined;
-        if (lines && lines.length > 0) {
-          processingInput = true;
-          const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+    // Cleanup
+    process.stdin.off("data", onStdinData);
+    process.stdout.off("resize", onResize);
+    if (caffeinateProc) caffeinateProc.kill();
+    if (pollTimer) clearInterval(pollTimer);
+    if (groupPollTimer) clearInterval(groupPollTimer);
+    if (dirScanTimer) clearInterval(dirScanTimer);
+    if (watcherRef.current) watcherRef.current.close();
+    if (watcherRef.dir) watcherRef.dir.close();
 
-          for (const line of lines) {
-            // Poll next/submit: navigate Down to "Next"/"Submit" button, then Enter
-            // Format: \x1b[POLL_NEXT:lastPos:optionCount]
-            // UI items: options[0..N-1], "Type something"[N], then "Next"[N+1]
-            const nextMatch = line.match(/^\x1b\[POLL_NEXT:(\d+):(\d+)\]$/);
-            if (nextMatch || line === "\x1b[POLL_SUBMIT]") {
-              if (nextMatch) {
-                const lastPos = parseInt(nextMatch[1]);
-                const optionCount = parseInt(nextMatch[2]);
-                // "Next" is 2 positions after last real option: options + "Type something" + Next
-                const nextPos = optionCount + 1;
-                const downs = nextPos - lastPos;
-                const DOWN = Buffer.from("\x1b[B");
-                for (let i = 0; i < downs; i++) {
-                  terminal.write(DOWN);
-                  await delay(50);
-                }
-              }
-              // POLL_SUBMIT: cursor is already on "Submit answers" — just press Enter
-              terminal.write(Buffer.from("\r"));
-              await delay(300);
-              continue;
-            }
+    if (requestedResumeSessionRef) {
+      cmdArgs = buildResumeCommandArgs(cmdName as "claude" | "codex" | "pi", cmdArgs, requestedResumeSessionRef);
+      continue;
+    }
 
-            // Poll "Other" selected: navigate to "Other" option and press Enter
-            // Next text line will fill in the custom text
-            if (line === "\x1b[POLL_OTHER]") {
-              // "Other" is handled by the AskUserQuestion UI as a free-text input
-              // Just wait for the next text message to be typed
-              continue;
-            }
-
-            // Poll answer: \x1b[POLL:optionIds:multiSelect]
-            const pollMatch = line.match(/^\x1b\[POLL:([0-9,]+):([01])\]$/);
-            if (pollMatch) {
-              const optionIds = pollMatch[1].split(",").map(Number);
-              const multiSelect = pollMatch[2] === "1";
-              await writePollKeypresses(terminal, optionIds, multiSelect);
-              await delay(100);
-              continue;
-            }
-
-            // Regular text input — start typing indicator
-            if (channel && chatId) {
-              const typingTarget = getPrimaryTargetChat();
-              if (typingTarget) channel.setTyping(typingTarget, true);
-              for (const gid of subscribedGroups) channel.setTyping(gid, true);
-            }
-            // Send remote text as bracketed paste so special chars (like '@')
-            // stay literal and don't trigger interactive pickers/autocomplete.
-            terminal.write(encodeBracketedPaste(line));
-            // File paths need extra time for the tool to load/process the attachment
-            const hasFilePath = line.includes("/.touchgrass/uploads/");
-            await delay(hasFilePath ? 1500 : 100);
-            terminal.write(Buffer.from("\r"));
-            await delay(100);
-          }
-          processingInput = false;
-        }
-      } catch {
-        // Don't kill polling on transient errors — just retry next interval
-        processingInput = false;
-        await recovery.recover("unreachable", {
-          remoteId,
-          fullCommand,
-          chatId,
-          ownerUserId,
-          cwd: process.cwd(),
-          subscribedGroups: Array.from(subscribedGroups),
-          boundChat,
+    if (remoteId) {
+      try {
+        await daemonRequest(`/remote/${remoteId}/exit`, "POST", {
+          exitCode: exitCode ?? null,
         });
-      }
-    }, 200);
-  }
-
-  const exitCode = await proc.exited;
-
-  // Cleanup
-  if (caffeinateProc) caffeinateProc.kill();
-  if (pollTimer) clearInterval(pollTimer);
-  if (groupPollTimer) clearInterval(groupPollTimer);
-  if (dirScanTimer) clearInterval(dirScanTimer);
-  if (watcherRef.current) watcherRef.current.close();
-  if (watcherRef.dir) watcherRef.dir.close();
-
-  if (remoteId) {
-    try {
-      await daemonRequest(`/remote/${remoteId}/exit`, "POST", {
-        exitCode: exitCode ?? null,
-      });
-    } catch {}
-    await removeManifest(remoteId);
-  } else if (channel && chatId) {
-    const { fmt } = channel;
-    const status = exitCode === 0 ? "disconnected" : `disconnected (code ${exitCode ?? "unknown"})`;
-    await channel.send(chatId, `Command ${fmt.code(fmt.escape(fullCommand))} ${fmt.escape(status)}.`);
+      } catch {}
+      await removeManifest(remoteId);
+    } else if (channel && chatId) {
+      const { fmt } = channel;
+      const status = exitCode === 0 ? "disconnected" : `disconnected (code ${exitCode ?? "unknown"})`;
+      await channel.send(chatId, `Command ${fmt.code(fmt.escape(fullCommand))} ${fmt.escape(status)}.`);
+    }
+    break;
   }
 
   if (process.stdin.isTTY) {
     process.stdin.setRawMode(false);
   }
 
-  process.exit(exitCode ?? 1);
+  process.exit(finalExitCode ?? 1);
 }

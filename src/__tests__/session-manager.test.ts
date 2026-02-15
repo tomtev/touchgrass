@@ -189,6 +189,16 @@ describe("drainRemoteInput", () => {
     expect(mgr.requestRemoteKill(remote.id)).toBe(true);
     expect(mgr.drainRemoteControl(remote.id)).toBe("kill");
   });
+
+  it("can enqueue resume control actions", () => {
+    const mgr = createManager();
+    const remote = mgr.registerRemote("codex", "telegram:100" as ChannelChatId, "telegram:100" as ChannelUserId);
+    expect(mgr.requestRemoteResume(remote.id, "019c56ac-417b-7180-bd3f-2ed6e25885e3")).toBe(true);
+    expect(mgr.drainRemoteControl(remote.id)).toEqual({
+      type: "resume",
+      sessionRef: "019c56ac-417b-7180-bd3f-2ed6e25885e3",
+    });
+  });
 });
 
 describe("removeRemote", () => {
@@ -203,7 +213,7 @@ describe("removeRemote", () => {
     expect(mgr.remoteCount()).toBe(0);
   });
 
-  it("removes pending file pickers and pending mentions for the session", () => {
+  it("removes pending file/resume pickers and pending mentions for the session", () => {
     const mgr = createManager();
     const remote = mgr.registerRemote("claude", "telegram:100" as ChannelChatId, "telegram:100" as ChannelUserId);
     mgr.registerFilePicker({
@@ -220,6 +230,17 @@ describe("removeRemote", () => {
       selectedMentions: [],
       options: [{ kind: "toggle", mention: "@README.md" }],
     });
+    mgr.registerResumePicker({
+      pollId: "resume-1",
+      messageId: "2",
+      chatId: "telegram:100" as ChannelChatId,
+      ownerUserId: "telegram:100" as ChannelUserId,
+      sessionId: remote.id,
+      tool: "claude",
+      sessions: [{ sessionRef: "sess-1", label: "sess-1", mtimeMs: Date.now() }],
+      offset: 0,
+      options: [{ kind: "session", sessionRef: "sess-1", label: "sess-1" }],
+    });
     mgr.setPendingFileMentions(
       remote.id,
       "telegram:100" as ChannelChatId,
@@ -229,6 +250,7 @@ describe("removeRemote", () => {
 
     mgr.removeRemote(remote.id);
     expect(mgr.getFilePickerByPollId("picker-1")).toBeUndefined();
+    expect(mgr.getResumePickerByPollId("resume-1")).toBeUndefined();
     expect(
       mgr.consumePendingFileMentions(
         remote.id,

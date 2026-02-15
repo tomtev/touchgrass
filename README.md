@@ -111,6 +111,9 @@ tg send --file <id> ./notes.md
 
 From Telegram chat:
 - `/files` (or `tg files <query>`) opens inline picker buttons in the same chat, lets you select multiple `@path` entries, and queues them for your next message
+- `@?<query>` is shorthand for the same picker (example: `@?readme`)
+- `@?<query> - <prompt>` resolves the top fuzzy match and sends `@path - prompt` directly (example: `@?readme - summarize this file`)
+- `/resume` (or `tg resume`) opens a picker of recent local sessions for this tool and restarts into the selected session
 
 ### Setup & diagnostics
 

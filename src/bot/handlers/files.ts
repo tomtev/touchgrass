@@ -186,9 +186,88 @@ export function buildFilePickerPage(
 export const __filePickerTestUtils = {
   buildFilePickerPage,
   fileScore,
+  parseInlineFileSearch,
   rankFiles,
   subsequenceScore,
 };
+
+export function parseInlineFileSearch(text: string): { query: string; prompt: string | null } | null {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith("@?")) return null;
+
+  const body = trimmed.slice(2).trim();
+  if (!body) return { query: "", prompt: null };
+
+  const withPrompt = body.match(/^(.*?)\s+-\s+([\s\S]+)$/);
+  if (withPrompt) {
+    const query = withPrompt[1].trim();
+    const prompt = withPrompt[2].trim();
+    if (!query) return null;
+    return {
+      query,
+      prompt: prompt || null,
+    };
+  }
+
+  return {
+    query: body,
+    prompt: null,
+  };
+}
+
+export async function handleInlineFileSearch(
+  msg: InboundMessage,
+  rawText: string,
+  ctx: RouterContext
+): Promise<boolean> {
+  const parsed = parseInlineFileSearch(rawText);
+  if (!parsed) return false;
+
+  const chatId = msg.chatId;
+  const { fmt } = ctx.channel;
+
+  // @?query → open picker
+  if (!parsed.prompt) {
+    await handleFilesCommand(msg, parsed.query, ctx);
+    return true;
+  }
+
+  // @?query - prompt → resolve top fuzzy match and send immediately
+  const remote = resolveTargetRemote(msg, ctx);
+  if (!remote) {
+    await ctx.channel.send(
+      chatId,
+      `No connected session for this chat. Start with ${fmt.code("tg claude")} (or ${fmt.code("tg codex")}, ${fmt.code("tg pi")}) and connect this channel first.`
+    );
+    return true;
+  }
+
+  if (!remote.cwd) {
+    await ctx.channel.send(chatId, "This session does not expose a working directory for file search.");
+    return true;
+  }
+
+  const paths = listRepoPaths(remote.cwd);
+  if (paths.length === 0) {
+    await ctx.channel.send(chatId, `No repo paths found in ${fmt.code(fmt.escape(remote.cwd))}.`);
+    return true;
+  }
+
+  const ranked = rankFiles(paths, parsed.query).slice(0, FILE_PICKER_MAX_FILES);
+  if (ranked.length === 0) {
+    await ctx.channel.send(chatId, `No paths matched ${fmt.code(fmt.escape(parsed.query))}.`);
+    return true;
+  }
+
+  const mention = `@${ranked[0]}`;
+  remote.inputQueue.push(`${mention} - ${parsed.prompt}`.trim());
+  if (msg.isGroup) {
+    ctx.sessionManager.subscribeGroup(remote.id, chatId);
+  }
+
+  await ctx.channel.send(chatId, `Using ${fmt.code(fmt.escape(mention))}.`);
+  return true;
+}
 
 export async function handleFilesCommand(
   msg: InboundMessage,

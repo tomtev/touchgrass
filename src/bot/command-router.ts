@@ -9,7 +9,8 @@ import { handlePair } from "./handlers/pair";
 import { handleHelp } from "./handlers/help";
 import { handleSessionMgmt } from "./handlers/session-mgmt";
 import { handleStdinInput } from "./handlers/stdin-input";
-import { handleFilesCommand } from "./handlers/files";
+import { handleFilesCommand, handleInlineFileSearch } from "./handlers/files";
+import { handleResumeCommand } from "./handlers/resume";
 import { logger } from "../daemon/logger";
 
 export interface RouterContext {
@@ -29,6 +30,7 @@ export async function routeMessage(
   if (text === "tg help") text = "/help";
   else if (text === "tg sessions") text = "/sessions";
   else if (text === "tg files" || text.startsWith("tg files ")) text = `/files${text.slice("tg files".length)}`;
+  else if (text === "tg resume") text = "/resume";
   else if (text === "tg link" || text.startsWith("tg link ")) text = `/link${text.slice("tg link".length)}`;
   else if (text === "tg unlink") text = "/unlink";
   else if (text === "tg pair" || text.startsWith("tg pair ")) text = `/pair${text.slice("tg pair".length)}`;
@@ -115,6 +117,18 @@ export async function routeMessage(
     return;
   }
 
+  // /resume — pick a prior session and restart the connected tool with it
+  if (text === "/resume") {
+    await handleResumeCommand({ ...msg, text }, ctx);
+    return;
+  }
+
+  // @?query → file picker, @?query - prompt → resolve top path and send
+  if (text.startsWith("@?")) {
+    const handled = await handleInlineFileSearch({ ...msg, text }, text, ctx);
+    if (handled) return;
+  }
+
   // /link — register this group or topic with the bot
   if (text === "/link" || text.startsWith("/link ")) {
     if (!msg.isGroup) {
@@ -181,7 +195,7 @@ export async function routeMessage(
 
     await ctx.channel.send(
       chatId,
-      `Unknown command. Use ${fmt.code("tg sessions")}, ${fmt.code("tg files [query]")}, ${fmt.code("tg attach <id>")}, ${fmt.code("tg detach")}, ${fmt.code("tg stop <id>")}, or ${fmt.code("tg kill <id>")}. Start sessions from your terminal with ${fmt.code("tg claude")}, ${fmt.code("tg codex")}, or ${fmt.code("tg pi")}.`
+      `Unknown command. Use ${fmt.code("tg sessions")}, ${fmt.code("tg files [query]")}, ${fmt.code("tg resume")}, ${fmt.code("tg attach <id>")}, ${fmt.code("tg detach")}, ${fmt.code("tg stop <id>")}, or ${fmt.code("tg kill <id>")}. Start sessions from your terminal with ${fmt.code("tg claude")}, ${fmt.code("tg codex")}, or ${fmt.code("tg pi")}.`
     );
     return;
   }

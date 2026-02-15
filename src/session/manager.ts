@@ -45,6 +45,16 @@ export type PendingFilePickerOption =
   | { kind: "clear" }
   | { kind: "cancel" };
 
+export interface ResumeSessionCandidate {
+  sessionRef: string;
+  label: string;
+  mtimeMs: number;
+}
+
+export type PendingResumePickerOption =
+  | { kind: "session"; sessionRef: string; label: string }
+  | { kind: "more"; nextOffset: number };
+
 export interface PendingFilePicker {
   pollId: string;
   messageId: string;
@@ -60,6 +70,18 @@ export interface PendingFilePicker {
   options: PendingFilePickerOption[];
 }
 
+export interface PendingResumePicker {
+  pollId: string;
+  messageId: string;
+  chatId: ChannelChatId;
+  ownerUserId: ChannelUserId;
+  sessionId: string;
+  tool: string;
+  sessions: ResumeSessionCandidate[];
+  offset: number;
+  options: PendingResumePickerOption[];
+}
+
 export class SessionManager {
   private remotes: Map<string, RemoteSession> = new Map();
   // Map: channelChatId → sessionId (attached session)
@@ -72,6 +94,8 @@ export class SessionManager {
   private pendingQuestions: Map<string, PendingQuestionSet> = new Map();
   // Map: pollId → pending file picker metadata
   private pendingFilePickers: Map<string, PendingFilePicker> = new Map();
+  // Map: pollId → pending resume picker metadata
+  private pendingResumePickers: Map<string, PendingResumePicker> = new Map();
   // Map: sessionId|chatId|userId → file mentions to prepend on next text input
   private pendingFileMentions: Map<string, string[]> = new Map();
 
@@ -156,11 +180,22 @@ export class SessionManager {
     return true;
   }
 
+  requestRemoteResume(id: string, sessionRef: string): boolean {
+    const remote = this.remotes.get(id);
+    if (!remote) return false;
+    remote.controlAction = mergeRemoteControlAction(remote.controlAction, {
+      type: "resume",
+      sessionRef,
+    });
+    return true;
+  }
+
   killAll(): void {
     this.remotes.clear();
     this.attachments.clear();
     this.groupSubscriptions.clear();
     this.pendingFilePickers.clear();
+    this.pendingResumePickers.clear();
     this.pendingFileMentions.clear();
   }
 
@@ -227,6 +262,9 @@ export class SessionManager {
       this.clearPendingQuestions(id);
       for (const [pollId, picker] of this.pendingFilePickers) {
         if (picker.sessionId === id) this.pendingFilePickers.delete(pollId);
+      }
+      for (const [pollId, picker] of this.pendingResumePickers) {
+        if (picker.sessionId === id) this.pendingResumePickers.delete(pollId);
       }
       for (const key of this.pendingFileMentions.keys()) {
         if (key.startsWith(`${id}|`)) this.pendingFileMentions.delete(key);
@@ -307,6 +345,18 @@ export class SessionManager {
 
   removeFilePicker(pollId: string): void {
     this.pendingFilePickers.delete(pollId);
+  }
+
+  registerResumePicker(picker: PendingResumePicker): void {
+    this.pendingResumePickers.set(picker.pollId, picker);
+  }
+
+  getResumePickerByPollId(pollId: string): PendingResumePicker | undefined {
+    return this.pendingResumePickers.get(pollId);
+  }
+
+  removeResumePicker(pollId: string): void {
+    this.pendingResumePickers.delete(pollId);
   }
 
   setPendingFileMentions(

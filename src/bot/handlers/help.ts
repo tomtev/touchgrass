@@ -11,6 +11,9 @@ Any text you send goes to the connected session.
 ${fmt.bold("Commands:")}
 /sessions ${fmt.escape("or")} ${fmt.code("tg sessions")} ${fmt.escape("—")} List active sessions
 /files ${fmt.escape("or")} ${fmt.code("tg files [query]")} ${fmt.escape("—")} Pick one or more repo paths (files/folders) for next message
+${fmt.code("@?query")} ${fmt.escape("—")} Shorthand for file picker (same as /files query)
+${fmt.code("@?query - prompt")} ${fmt.escape("—")} Resolve top path and send as @path - prompt
+/resume ${fmt.escape("or")} ${fmt.code("tg resume")} ${fmt.escape("—")} Pick a previous session and restart this tool on it
 /link ${fmt.escape("or")} ${fmt.code("tg link")} ${fmt.escape("—")} Add this chat as a channel
 /unlink ${fmt.escape("or")} ${fmt.code("tg unlink")} ${fmt.escape("—")} Remove this chat as a channel
 /help ${fmt.escape("or")} ${fmt.code("tg help")} ${fmt.escape("—")} Show this help
