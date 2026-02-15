@@ -37,6 +37,16 @@ function renderSessionHeader(
   return `${fmt.bold(fmt.escape(`${tool} (${dir})`))} ${fmt.escape("•")} ${fmt.code(fmt.escape(session.sessionId))}`;
 }
 
+const MAX_RENDERED_JOBS_PER_SESSION = 5;
+const MAX_COMMAND_PREVIEW = 90;
+
+function compactCommand(command?: string): string {
+  const raw = (command || "running").trim();
+  if (!raw) return "running";
+  if (raw.length <= MAX_COMMAND_PREVIEW) return raw;
+  return `${raw.slice(0, MAX_COMMAND_PREVIEW - 3)}...`;
+}
+
 export function formatBackgroundJobs(
   fmt: Formatter,
   sessions: BackgroundJobSessionSummary[]
@@ -48,13 +58,17 @@ export function formatBackgroundJobs(
 
   for (const session of sessions) {
     lines.push(renderSessionHeader(fmt, session));
-    for (const job of session.jobs) {
-      const cmd = (job.command || "running").trim();
+    const visible = session.jobs.slice(0, MAX_RENDERED_JOBS_PER_SESSION);
+    for (const job of visible) {
+      const cmd = compactCommand(job.command);
       lines.push(
         `• ${fmt.code(fmt.escape(job.taskId))} ${fmt.escape("—")} ${fmt.escape(cmd)} ${fmt.escape(`(${relativeAge(job.updatedAt)})`)}`
       );
       const url = job.urls?.find((candidate) => /^https?:\/\//i.test(candidate));
       if (url) lines.push(`  ↳ ${fmt.link(fmt.escape(url), url)}`);
+    }
+    if (session.jobs.length > MAX_RENDERED_JOBS_PER_SESSION) {
+      lines.push(fmt.escape(`+${session.jobs.length - MAX_RENDERED_JOBS_PER_SESSION} more`));
     }
   }
 

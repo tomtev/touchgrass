@@ -66,6 +66,30 @@ describe("background jobs handler", () => {
     expect(rendered).toContain("http://localhost:3000");
   });
 
+  it("caps rendered jobs per session and shortens long command previews", () => {
+    const longCmd = "node -e \"const http=require('http');http.createServer((req,res)=>res.end('long')).listen(9999,()=>console.log('http://localhost:9999'));setInterval(()=>{},1<<30);\"";
+    const now = Date.now();
+    const sessions: BackgroundJobSessionSummary[] = [{
+      sessionId: "r-cap123",
+      command: "claude --dangerously-skip-permissions",
+      cwd: "/tmp/touchgrass",
+      jobs: [
+        { taskId: "bg_1", command: longCmd, updatedAt: now - 1_000 },
+        { taskId: "bg_2", command: longCmd, updatedAt: now - 2_000 },
+        { taskId: "bg_3", command: longCmd, updatedAt: now - 3_000 },
+        { taskId: "bg_4", command: longCmd, updatedAt: now - 4_000 },
+        { taskId: "bg_5", command: longCmd, updatedAt: now - 5_000 },
+        { taskId: "bg_6", command: longCmd, updatedAt: now - 6_000 },
+      ],
+    }];
+
+    const rendered = formatBackgroundJobs(fmt, sessions);
+    expect(rendered).toContain("bg_1 — node -e");
+    expect(rendered).toContain("...");
+    expect(rendered).toContain("+1 more");
+    expect(rendered).not.toContain("bg_6 —");
+  });
+
   it("routes tg background-jobs alias through command router", async () => {
     const sent: string[] = [];
     const config = {
