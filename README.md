@@ -82,6 +82,13 @@ tg codex [args]
 tg pi [args]
 ```
 
+touchgrass auto-appends a small bridge context for all three:
+- `claude` / `pi`: `--append-system-prompt "<touchgrass bridge context>"`
+- `codex`: `-c developer_instructions="<touchgrass bridge context>"`
+- The context tells the tool it is running inside a `tg` wrapper and users may communicate through Telegram now and other channels over time
+- It includes send-back helpers: `tg send $TG_SESSION_ID "text"` and `tg send --file $TG_SESSION_ID <path>`
+- If you already pass your own `--append-system-prompt` (Claude/PI) or `developer_instructions` config (Codex), touchgrass does not add a second one.
+
 Use `--channel` to skip picker:
 
 ```bash

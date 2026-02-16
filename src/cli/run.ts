@@ -12,6 +12,7 @@ import { chmod, open, writeFile, unlink } from "fs/promises";
 import { homedir, platform } from "os";
 import { join } from "path";
 import { parseRemoteControlAction } from "../session/remote-control";
+import touchgrassAutoContext from "../prompts/touchgrass-context.md" with { type: "text" };
 
 // Per-CLI patterns for detecting approval prompts in terminal output.
 // Both `promptText` and `optionText` must be present in the PTY buffer to trigger a notification.
@@ -31,6 +32,7 @@ export const __cliRunTestUtils = {
   encodeBracketedPaste,
   buildResumeCommandArgs,
   parseCodexResumeArgs,
+  applyTouchgrassAutoContextArgs,
   parseJsonlMessage,
   resetParserState: () => {
     toolUseIdToName.clear();
@@ -201,6 +203,51 @@ const SUPPORTED_COMMANDS: Record<string, string[]> = {
   codex: ["codex"],
   pi: ["pi"],
 };
+
+const TOUCHGRASS_AUTO_CONTEXT = touchgrassAutoContext.trim();
+
+function hasFlag(args: string[], longFlag: string, shortFlag?: string): boolean {
+  for (const arg of args) {
+    if (arg === longFlag) return true;
+    if (shortFlag && arg === shortFlag) return true;
+    if (arg.startsWith(`${longFlag}=`)) return true;
+    if (shortFlag && arg.startsWith(`${shortFlag}=`)) return true;
+  }
+  return false;
+}
+
+function hasCodexConfigKey(args: string[], key: string): boolean {
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === "-c" || arg === "--config") {
+      const next = args[i + 1];
+      if (next?.startsWith(`${key}=`)) return true;
+      i++;
+      continue;
+    }
+    if (arg.startsWith("--config=")) {
+      const value = arg.slice("--config=".length);
+      if (value.startsWith(`${key}=`)) return true;
+    }
+  }
+  return false;
+}
+
+type SupportedCommand = "claude" | "codex" | "pi";
+
+function applyTouchgrassAutoContextArgs(
+  command: SupportedCommand,
+  args: string[],
+  context: string = TOUCHGRASS_AUTO_CONTEXT
+): string[] {
+  if (command === "codex") {
+    if (hasCodexConfigKey(args, "developer_instructions")) return args;
+    return ["-c", `developer_instructions=${JSON.stringify(context)}`, ...args];
+  }
+
+  if (hasFlag(args, "--append-system-prompt")) return args;
+  return ["--append-system-prompt", context, ...args];
+}
 
 // Get session JSONL directory for the given command
 function getSessionDir(command: string): string {
@@ -1111,6 +1158,8 @@ export async function runRun(): Promise<void> {
     ? channelFlag.split(":")[0]
     : undefined;
 
+  cmdArgs = applyTouchgrassAutoContextArgs(cmdName as SupportedCommand, cmdArgs);
+
   const executable = SUPPORTED_COMMANDS[cmdName][0];
   let fullCommand = [executable, ...cmdArgs].join(" ");
   const displayName = process.cwd().split("/").pop() || "";
@@ -1450,6 +1499,7 @@ export async function runRun(): Promise<void> {
       env: {
         ...process.env,
         TERM: process.env.TERM || "xterm-256color",
+        ...(remoteId ? { TG_SESSION_ID: remoteId } : {}),
       },
     });
 

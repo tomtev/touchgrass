@@ -3,6 +3,8 @@
 ## What This Project Does
 
 touchgrass is a terminal bridge for controlling local AI CLI sessions from chat.
+Its core product goal is to be the best possible remote controller for Claude Code, Codex, PI, and similar terminal-first AI tools.
+Users can build personal agents on top of touchgrass by defining behavior in `AGENTS.md` (without needing a separate agent runtime flag).
 
 Supported channels:
 - Telegram
