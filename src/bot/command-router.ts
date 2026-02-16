@@ -35,9 +35,7 @@ export async function routeMessage(
   if (!text) return;
 
   // Channel-agnostic command aliases for platforms where slash commands are not practical.
-  if (text === "tg help") text = "/help";
-  else if (text === "tg sessions") text = "/sessions";
-  else if (text === "tg files" || text.startsWith("tg files ")) text = `/files${text.slice("tg files".length)}`;
+  if (text === "tg files" || text.startsWith("tg files ")) text = `/files${text.slice("tg files".length)}`;
   else if (text === "tg resume") text = "/resume";
   else if (text === "tg background_jobs" || text.startsWith("tg background_jobs ")) text = "/background_jobs";
   else if (text === "tg background-jobs" || text.startsWith("tg background-jobs ")) text = "/background-jobs";
@@ -48,6 +46,17 @@ export async function routeMessage(
   const userId = msg.userId;
   const chatId = msg.chatId;
   const { fmt } = ctx.channel;
+  const isGroup = !!msg.isGroup;
+  const linked = isLinkedGroup(ctx.config, chatId);
+  const paired = isUserPaired(ctx.config, userId);
+
+  await ctx.channel.syncCommandMenu?.({
+    userId,
+    chatId,
+    isPaired: paired,
+    isGroup,
+    isLinkedGroup: linked,
+  });
 
   await logger.debug("Received message", {
     userId,
@@ -59,17 +68,29 @@ export async function routeMessage(
   // /pair is always available (for unpaired users)
   if (text.startsWith("/pair")) {
     await handlePair({ ...msg, text }, ctx);
+    await ctx.channel.syncCommandMenu?.({
+      userId,
+      chatId,
+      isPaired: isUserPaired(ctx.config, userId),
+      isGroup,
+      isLinkedGroup: isLinkedGroup(ctx.config, chatId),
+    });
     return;
   }
 
-  // /start and /help are always available
-  if (text === "/start" || text === "/help") {
+  // /start is always available
+  if (text === "/start") {
     await handleHelp({ ...msg, text }, ctx);
     return;
   }
 
+  if (text === "/help") {
+    await ctx.channel.send(chatId, `Use ${fmt.code("/start")} to see available commands.`);
+    return;
+  }
+
   // Everything else requires pairing
-  if (!isUserPaired(ctx.config, userId)) {
+  if (!paired) {
     await ctx.channel.send(
       chatId,
       `You are not paired. Use /pair ${fmt.escape("<code>")} to pair.`
@@ -77,47 +98,33 @@ export async function routeMessage(
     return;
   }
 
+  if (text === "/sessions") {
+    await ctx.channel.send(chatId, `The ${fmt.code("/sessions")} command was removed. Use ${fmt.code("tg ls")} in your terminal.`);
+    return;
+  }
+
   if (
-    msg.isGroup &&
+    isGroup &&
     text !== "/link" &&
     !text.startsWith("/link ") &&
     text !== "/unlink" &&
-    !isLinkedGroup(ctx.config, chatId)
+    !linked
   ) {
     await ctx.channel.send(chatId, `This group is not linked yet. Run ${fmt.code("/link")} first.`);
     return;
   }
 
   // Auto-update group title if it changed
-  if (msg.isGroup && msg.chatTitle && !isTopic(chatId)) {
+  if (isGroup && msg.chatTitle && !isTopic(chatId)) {
     if (updateLinkedGroupTitle(ctx.config, chatId, msg.chatTitle)) {
       await saveConfig(ctx.config);
     }
   }
   // Auto-update topic title if detected from Telegram
-  if (msg.isGroup && msg.topicTitle && isTopic(chatId)) {
+  if (isGroup && msg.topicTitle && isTopic(chatId)) {
     if (updateLinkedGroupTitle(ctx.config, chatId, msg.topicTitle)) {
       await saveConfig(ctx.config);
     }
-  }
-
-  // /sessions — list active sessions
-  if (text === "/sessions") {
-    const sessions = ctx.sessionManager.listForUser(userId);
-    if (sessions.length === 0) {
-      await ctx.channel.send(chatId, "No active sessions.");
-      return;
-    }
-    const attached = ctx.sessionManager.getAttachedRemote(chatId);
-    const mainId = attached?.ownerUserId === userId ? attached.id : undefined;
-    const lines = sessions.map((s) => {
-      const label = s.id;
-      const isMain = label === mainId;
-      const marker = isMain ? " (connected)" : "";
-      return `${fmt.code(label)} ${fmt.escape(s.command)}${marker}`;
-    });
-    await ctx.channel.send(chatId, lines.join("\n"));
-    return;
   }
 
   // /files [query] — pick a repository file and insert as @path in next message
@@ -147,7 +154,7 @@ export async function routeMessage(
 
   // /link — register this group or topic with the bot
   if (text === "/link" || text.startsWith("/link ")) {
-    if (!msg.isGroup) {
+    if (!isGroup) {
       await ctx.channel.send(chatId, "Use /link in a group or topic to register it with the bot.");
       return;
     }
@@ -172,6 +179,13 @@ export async function routeMessage(
       } else {
         await ctx.channel.send(chatId, `This topic is already linked.`);
       }
+      await ctx.channel.syncCommandMenu?.({
+        userId,
+        chatId,
+        isPaired: true,
+        isGroup,
+        isLinkedGroup: isLinkedGroup(ctx.config, chatId),
+      });
     } else {
       const added = addLinkedGroup(ctx.config, chatId, msg.chatTitle);
       if (added) {
@@ -180,13 +194,20 @@ export async function routeMessage(
       } else {
         await ctx.channel.send(chatId, `This group is already linked.`);
       }
+      await ctx.channel.syncCommandMenu?.({
+        userId,
+        chatId,
+        isPaired: true,
+        isGroup,
+        isLinkedGroup: isLinkedGroup(ctx.config, chatId),
+      });
     }
     return;
   }
 
   // /unlink — unregister this group/topic from the bot
   if (text === "/unlink") {
-    if (!msg.isGroup) {
+    if (!isGroup) {
       await ctx.channel.send(chatId, "Use /unlink in a group or topic to unregister it.");
       return;
     }
@@ -196,6 +217,13 @@ export async function routeMessage(
     } else {
       await ctx.channel.send(chatId, "This chat is not linked.");
     }
+    await ctx.channel.syncCommandMenu?.({
+      userId,
+      chatId,
+      isPaired: true,
+      isGroup,
+      isLinkedGroup: isLinkedGroup(ctx.config, chatId),
+    });
     return;
   }
 
@@ -211,7 +239,7 @@ export async function routeMessage(
 
     await ctx.channel.send(
       chatId,
-      `Unknown command. Use ${fmt.code("tg sessions")}, ${fmt.code("tg files [query]")}, ${fmt.code("tg resume")}, ${fmt.code("tg background-jobs")}, ${fmt.code("tg attach <id>")}, ${fmt.code("tg detach")}, ${fmt.code("tg stop <id>")}, or ${fmt.code("tg kill <id>")}. Start sessions from your terminal with ${fmt.code("tg claude")}, ${fmt.code("tg codex")}, or ${fmt.code("tg pi")}.`
+      `Unknown command. Use ${fmt.code("tg files [query]")}, ${fmt.code("tg resume")}, ${fmt.code("tg background-jobs")}, ${fmt.code("tg attach <id>")}, ${fmt.code("tg detach")}, ${fmt.code("tg stop <id>")}, or ${fmt.code("tg kill <id>")}. Start sessions from your terminal with ${fmt.code("tg claude")}, ${fmt.code("tg codex")}, or ${fmt.code("tg pi")}.`
     );
     return;
   }

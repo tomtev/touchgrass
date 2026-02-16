@@ -1,7 +1,13 @@
-import { TelegramApi, type TelegramUpdate, type TelegramInlineKeyboardButton } from "./api";
+import {
+  TelegramApi,
+  type TelegramUpdate,
+  type TelegramInlineKeyboardButton,
+  type TelegramBotCommandScope,
+} from "./api";
 import type {
   Channel,
   ChannelChatId,
+  CommandMenuContext,
   ClearStatusBoardOptions,
   InboundMessage,
   PollResult,
@@ -48,6 +54,44 @@ function parseActionCallbackData(data: string | undefined): { pollId: string; op
   return { pollId: match[1], optionId };
 }
 
+interface TelegramBotCommand {
+  command: string;
+  description: string;
+}
+
+const TELEGRAM_COMMANDS = {
+  files: { command: "files", description: "Pick repo paths for next message" },
+  resume: { command: "resume", description: "Pick and resume a previous session" },
+  backgroundJobs: { command: "background_jobs", description: "List running background jobs" },
+  link: { command: "link", description: "Add this chat as a channel" },
+  unlink: { command: "unlink", description: "Remove this chat as a channel" },
+  pair: { command: "pair", description: "Pair with code: /pair <code>" },
+} as const satisfies Record<string, TelegramBotCommand>;
+
+function parseNumericChannelId(id: string): number | null {
+  const raw = id.split(":")[1];
+  if (!raw) return null;
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : null;
+}
+
+function buildCommandMenu(ctx: Pick<CommandMenuContext, "isPaired" | "isGroup" | "isLinkedGroup">): TelegramBotCommand[] {
+  if (!ctx.isPaired) return [TELEGRAM_COMMANDS.pair];
+  const commands: TelegramBotCommand[] = [
+    TELEGRAM_COMMANDS.files,
+    TELEGRAM_COMMANDS.resume,
+    TELEGRAM_COMMANDS.backgroundJobs,
+  ];
+  if (ctx.isGroup) {
+    commands.push(ctx.isLinkedGroup ? TELEGRAM_COMMANDS.unlink : TELEGRAM_COMMANDS.link);
+  }
+  return commands;
+}
+
+export const __telegramChannelTestUtils = {
+  buildCommandMenu,
+};
+
 export class TelegramChannel implements Channel {
   readonly type = "telegram";
   readonly fmt = new TelegramFormatter();
@@ -63,6 +107,7 @@ export class TelegramChannel implements Channel {
   private actionPollById: Map<string, { chatId: ChannelChatId; messageId: number }> = new Map();
   private actionPollByMessage: Map<string, string> = new Map();
   private statusBoards: Map<string, { messageId: number; pinned: boolean }> = new Map();
+  private commandMenuCache: Map<string, string> = new Map();
   onPollAnswer: PollAnswerHandler | null = null;
   onDeadChat: ((chatId: ChannelChatId, error: Error) => void) | null = null;
 
@@ -373,6 +418,33 @@ export class TelegramChannel implements Channel {
     }
   }
 
+  async syncCommandMenu(ctx: CommandMenuContext): Promise<void> {
+    const userNum = parseNumericChannelId(ctx.userId);
+    if (!userNum) return;
+    const { chatId: numChatId } = fromChatId(ctx.chatId);
+    const commands = buildCommandMenu(ctx);
+    const signature = commands.map((cmd) => cmd.command).join(",");
+    const cacheKey = `${numChatId}:${userNum}`;
+    if (this.commandMenuCache.get(cacheKey) === signature) return;
+
+    const scope: TelegramBotCommandScope = {
+      type: "chat_member",
+      chat_id: numChatId,
+      user_id: userNum,
+    };
+
+    try {
+      await this.api.setMyCommands(commands, scope);
+      this.commandMenuCache.set(cacheKey, signature);
+    } catch (e) {
+      await logger.debug("Failed to sync Telegram command menu", {
+        chatId: ctx.chatId,
+        userId: ctx.userId,
+        error: (e as Error).message,
+      });
+    }
+  }
+
   async startReceiving(onMessage: (msg: InboundMessage) => Promise<void>): Promise<void> {
     // Validate bot and register commands
     try {
@@ -380,16 +452,11 @@ export class TelegramChannel implements Channel {
       const me = await this.api.getMe();
       this.botUsername = me.username || null;
       await logger.info("Bot connected", { username: me.username, id: me.id });
-      await this.api.setMyCommands([
-        { command: "files", description: "Pick repo paths for next message" },
-        { command: "resume", description: "Pick and resume a previous session" },
-        { command: "background_jobs", description: "List running background jobs" },
-        { command: "link", description: "Add this chat as a channel" },
-        { command: "unlink", description: "Remove this chat as a channel" },
-        { command: "help", description: "Show help" },
-        { command: "pair", description: "Pair with code: /pair <code>" },
-        { command: "sessions", description: "List active sessions" },
-      ]);
+      // Clear broad command scopes from older versions so chat_member menus control visibility.
+      await this.api.setMyCommands([], { type: "all_private_chats" });
+      await this.api.setMyCommands([], { type: "all_group_chats" });
+      await this.api.setMyCommands([], { type: "all_chat_administrators" });
+      await this.api.setMyCommands([TELEGRAM_COMMANDS.pair]);
     } catch (e) {
       await logger.error("Failed to connect to Telegram", { error: (e as Error).message });
       throw e;

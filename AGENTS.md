@@ -78,6 +78,12 @@ old_pid=$(cat ~/.touchgrass/daemon.pid 2>/dev/null || true)
 [ -n "$old_pid" ] && kill "$old_pid" 2>/dev/null || true
 tg channels
 ```
+- In dev mode (`bun run src/main.ts ...`), restart the daemon after code changes so Telegram reflects updates:
+```bash
+old_pid=$(cat ~/.touchgrass/daemon.pid 2>/dev/null || true)
+[ -n "$old_pid" ] && kill "$old_pid" 2>/dev/null || true
+bun run src/main.ts channels
+```
 - Session IDs are tagged and partial matching is supported in several CLI commands.
 - Use `tg stop` first and `tg kill` only if needed.
 - Keep routing changes covered by tests in `src/__tests__/`.

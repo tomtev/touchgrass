@@ -16,9 +16,7 @@ ${fmt.code("@?query - prompt")} ${fmt.escape("—")} Resolve top path and send a
 /background_jobs ${fmt.escape("or")} ${fmt.code("/background-jobs")} ${fmt.escape("or")} ${fmt.code("tg background-jobs")} ${fmt.escape("—")} Show currently running background jobs
 /link ${fmt.escape("or")} ${fmt.code("tg link")} ${fmt.escape("—")} Add this chat as a channel
 /unlink ${fmt.escape("or")} ${fmt.code("tg unlink")} ${fmt.escape("—")} Remove this chat as a channel
-/help ${fmt.escape("or")} ${fmt.code("tg help")} ${fmt.escape("—")} Show this help
 /pair ${fmt.escape("<code> or")} ${fmt.code("tg pair <code>")} ${fmt.escape("—")} Pair with a pairing code
-/sessions ${fmt.escape("or")} ${fmt.code("tg sessions")} ${fmt.escape("—")} List active sessions
 
 Run ${fmt.code(`tg pair`)} on the server to generate a code.`;
 }

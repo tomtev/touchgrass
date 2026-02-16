@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { TelegramChannel } from "../channels/telegram/channel";
+import { TelegramChannel, __telegramChannelTestUtils } from "../channels/telegram/channel";
 
 describe("TelegramChannel actions", () => {
   it("uses inline keyboard for single-select actions and clears keyboard on close", async () => {
@@ -77,3 +77,89 @@ describe("TelegramChannel actions", () => {
   });
 });
 
+describe("Telegram command menus", () => {
+  it("builds context-aware command lists without help/sessions", () => {
+    const names = (cmds: Array<{ command: string }>) => cmds.map((c) => c.command);
+
+    expect(names(__telegramChannelTestUtils.buildCommandMenu({
+      isPaired: false,
+      isGroup: false,
+      isLinkedGroup: false,
+    }))).toEqual(["pair"]);
+
+    expect(names(__telegramChannelTestUtils.buildCommandMenu({
+      isPaired: true,
+      isGroup: false,
+      isLinkedGroup: false,
+    }))).toEqual(["files", "resume", "background_jobs"]);
+
+    expect(names(__telegramChannelTestUtils.buildCommandMenu({
+      isPaired: true,
+      isGroup: true,
+      isLinkedGroup: false,
+    }))).toEqual(["files", "resume", "background_jobs", "link"]);
+
+    expect(names(__telegramChannelTestUtils.buildCommandMenu({
+      isPaired: true,
+      isGroup: true,
+      isLinkedGroup: true,
+    }))).toEqual(["files", "resume", "background_jobs", "unlink"]);
+  });
+
+  it("syncs chat-member command menu and skips duplicate updates", async () => {
+    const channel = new TelegramChannel("bot-token");
+    const calls: Array<{ commands: string[]; scope: { type: string; chat_id: number; user_id: number } }> = [];
+    const anyChannel = channel as unknown as {
+      api: {
+        setMyCommands: (
+          commands: Array<{ command: string; description: string }>,
+          scope?: { type: string; chat_id: number; user_id: number }
+        ) => Promise<true>;
+      };
+    };
+
+    anyChannel.api = {
+      setMyCommands: async (commands, scope) => {
+        calls.push({
+          commands: commands.map((c) => c.command),
+          scope: scope as { type: string; chat_id: number; user_id: number },
+        });
+        return true;
+      },
+    };
+
+    await channel.syncCommandMenu?.({
+      userId: "telegram:7",
+      chatId: "telegram:-100:4",
+      isPaired: true,
+      isGroup: true,
+      isLinkedGroup: false,
+    });
+    await channel.syncCommandMenu?.({
+      userId: "telegram:7",
+      chatId: "telegram:-100:4",
+      isPaired: true,
+      isGroup: true,
+      isLinkedGroup: false,
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.commands).toEqual(["files", "resume", "background_jobs", "link"]);
+    expect(calls[0]?.scope).toEqual({
+      type: "chat_member",
+      chat_id: -100,
+      user_id: 7,
+    });
+
+    await channel.syncCommandMenu?.({
+      userId: "telegram:7",
+      chatId: "telegram:-100:4",
+      isPaired: true,
+      isGroup: true,
+      isLinkedGroup: true,
+    });
+
+    expect(calls).toHaveLength(2);
+    expect(calls[1]?.commands).toEqual(["files", "resume", "background_jobs", "unlink"]);
+  });
+});

@@ -4,3 +4,5 @@ tg
 *.log
 .DS_Store
 /HEARTBEAT.md
+/SUPERPLAN.md
+/touchgrass-platform/

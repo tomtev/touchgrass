@@ -38,6 +38,14 @@ export interface StatusBoardResult {
   pinError?: string;
 }
 
+export interface CommandMenuContext {
+  userId: ChannelUserId;
+  chatId: ChannelChatId;
+  isPaired: boolean;
+  isGroup: boolean;
+  isLinkedGroup: boolean;
+}
+
 export type PollAnswerHandler = (answer: {
   pollId: string;
   userId: ChannelUserId;
@@ -70,6 +78,7 @@ export interface Channel {
     boardKey: string,
     options?: ClearStatusBoardOptions
   ): Promise<StatusBoardResult | void>;
+  syncCommandMenu?(ctx: CommandMenuContext): Promise<void>;
   onPollAnswer?: PollAnswerHandler | null;
   validateChat?(chatId: ChannelChatId): Promise<boolean>;
   getBotName?(): Promise<string>;

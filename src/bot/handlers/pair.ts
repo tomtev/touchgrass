@@ -43,6 +43,6 @@ export async function handlePair(
   await logger.info("User paired", { userId, username });
   await ctx.channel.send(
     chatId,
-    `Paired successfully! Welcome${username ? `, @${username}` : ""}.\n\nSend ${fmt.code(`tg ${fmt.escape("<command>")}`)} to run a command.\nSend /help for more info.`
+    `Paired successfully! Welcome${username ? `, @${username}` : ""}.\n\nSend ${fmt.code(`tg ${fmt.escape("<command>")}`)} to run a command.\nSend /start to see available commands.`
   );
 }

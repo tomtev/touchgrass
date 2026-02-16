@@ -75,6 +75,15 @@ export interface TelegramCallbackQuery {
   message?: TelegramMessage;
 }
 
+export type TelegramBotCommandScope =
+  | { type: "default" }
+  | { type: "all_private_chats" }
+  | { type: "all_group_chats" }
+  | { type: "all_chat_administrators" }
+  | { type: "chat"; chat_id: number }
+  | { type: "chat_administrators"; chat_id: number }
+  | { type: "chat_member"; chat_id: number; user_id: number };
+
 export interface TelegramUpdate {
   update_id: number;
   message?: TelegramMessage;
@@ -150,9 +159,10 @@ export class TelegramApi {
   }
 
   async setMyCommands(
-    commands: Array<{ command: string; description: string }>
+    commands: Array<{ command: string; description: string }>,
+    scope?: TelegramBotCommandScope
   ): Promise<true> {
-    return this.call<true>("setMyCommands", { commands });
+    return this.call<true>("setMyCommands", { commands, ...(scope ? { scope } : {}) });
   }
 
   async getFile(fileId: string): Promise<TelegramFile> {
