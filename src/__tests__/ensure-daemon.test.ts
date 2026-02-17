@@ -66,4 +66,9 @@ describe("ensure-daemon version restart policy", () => {
 
     expect(__ensureDaemonTestUtils.parseDaemonPidsFromPs(output)).toEqual([61093, 61024]);
   });
+
+  it("does not reap when primary pid is missing from discovered daemons", () => {
+    expect(__ensureDaemonTestUtils.selectDuplicateDaemonPids(1234, [61093, 61024])).toEqual([]);
+    expect(__ensureDaemonTestUtils.selectDuplicateDaemonPids(61093, [61093, 61024])).toEqual([61024]);
+  });
 });

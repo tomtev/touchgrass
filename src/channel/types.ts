@@ -44,6 +44,7 @@ export interface CommandMenuContext {
   isPaired: boolean;
   isGroup: boolean;
   isLinkedGroup: boolean;
+  hasActiveSession: boolean;
 }
 
 export type PollAnswerHandler = (answer: {

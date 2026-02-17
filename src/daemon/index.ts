@@ -1,5 +1,15 @@
 import { loadConfig, invalidateCache, saveConfig } from "../config/store";
-import { getAllLinkedGroups, getAllPairedUsers, isLinkedGroup, removeLinkedGroup } from "../config/schema";
+import {
+  getAllLinkedGroups,
+  getAllPairedUsers,
+  getChatMuted,
+  getChatOutputMode,
+  getChatThinkingEnabled,
+  isLinkedGroup,
+  removeLinkedGroup,
+  setChatOutputMode,
+  type OutputMode,
+} from "../config/schema";
 import { logger } from "./logger";
 import {
   acquireDaemonLock,
@@ -17,7 +27,9 @@ import { routeMessage } from "../bot/command-router";
 import { buildResumePickerPage } from "../bot/handlers/resume";
 import type { BackgroundJobSessionSummary } from "../bot/handlers/background-jobs";
 import { SessionManager } from "../session/manager";
+import { formatSimpleToolResult, formatToolCall } from "./tool-display";
 import { paths } from "../config/paths";
+import { loadControlCenterState } from "../control-center/state";
 import { generatePairingCode } from "../security/pairing";
 import { isUserPaired } from "../security/allowlist";
 import { rotateDaemonAuthToken } from "../security/daemon-auth";
@@ -25,8 +37,8 @@ import { createChannel } from "../channel/factory";
 import type { Formatter } from "../channel/formatter";
 import type { Channel, ChannelChatId, ChannelUserId } from "../channel/types";
 import type { AskQuestion, PendingFilePickerOption } from "../session/manager";
-import { chmod, open, readFile, stat, writeFile } from "fs/promises";
-import { basename, join } from "path";
+import { chmod, mkdir, open, readFile, stat, writeFile } from "fs/promises";
+import { basename, join, resolve, sep } from "path";
 
 const DAEMON_STARTED_AT = Date.now();
 
@@ -35,6 +47,11 @@ function sessionLabel(command: string, cwd: string): string {
   const tool = command.split(" ")[0];
   const folder = cwd.split("/").pop();
   return folder ? `${tool} (${folder})` : tool;
+}
+
+function slugifyProjectName(input: string): string {
+  const normalized = input.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/-+/g, "-");
+  return normalized.replace(/^-+|-+$/g, "") || "project";
 }
 
 type BackgroundJobStatus = "running" | "completed" | "failed" | "killed";
@@ -120,15 +137,57 @@ export async function startDaemon(): Promise<void> {
   const getFormatterForChat = (chatId: ChannelChatId): Formatter => {
     return getChannelForChat(chatId)?.fmt || channels[0].fmt;
   };
+  const getOutputModeForChat = (chatId: ChannelChatId) => getChatOutputMode(config, chatId);
+  const isChatMutedForChat = (chatId: ChannelChatId): boolean => {
+    return getChatMuted(config, chatId);
+  };
+  const isThinkingEnabledForChat = (chatId: ChannelChatId): boolean => {
+    return getChatThinkingEnabled(config, chatId);
+  };
   const sendToChat = (chatId: ChannelChatId, content: string): void => {
     const channel = getChannelForChat(chatId);
     if (!channel) return;
     channel.send(chatId, content).catch(() => {});
   };
+  const syncCommandMenuForChat = (chatId: ChannelChatId, userId: ChannelUserId): void => {
+    const channel = getChannelForChat(chatId);
+    if (!channel?.syncCommandMenu) return;
+    const rootPart = chatId.split(":")[1];
+    const rootChatId = Number(rootPart);
+    const isGroup = Number.isFinite(rootChatId) && rootChatId < 0;
+    void channel
+      .syncCommandMenu({
+        userId,
+        chatId,
+        isPaired: isUserPaired(config, userId),
+        isGroup,
+        isLinkedGroup: isGroup ? isLinkedGroup(config, chatId) : false,
+        hasActiveSession: !!sessionManager.getAttachedRemote(chatId),
+      })
+      .catch(async (error: unknown) => {
+        await logger.debug("Failed to sync command menu from daemon lifecycle", {
+          chatId,
+          userId,
+          error: (error as Error)?.message ?? String(error),
+        });
+      });
+  };
   const setTypingForChat = (chatId: ChannelChatId, active: boolean): void => {
     const channel = getChannelForChat(chatId);
     if (!channel) return;
     channel.setTyping(chatId, active);
+  };
+  const syncKnownCommandMenus = (): void => {
+    const pairedUsers = getAllPairedUsers(config);
+    const linkedGroups = getAllLinkedGroups(config);
+    for (const user of pairedUsers) {
+      const userType = user.userId.split(":")[0];
+      syncCommandMenuForChat(user.userId, user.userId);
+      for (const group of linkedGroups) {
+        if (!group.chatId.startsWith(`${userType}:`)) continue;
+        syncCommandMenuForChat(group.chatId, user.userId);
+      }
+    }
   };
   const sendPollToChat = async (
     chatId: ChannelChatId,
@@ -253,6 +312,38 @@ export async function startDaemon(): Promise<void> {
     for (const url of incoming || []) merged.add(url);
     if (merged.size === 0) return undefined;
     return Array.from(merged).slice(0, 5);
+  };
+
+  const getSessionTool = (command: string): string => {
+    return command.trim().split(/\s+/)[0] || "";
+  };
+
+  const supportsBackgroundTracking = (command: string): boolean => {
+    const tool = getSessionTool(command);
+    return tool === "claude" || tool === "codex";
+  };
+
+  const normalizeCodexSessionId = (value: unknown): string | undefined => {
+    if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+      return String(Math.trunc(value));
+    }
+    if (typeof value !== "string") return undefined;
+    const trimmed = value.trim();
+    if (!trimmed) return undefined;
+    return trimmed;
+  };
+
+  const detectCodexExitStatus = (output: string): BackgroundJobStatus | null => {
+    const codeMatch = output.match(/Process exited with code\s+(-?\d+)/i);
+    if (codeMatch) {
+      const code = Number(codeMatch[1]);
+      if (Number.isFinite(code) && code === 0) return "completed";
+      return "failed";
+    }
+    if (/(stdin is closed for this session|session not found|no such session)/i.test(output)) {
+      return "killed";
+    }
+    return null;
   };
 
   const persistStatusBoardsNow = async (): Promise<void> => {
@@ -572,14 +663,195 @@ export async function startDaemon(): Promise<void> {
     return running;
   };
 
-  const hydrateBackgroundJobsFromClaudeLogs = async (sessionIds: string[]): Promise<void> => {
+  const readStoppedCodexTasks = async (
+    jsonlFile: string,
+    taskIds: Set<string>
+  ): Promise<Set<string>> => {
+    const stopped = new Set<string>();
+    if (!jsonlFile || taskIds.size === 0) return stopped;
+
+    const callIdToName = new Map<string, string>();
+    const callIdToInput = new Map<string, Record<string, unknown>>();
+    const rememberCall = (callId: string, name: string, input: Record<string, unknown>) => {
+      callIdToName.set(callId, name);
+      callIdToInput.set(callId, input);
+      if (callIdToName.size > 2000) {
+        const first = callIdToName.keys().next().value as string | undefined;
+        if (first) {
+          callIdToName.delete(first);
+          callIdToInput.delete(first);
+        }
+      }
+    };
+
+    try {
+      const tail = await readTail(jsonlFile, 500_000);
+      const lines = tail.split("\n");
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const msg = JSON.parse(line) as Record<string, unknown>;
+          if (msg.type !== "response_item") continue;
+          const payload = msg.payload as Record<string, unknown> | undefined;
+          if (!payload) continue;
+
+          if (payload.type === "function_call" && typeof payload.name === "string") {
+            const callId = typeof payload.call_id === "string" ? payload.call_id : "";
+            if (!callId) continue;
+            let input: Record<string, unknown> = {};
+            if (typeof payload.arguments === "string") {
+              try {
+                input = JSON.parse(payload.arguments) as Record<string, unknown>;
+              } catch {
+                input = {};
+              }
+            }
+            rememberCall(callId, payload.name, input);
+            continue;
+          }
+
+          if (payload.type !== "function_call_output" && payload.type !== "custom_tool_call_output") continue;
+          const callId = typeof payload.call_id === "string" ? payload.call_id : "";
+          if (!callId) continue;
+          const input = callIdToInput.get(callId);
+          const output = typeof payload.output === "string" ? payload.output : "";
+          const trimmedOutput = output.trim();
+          if (!trimmedOutput) continue;
+
+          const sessionIdFromOutput = trimmedOutput.match(/Process running with session ID\s*([0-9]+)/i)?.[1];
+          const sessionIdFromInput = normalizeCodexSessionId(input?.session_id);
+          const sessionId = sessionIdFromOutput || sessionIdFromInput;
+          if (!sessionId || !taskIds.has(sessionId)) continue;
+
+          const exitStatus = detectCodexExitStatus(trimmedOutput);
+          if (exitStatus) {
+            stopped.add(sessionId);
+          }
+        } catch {
+          // Skip malformed JSON lines.
+        }
+      }
+    } catch {
+      // JSONL may not exist yet.
+    }
+    return stopped;
+  };
+
+  const readRunningCodexTasks = async (
+    jsonlFile: string
+  ): Promise<Map<string, BackgroundJobState>> => {
+    const running = new Map<string, BackgroundJobState>();
+    if (!jsonlFile) return running;
+
+    const callIdToName = new Map<string, string>();
+    const callIdToInput = new Map<string, Record<string, unknown>>();
+    const sessionIdToCommand = new Map<string, string>();
+    const rememberCall = (callId: string, name: string, input: Record<string, unknown>) => {
+      callIdToName.set(callId, name);
+      callIdToInput.set(callId, input);
+      if (callIdToName.size > 2000) {
+        const first = callIdToName.keys().next().value as string | undefined;
+        if (first) {
+          callIdToName.delete(first);
+          callIdToInput.delete(first);
+        }
+      }
+    };
+
+    try {
+      const tail = await readTail(jsonlFile, 500_000);
+      const lines = tail.split("\n");
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const msg = JSON.parse(line) as Record<string, unknown>;
+          const ts = typeof msg.timestamp === "string"
+            ? Date.parse(msg.timestamp)
+            : Date.now();
+          const updatedAt = Number.isFinite(ts) ? ts : Date.now();
+
+          if (msg.type !== "response_item") continue;
+          const payload = msg.payload as Record<string, unknown> | undefined;
+          if (!payload) continue;
+
+          if (payload.type === "function_call" && typeof payload.name === "string") {
+            const callId = typeof payload.call_id === "string" ? payload.call_id : "";
+            if (!callId) continue;
+            let input: Record<string, unknown> = {};
+            if (typeof payload.arguments === "string") {
+              try {
+                input = JSON.parse(payload.arguments) as Record<string, unknown>;
+              } catch {
+                input = {};
+              }
+            }
+            rememberCall(callId, payload.name, input);
+            continue;
+          }
+
+          if (payload.type !== "function_call_output" && payload.type !== "custom_tool_call_output") continue;
+          const callId = typeof payload.call_id === "string" ? payload.call_id : "";
+          if (!callId) continue;
+          const toolName = callIdToName.get(callId) ?? "";
+          const input = callIdToInput.get(callId);
+          const output = typeof payload.output === "string" ? payload.output : "";
+          const trimmedOutput = output.trim();
+          if (!trimmedOutput) continue;
+
+          const sessionIdFromOutput = trimmedOutput.match(/Process running with session ID\s*([0-9]+)/i)?.[1];
+          const sessionIdFromInput = normalizeCodexSessionId(input?.session_id);
+          const sessionId = sessionIdFromOutput || sessionIdFromInput;
+          const commandFromInput = typeof input?.cmd === "string" ? input.cmd : undefined;
+          if (sessionId && commandFromInput && toolName === "exec_command") {
+            sessionIdToCommand.set(sessionId, commandFromInput);
+          }
+          const command = (sessionId && sessionIdToCommand.get(sessionId)) || commandFromInput;
+
+          if (sessionIdFromOutput && sessionId) {
+            const existing = running.get(sessionId);
+            running.set(sessionId, {
+              taskId: sessionId,
+              status: "running",
+              command: command || existing?.command,
+              summary: existing?.summary,
+              outputFile: existing?.outputFile,
+              urls: mergeUrls(
+                existing?.urls,
+                mergeUrls(extractUrls(trimmedOutput), inferUrlsFromCommand(command || existing?.command))
+              ),
+              updatedAt: Math.max(updatedAt, existing?.updatedAt ?? 0),
+            });
+          }
+
+          if (sessionId) {
+            const exitStatus = detectCodexExitStatus(trimmedOutput);
+            if (exitStatus) {
+              running.delete(sessionId);
+              sessionIdToCommand.delete(sessionId);
+            }
+          }
+        } catch {
+          // Skip malformed JSON lines.
+        }
+      }
+    } catch {
+      // JSONL may not exist yet.
+    }
+
+    return running;
+  };
+
+  const hydrateBackgroundJobsFromLogs = async (sessionIds: string[]): Promise<void> => {
     for (const sessionId of sessionIds) {
       const remote = sessionManager.getRemote(sessionId);
       if (!remote) continue;
-      if (remote.command.split(" ")[0] !== "claude") continue;
+      const tool = getSessionTool(remote.command);
+      if (tool !== "claude" && tool !== "codex") continue;
       const manifest = await readSessionManifest(sessionId);
       if (!manifest?.jsonlFile) continue;
-      const runningFromLog = await readRunningClaudeTasks(manifest.jsonlFile);
+      const runningFromLog = tool === "claude"
+        ? await readRunningClaudeTasks(manifest.jsonlFile)
+        : await readRunningCodexTasks(manifest.jsonlFile);
       if (runningFromLog.size === 0) continue;
       const existing = backgroundJobsBySession.get(sessionId) || new Map<string, BackgroundJobState>();
       let changed = false;
@@ -616,11 +888,6 @@ export async function startDaemon(): Promise<void> {
     userId: ChannelUserId,
     chatId: ChannelChatId
   ): Promise<BackgroundJobSessionSummary[]> => {
-    const supportsOfficialBackgroundJobs = (command: string): boolean => {
-      const tool = command.trim().split(/\s+/)[0] || "";
-      return tool === "claude";
-    };
-
     const attachedId = sessionManager.getAttachedRemote(chatId)?.id;
     const userRemoteIds = sessionManager.listRemotesForUser(userId).map((remote) => remote.id);
     const candidateIds = attachedId ? [attachedId] : userRemoteIds;
@@ -631,7 +898,7 @@ export async function startDaemon(): Promise<void> {
       for (const sessionId of candidates) {
         const remote = sessionManager.getRemote(sessionId);
         if (!remote) continue;
-        if (!supportsOfficialBackgroundJobs(remote.command)) continue;
+        if (!supportsBackgroundTracking(remote.command)) continue;
         const jobs = backgroundJobsBySession.get(sessionId);
         if (!jobs || jobs.size === 0) continue;
         rows.push({
@@ -655,12 +922,15 @@ export async function startDaemon(): Promise<void> {
     if (rows.length > 0) {
       for (const sessionId of candidateIds) {
         const remote = sessionManager.getRemote(sessionId);
-        if (!remote || remote.command.split(" ")[0] !== "claude") continue;
+        const tool = remote ? getSessionTool(remote.command) : "";
+        if (tool !== "claude" && tool !== "codex") continue;
         const jobs = backgroundJobsBySession.get(sessionId);
         if (!jobs || jobs.size === 0) continue;
         const manifest = await readSessionManifest(sessionId);
         if (!manifest?.jsonlFile) continue;
-        const stopped = await readStoppedClaudeTasks(manifest.jsonlFile, new Set(jobs.keys()));
+        const stopped = tool === "claude"
+          ? await readStoppedClaudeTasks(manifest.jsonlFile, new Set(jobs.keys()))
+          : await readStoppedCodexTasks(manifest.jsonlFile, new Set(jobs.keys()));
         if (stopped.size === 0) continue;
         for (const taskId of stopped) jobs.delete(taskId);
         if (jobs.size === 0) {
@@ -669,8 +939,16 @@ export async function startDaemon(): Promise<void> {
       }
       rows = buildRows();
     }
-    if (rows.length === 0 && candidateIds.length > 0) {
-      await hydrateBackgroundJobsFromClaudeLogs(candidateIds);
+    const sessionsNeedingHydration = candidateIds.filter((sessionId) => {
+      const remote = sessionManager.getRemote(sessionId);
+      if (!remote) return false;
+      if (!supportsBackgroundTracking(remote.command)) return false;
+      const jobs = backgroundJobsBySession.get(sessionId);
+      return !jobs || jobs.size === 0;
+    });
+
+    if (sessionsNeedingHydration.length > 0) {
+      await hydrateBackgroundJobsFromLogs(sessionsNeedingHydration);
       rows = buildRows();
     }
 
@@ -701,6 +979,10 @@ export async function startDaemon(): Promise<void> {
     if (previousStatus === status) return;
     backgroundJobAnnouncements.set(dedupeKey, status);
 
+    const remote = sessionManager.getRemote(sessionId);
+    const tool = remote ? getSessionTool(remote.command) : "";
+    const noun = tool === "codex" ? "Background terminal" : "Background job";
+
     const emoji = status === "running"
       ? "🟢"
       : status === "completed"
@@ -709,18 +991,19 @@ export async function startDaemon(): Promise<void> {
       ? "❌"
       : "🛑";
     const label = status === "running"
-      ? "Background job started"
+      ? `${noun} started`
       : status === "completed"
-      ? "Background job completed"
+      ? `${noun} completed`
       : status === "failed"
-      ? "Background job failed"
-      : "Background job stopped";
+      ? `${noun} failed`
+      : `${noun} stopped`;
 
     for (const chatId of getBackgroundTargets(sessionId)) {
+      if (isChatMutedForChat(chatId)) continue;
       const fmt = getFormatterForChat(chatId);
       const lines: string[] = [
         `${fmt.escape(emoji)} ${fmt.bold(fmt.escape(label))}`,
-        `${fmt.code(fmt.escape(job.taskId))} ${fmt.escape("—")} ${fmt.escape((job.command || "background task").trim())}`,
+        `${fmt.code(fmt.escape(job.taskId))} ${fmt.escape("—")} ${fmt.escape((job.command || noun.toLowerCase()).trim())}`,
       ];
       if (job.summary && status !== "running") {
         const trimmed = job.summary.trim();
@@ -899,14 +1182,17 @@ export async function startDaemon(): Promise<void> {
           continue;
         }
 
-        // Periodically confirm stop events from Claude JSONL in case a watcher event was missed.
-        if (remote.command.split(" ")[0] === "claude") {
+        // Periodically confirm stop events from JSONL in case a watcher event was missed.
+        const tool = getSessionTool(remote.command);
+        if (tool === "claude" || tool === "codex") {
           const jobs = backgroundJobsBySession.get(sessionId);
           const runningTaskIds = new Set(Array.from(jobs?.keys() || []));
           if (runningTaskIds.size > 0) {
             const manifest = await readSessionManifest(sessionId);
             if (manifest?.jsonlFile) {
-              const stopped = await readStoppedClaudeTasks(manifest.jsonlFile, runningTaskIds);
+              const stopped = tool === "claude"
+                ? await readStoppedClaudeTasks(manifest.jsonlFile, runningTaskIds)
+                : await readStoppedCodexTasks(manifest.jsonlFile, runningTaskIds);
               if (stopped.size > 0 && jobs) {
                 for (const taskId of stopped) jobs.delete(taskId);
               }
@@ -1241,6 +1527,41 @@ export async function startDaemon(): Promise<void> {
       return;
     }
 
+    const outputModePicker = sessionManager.getOutputModePickerByPollId(answer.pollId);
+    if (outputModePicker) {
+      if (!isUserPaired(config, answer.userId)) {
+        logger.warn("Ignoring output-mode picker answer from unpaired user", { userId: answer.userId, pollId: answer.pollId });
+        return;
+      }
+      if (outputModePicker.ownerUserId !== answer.userId) {
+        logger.warn("Ignoring output-mode picker answer from non-owner", {
+          userId: answer.userId,
+          pollId: answer.pollId,
+          ownerUserId: outputModePicker.ownerUserId,
+        });
+        return;
+      }
+
+      closePollForChat(outputModePicker.chatId, outputModePicker.messageId);
+      sessionManager.removeOutputModePicker(answer.pollId);
+
+      const selectedIdx = answer.optionIds[0];
+      if (!Number.isFinite(selectedIdx)) return;
+      if (selectedIdx < 0 || selectedIdx >= outputModePicker.options.length) return;
+      const selectedMode = outputModePicker.options[selectedIdx] as OutputMode;
+      const changed = setChatOutputMode(config, outputModePicker.chatId, selectedMode);
+      if (changed) {
+        saveConfig(config).catch(() => {});
+      }
+      const selectedModeLabel = selectedMode === "compact" ? "simple" : selectedMode;
+      const pickerFmt = getFormatterForChat(outputModePicker.chatId);
+      sendToChat(
+        outputModePicker.chatId,
+        `${pickerFmt.escape("⛳️")} Output mode is now ${pickerFmt.code(pickerFmt.escape(selectedModeLabel))} for this chat.`
+      );
+      return;
+    }
+
     const poll = sessionManager.getPollByPollId(answer.pollId);
     if (!poll) return;
     if (!isUserPaired(config, answer.userId)) {
@@ -1301,132 +1622,6 @@ export async function startDaemon(): Promise<void> {
     }
   }
 
-  function formatToolCall(fmt: Formatter, name: string, input: Record<string, unknown>): string | null {
-    switch (name) {
-      // --- Claude: Edit ---
-      case "Edit": {
-        const fp = input.file_path as string | undefined;
-        if (!fp) return null;
-        let msg = `${fmt.escape("✏️")} ${fmt.code(fmt.escape(fp))}`;
-        const oldStr = input.old_string as string | undefined;
-        const newStr = input.new_string as string | undefined;
-        if (oldStr || newStr) {
-          const diffLines: string[] = [];
-          if (oldStr) {
-            for (const line of oldStr.split("\n").slice(0, 5)) {
-              diffLines.push(`- ${line}`);
-            }
-            if (oldStr.split("\n").length > 5) diffLines.push("- ...");
-          }
-          if (newStr) {
-            for (const line of newStr.split("\n").slice(0, 5)) {
-              diffLines.push(`+ ${line}`);
-            }
-            if (newStr.split("\n").length > 5) diffLines.push("+ ...");
-          }
-          if (diffLines.length > 0) {
-            msg += `\n${fmt.pre(fmt.escape(diffLines.join("\n")))}`;
-          }
-        }
-        return msg;
-      }
-      // --- Claude: Write ---
-      case "Write": {
-        const fp = input.file_path as string | undefined;
-        if (!fp) return null;
-        let msg = `${fmt.escape("📄")} ${fmt.code(fmt.escape(fp))}`;
-        const content = input.content as string | undefined;
-        if (content) {
-          const lines = content.split("\n");
-          const preview = lines.slice(0, 5).join("\n");
-          const suffix = lines.length > 5 ? "\n..." : "";
-          msg += `\n${fmt.pre(fmt.escape(preview + suffix))}`;
-        }
-        return msg;
-      }
-      // --- Claude: Bash, PI: bash ---
-      case "Bash":
-      case "bash": {
-        const cmd = (input.command as string) || (input.cmd as string) || "";
-        if (!cmd) return null;
-        const truncated = cmd.length > 200 ? cmd.slice(0, 200) + "..." : cmd;
-        return `$ ${fmt.code(fmt.escape(truncated))}`;
-      }
-      // --- Codex: exec_command ---
-      case "exec_command": {
-        let cmd = "";
-        if (typeof input.cmd === "string") cmd = input.cmd;
-        else if (typeof input.command === "string") cmd = input.command;
-        if (!cmd) return null;
-        const truncated = cmd.length > 200 ? cmd.slice(0, 200) + "..." : cmd;
-        return `$ ${fmt.code(fmt.escape(truncated))}`;
-      }
-      // --- Codex: apply_patch (file edits) ---
-      case "apply_patch": {
-        const patch = input.content as string | undefined;
-        if (!patch) return `${fmt.escape("✏️")} ${fmt.code("apply_patch")}`;
-        // Extract file path from patch header: "*** Update File: path"
-        const fileMatch = patch.match(/\*\*\* (?:Update|Add) File: (.+)/);
-        const fp = fileMatch?.[1] || "file";
-        const preview = patch.split("\n").slice(0, 8).join("\n");
-        const suffix = patch.split("\n").length > 8 ? "\n..." : "";
-        return `${fmt.escape("✏️")} ${fmt.code(fmt.escape(fp))}\n${fmt.pre(fmt.escape(preview + suffix))}`;
-      }
-      // --- Codex: write_stdin ---
-      case "write_stdin":
-        return `${fmt.escape("⌨️")} ${fmt.code("write_stdin")}`;
-      // --- Claude: Read ---
-      case "Read": {
-        const fp = input.file_path as string | undefined;
-        if (!fp) return null;
-        return `${fmt.escape("📖")} ${fmt.code(fmt.escape(fp))}`;
-      }
-      // --- Claude: Glob ---
-      case "Glob": {
-        const pattern = input.pattern as string | undefined;
-        if (!pattern) return null;
-        const path = input.path as string | undefined;
-        const inPart = path ? ` in ${fmt.code(fmt.escape(path))}` : "";
-        return `${fmt.escape("🔍")} ${fmt.code(fmt.escape(pattern))}${inPart}`;
-      }
-      // --- Claude: Grep ---
-      case "Grep": {
-        const pattern = input.pattern as string | undefined;
-        if (!pattern) return null;
-        const glob = input.glob as string | undefined;
-        const path = input.path as string | undefined;
-        const parts: string[] = [`${fmt.escape("🔍")} ${fmt.code(fmt.escape(pattern))}`];
-        if (glob) parts.push(`in ${fmt.code(fmt.escape(glob))}`);
-        else if (path) parts.push(`in ${fmt.code(fmt.escape(path))}`);
-        return parts.join(" ");
-      }
-      // --- Claude: Task ---
-      case "Task": {
-        const desc = input.description as string | undefined;
-        if (!desc) return null;
-        return `${fmt.escape("🤖")} ${fmt.italic(fmt.escape(desc))}`;
-      }
-      case "LSP": {
-        const op = input.operation as string | undefined;
-        const fp = input.filePath as string | undefined;
-        if (!op || !fp) return null;
-        return `${fmt.escape("🔗")} ${fmt.escape(op)} ${fmt.code(fmt.escape(fp))}`;
-      }
-      case "WebSearch": {
-        const query = input.query as string | undefined;
-        if (!query) return null;
-        return `${fmt.escape("🌐")} ${fmt.code(fmt.escape(query))}`;
-      }
-      case "WebFetch": {
-        const url = input.url as string | undefined;
-        if (!url) return null;
-        return `${fmt.escape("🌐")} ${fmt.code(fmt.escape(url.length > 100 ? url.slice(0, 100) + "..." : url))}`;
-      }
-      default:
-        return `${fmt.escape("🔧")} ${fmt.code(fmt.escape(name))}`;
-    }
-  }
-
   // Reap orphaned remote sessions whose CLI crashed without calling /exit
   const REAP_INTERVAL = 60_000;
   const REAP_MAX_AGE = 30_000;
@@ -1438,6 +1633,10 @@ export async function startDaemon(): Promise<void> {
       const fmt = getFormatterForChat(remote.chatId);
       const msg = `${fmt.escape("⛳️")} ${fmt.bold(fmt.escape(sessionLabel(remote.command, remote.cwd)))} disconnected (CLI stopped responding)`;
       sendToChat(remote.chatId, msg);
+      syncCommandMenuForChat(remote.chatId, remote.ownerUserId);
+      if (remote.boundChatId && remote.boundChatId !== remote.chatId) {
+        syncCommandMenuForChat(remote.boundChatId, remote.ownerUserId);
+      }
     }
     if (reaped.length > 0 && sessionManager.remoteCount() === 0) {
       scheduleAutoStop();
@@ -1584,6 +1783,8 @@ export async function startDaemon(): Promise<void> {
       });
       const linkedGroups = allLinkedGroups.filter((g) => !g.busyLabel);
 
+      syncCommandMenuForChat(chatId, ownerUserId);
+
       return { sessionId: remote.id, dmBusy, dmBusyLabel, linkedGroups, allLinkedGroups };
     },
     async bindChat(sessionId: string, chatId: ChannelChatId): Promise<{ ok: boolean; error?: string }> {
@@ -1617,8 +1818,10 @@ export async function startDaemon(): Promise<void> {
       // Remove auto-attached DM if binding to a different chat
       if (remote.chatId !== chatId) {
         sessionManager.detach(remote.chatId);
+        syncCommandMenuForChat(remote.chatId, remote.ownerUserId);
       }
       sessionManager.attach(chatId, sessionId);
+      syncCommandMenuForChat(chatId, remote.ownerUserId);
       if (isLinkedTarget) {
         sessionManager.subscribeGroup(sessionId, chatId);
       }
@@ -1656,6 +1859,10 @@ export async function startDaemon(): Promise<void> {
           sendToChat(boundChat, msg);
         }
         sessionManager.removeRemote(sessionId);
+        syncCommandMenuForChat(remote.chatId, remote.ownerUserId);
+        if (boundChat && boundChat !== remote.chatId) {
+          syncCommandMenuForChat(boundChat, remote.ownerUserId);
+        }
       }
 
       if (sessionManager.remoteCount() === 0) {
@@ -1715,14 +1922,25 @@ export async function startDaemon(): Promise<void> {
     handleToolCall(sessionId: string, name: string, input: Record<string, unknown>): void {
       const remote = sessionManager.getRemote(sessionId);
       if (!remote) return;
-      const targetChat = sessionManager.getBoundChat(sessionId);
-      if (!targetChat) return;
-      const fmt = getFormatterForChat(targetChat);
-      const html = formatToolCall(fmt, name, input);
-      if (!html) return;
-      sendToChat(targetChat, html);
-      // Re-assert typing for channels that support typing state.
-      setTypingForChat(targetChat, true);
+      const targets = new Set<ChannelChatId>();
+      const targetChat = sessionManager.getBoundChat(sessionId) || remote.chatId;
+      if (targetChat) targets.add(targetChat);
+      for (const groupChatId of sessionManager.getSubscribedGroups(sessionId)) {
+        targets.add(groupChatId);
+      }
+      if (targets.size === 0) return;
+
+      for (const cid of targets) {
+        if (isChatMutedForChat(cid)) continue;
+        const outputMode = getOutputModeForChat(cid);
+        const fmt = getFormatterForChat(cid);
+        const detailMode = outputMode === "verbose" ? "verbose" : "simple";
+        const html = formatToolCall(fmt, name, input, detailMode);
+        if (!html) continue;
+        sendToChat(cid, html);
+        // Re-assert typing for channels that support typing state.
+        setTypingForChat(cid, true);
+      }
     },
     handleTyping(sessionId: string, active: boolean): void {
       const remote = sessionManager.getRemote(sessionId);
@@ -1737,6 +1955,10 @@ export async function startDaemon(): Promise<void> {
       if (targets.size === 0) return;
 
       for (const cid of targets) {
+        if (isChatMutedForChat(cid)) {
+          if (!active) setTypingForChat(cid, false);
+          continue;
+        }
         setTypingForChat(cid, active);
       }
     },
@@ -1778,11 +2000,27 @@ export async function startDaemon(): Promise<void> {
     handleThinking(sessionId: string, text: string): void {
       const remote = sessionManager.getRemote(sessionId);
       if (!remote) return;
-      const targetChat = sessionManager.getBoundChat(sessionId);
-      if (!targetChat) return;
+      const targets = new Set<ChannelChatId>();
+      const targetChat = sessionManager.getBoundChat(sessionId) || remote.chatId;
+      if (targetChat) targets.add(targetChat);
+      for (const groupChatId of sessionManager.getSubscribedGroups(sessionId)) {
+        targets.add(groupChatId);
+      }
+      if (targets.size === 0) return;
+
       const truncated = text.length > 1000 ? text.slice(0, 1000) + "..." : text;
-      const fmt = getFormatterForChat(targetChat);
-      sendToChat(targetChat, `${fmt.bold("Thinking")}\n${fmt.italic(fmt.escape(truncated))}`);
+      for (const cid of targets) {
+        if (isChatMutedForChat(cid)) continue;
+        if (!isThinkingEnabledForChat(cid)) continue;
+        const outputMode = getOutputModeForChat(cid);
+        const fmt = getFormatterForChat(cid);
+        if (outputMode === "verbose") {
+          sendToChat(cid, `${fmt.bold("Thinking")}\n${fmt.italic(fmt.fromMarkdown(truncated))}`);
+        } else {
+          const compact = truncated.length > 220 ? `${truncated.slice(0, 220)}...` : truncated;
+          sendToChat(cid, `${fmt.escape("💭")} ${fmt.italic(fmt.fromMarkdown(compact))}`);
+        }
+      }
     },
     handleAssistantText(sessionId: string, text: string): void {
       const remote = sessionManager.getRemote(sessionId);
@@ -1797,6 +2035,10 @@ export async function startDaemon(): Promise<void> {
       if (targets.size === 0) return;
 
       for (const cid of targets) {
+        if (isChatMutedForChat(cid)) {
+          setTypingForChat(cid, false);
+          continue;
+        }
         const fmt = getFormatterForChat(cid);
         setTypingForChat(cid, false);
         sendToChat(cid, fmt.fromMarkdown(text));
@@ -1805,17 +2047,32 @@ export async function startDaemon(): Promise<void> {
     handleToolResult(sessionId: string, toolName: string, content: string, isError = false): void {
       const remote = sessionManager.getRemote(sessionId);
       if (!remote) return;
-      const targetChat = sessionManager.getBoundChat(sessionId);
-      if (!targetChat) return;
-      const maxLen = 1500;
-      const truncated = content.length > maxLen ? content.slice(0, maxLen) + "\n..." : content;
-      const label = isError
-        ? `${toolName || "Tool"} error`
-        : (toolName === "Bash" ? "Output" : `${toolName} result`);
-      const fmt = getFormatterForChat(targetChat);
-      sendToChat(targetChat, `${fmt.bold(fmt.escape(label))}\n${fmt.pre(fmt.escape(truncated))}`);
-      // Re-assert typing only for non-error results.
-      if (!isError) setTypingForChat(targetChat, true);
+      const targets = new Set<ChannelChatId>();
+      const targetChat = sessionManager.getBoundChat(sessionId) || remote.chatId;
+      if (targetChat) targets.add(targetChat);
+      for (const groupChatId of sessionManager.getSubscribedGroups(sessionId)) {
+        targets.add(groupChatId);
+      }
+      if (targets.size === 0) return;
+
+      for (const cid of targets) {
+        if (isChatMutedForChat(cid)) continue;
+        const outputMode = getOutputModeForChat(cid);
+        const fmt = getFormatterForChat(cid);
+        if (outputMode === "verbose") {
+          const maxLen = 1500;
+          const truncated = content.length > maxLen ? content.slice(0, maxLen) + "\n..." : content;
+          const label = isError
+            ? `${toolName || "Tool"} error`
+            : ((toolName === "Bash" || toolName === "bash" || toolName === "exec_command") ? "Output" : `${toolName} result`);
+          sendToChat(cid, `${fmt.bold(fmt.escape(label))}\n${fmt.pre(fmt.escape(truncated))}`);
+        } else {
+          const summary = formatSimpleToolResult(fmt, toolName, content, isError);
+          if (!summary) continue;
+          sendToChat(cid, summary);
+        }
+        if (!isError) setTypingForChat(cid, true);
+      }
     },
     handleBackgroundJob(
       sessionId: string,
@@ -1903,9 +2160,85 @@ export async function startDaemon(): Promise<void> {
         sessionManager,
         channel,
         listBackgroundJobs: listBackgroundJobsForUserChat,
+        isControlCenterActive: async () => {
+          const state = await loadControlCenterState();
+          return !!state;
+        },
+        startControlCenterSession: async ({ chatId, userId, tool, projectName }) => {
+          const state = await loadControlCenterState();
+          if (!state) {
+            return { ok: false, error: "Camp is not active." };
+          }
+          if (!state.ownerUserId) {
+            return {
+              ok: false,
+              error: "Camp owner is not set. Restart Camp after pairing in Telegram DM.",
+            };
+          }
+          if (state.ownerUserId !== userId) {
+            return { ok: false, error: "Only the Camp owner can start sessions." };
+          }
+          const existing = sessionManager.getAttachedRemote(chatId);
+          if (existing) {
+            return {
+              ok: false,
+              error: `This channel is busy with ${sessionLabel(existing.command, existing.cwd)}. Use /stop first.`,
+            };
+          }
+
+          const safeProject = slugifyProjectName(projectName || chatId.replace(/[:]/g, "-"));
+          const root = resolve(state.rootDir);
+          const projectPath = resolve(root, safeProject);
+          const withinRoot = projectPath === root || projectPath.startsWith(root + sep);
+          if (!withinRoot) {
+            return { ok: false, error: "Invalid project path." };
+          }
+
+          try {
+            await mkdir(projectPath, { recursive: true });
+          } catch (e) {
+            return { ok: false, error: `Could not create project folder: ${(e as Error).message}` };
+          }
+
+          try {
+            const args = [...state.commandPrefix, tool, "--channel", chatId];
+            const proc = Bun.spawn(args, {
+              cwd: projectPath,
+              stdio: ["ignore", "ignore", "ignore"],
+              env: { ...process.env },
+            });
+            proc.unref();
+            const earlyExit = await Promise.race([
+              proc.exited.then((exitCode) => ({ exited: true as const, exitCode })),
+              Bun.sleep(800).then(() => ({ exited: false as const })),
+            ]);
+            if (earlyExit.exited && earlyExit.exitCode !== 0) {
+              return {
+                ok: false,
+                error: `Failed to launch ${tool} for this channel (exit ${earlyExit.exitCode}).`,
+              };
+            }
+            return { ok: true, projectPath };
+          } catch (e) {
+            return { ok: false, error: `Failed to start ${tool}: ${(e as Error).message}` };
+          }
+        },
+        stopSessionForChat: async (userId, chatId) => {
+          const remote = sessionManager.getAttachedRemote(chatId);
+          if (!remote) return { ok: false, error: "No active session is attached to this chat." };
+          if (remote.ownerUserId !== userId) {
+            return { ok: false, error: "Only the session owner can stop this chat session." };
+          }
+          if (!sessionManager.requestRemoteStop(remote.id)) {
+            return { ok: false, error: "Could not request stop for this session." };
+          }
+          return { ok: true, sessionId: remote.id };
+        },
       });
     });
   }
+
+  syncKnownCommandMenus();
 
   await logger.info("Daemon started successfully");
 }

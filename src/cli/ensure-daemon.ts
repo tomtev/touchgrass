@@ -60,9 +60,15 @@ function listDaemonPidsFromSystem(): number[] {
   }
 }
 
+function selectDuplicateDaemonPids(primaryPid: number, daemonPids: number[]): number[] {
+  if (!Number.isFinite(primaryPid) || primaryPid <= 0) return [];
+  if (!daemonPids.includes(primaryPid)) return [];
+  return daemonPids.filter((pid) => pid !== primaryPid);
+}
+
 async function reapDuplicateDaemons(primaryPid: number): Promise<void> {
   if (!Number.isFinite(primaryPid) || primaryPid <= 0) return;
-  const duplicatePids = listDaemonPidsFromSystem().filter((pid) => pid !== primaryPid);
+  const duplicatePids = selectDuplicateDaemonPids(primaryPid, listDaemonPidsFromSystem());
   if (duplicatePids.length === 0) return;
 
   for (const pid of duplicatePids) {
@@ -197,4 +203,5 @@ export const __ensureDaemonTestUtils = {
   hasActiveSessions,
   parseDaemonPidsFromPs,
   shouldRestartDaemonForVersion,
+  selectDuplicateDaemonPids,
 };

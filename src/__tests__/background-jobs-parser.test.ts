@@ -201,4 +201,97 @@ describe("background job parser", () => {
       },
     ]);
   });
+
+  it("extracts running Codex background terminal events", () => {
+    __cliRunTestUtils.resetParserState();
+
+    __cliRunTestUtils.parseJsonlMessage({
+      type: "response_item",
+      payload: {
+        type: "function_call",
+        name: "exec_command",
+        call_id: "call_codex_bg",
+        arguments: JSON.stringify({
+          cmd: "node server.js --port 8900",
+          yield_time_ms: 1000,
+        }),
+      },
+    });
+
+    const parsed = __cliRunTestUtils.parseJsonlMessage({
+      type: "response_item",
+      payload: {
+        type: "function_call_output",
+        call_id: "call_codex_bg",
+        output:
+          "Chunk ID: x\nWall time: 1.0\nProcess running with session ID 80802\nOriginal token count: 0\nOutput:\n",
+      },
+    });
+
+    expect(parsed.backgroundJobEvents).toEqual([
+      {
+        taskId: "80802",
+        status: "running",
+        command: "node server.js --port 8900",
+        urls: ["http://localhost:8900"],
+      },
+    ]);
+  });
+
+  it("extracts completed Codex background terminal events from write_stdin", () => {
+    __cliRunTestUtils.resetParserState();
+
+    __cliRunTestUtils.parseJsonlMessage({
+      type: "response_item",
+      payload: {
+        type: "function_call",
+        name: "exec_command",
+        call_id: "call_codex_bg2",
+        arguments: JSON.stringify({
+          cmd: "docker stop flatsome-platform-app-run",
+          yield_time_ms: 10000,
+        }),
+      },
+    });
+    __cliRunTestUtils.parseJsonlMessage({
+      type: "response_item",
+      payload: {
+        type: "function_call_output",
+        call_id: "call_codex_bg2",
+        output:
+          "Chunk ID: x\nWall time: 10.0\nProcess running with session ID 1398\nOriginal token count: 0\nOutput:\n",
+      },
+    });
+    __cliRunTestUtils.parseJsonlMessage({
+      type: "response_item",
+      payload: {
+        type: "function_call",
+        name: "write_stdin",
+        call_id: "call_codex_bg3",
+        arguments: JSON.stringify({
+          session_id: 1398,
+          chars: "",
+          yield_time_ms: 1000,
+        }),
+      },
+    });
+
+    const parsed = __cliRunTestUtils.parseJsonlMessage({
+      type: "response_item",
+      payload: {
+        type: "function_call_output",
+        call_id: "call_codex_bg3",
+        output:
+          "Chunk ID: y\nWall time: 0.05\nProcess exited with code 0\nOriginal token count: 10\nOutput:\nflatsome-platform-app-run\n",
+      },
+    });
+
+    expect(parsed.backgroundJobEvents).toEqual([
+      {
+        taskId: "1398",
+        status: "completed",
+        command: "docker stop flatsome-platform-app-run",
+      },
+    ]);
+  });
 });

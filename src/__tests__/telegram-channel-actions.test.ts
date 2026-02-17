@@ -78,32 +78,57 @@ describe("TelegramChannel actions", () => {
 });
 
 describe("Telegram command menus", () => {
-  it("builds context-aware command lists without help/sessions", () => {
+  it("builds context-aware command lists", () => {
     const names = (cmds: Array<{ command: string }>) => cmds.map((c) => c.command);
 
     expect(names(__telegramChannelTestUtils.buildCommandMenu({
       isPaired: false,
       isGroup: false,
       isLinkedGroup: false,
+      hasActiveSession: false,
     }))).toEqual(["pair"]);
 
     expect(names(__telegramChannelTestUtils.buildCommandMenu({
       isPaired: true,
       isGroup: false,
       isLinkedGroup: false,
-    }))).toEqual(["files", "resume", "background_jobs"]);
+      hasActiveSession: false,
+    }))).toEqual([]);
+
+    expect(names(__telegramChannelTestUtils.buildCommandMenu({
+      isPaired: true,
+      isGroup: false,
+      isLinkedGroup: false,
+      hasActiveSession: true,
+    }))).toEqual(["files", "session", "resume", "output_mode", "thinking", "stop", "background_jobs"]);
 
     expect(names(__telegramChannelTestUtils.buildCommandMenu({
       isPaired: true,
       isGroup: true,
       isLinkedGroup: false,
-    }))).toEqual(["files", "resume", "background_jobs", "link"]);
+      hasActiveSession: false,
+    }))).toEqual(["start", "link"]);
+
+    expect(names(__telegramChannelTestUtils.buildCommandMenu({
+      isPaired: true,
+      isGroup: true,
+      isLinkedGroup: false,
+      hasActiveSession: true,
+    }))).toEqual(["stop", "link"]);
 
     expect(names(__telegramChannelTestUtils.buildCommandMenu({
       isPaired: true,
       isGroup: true,
       isLinkedGroup: true,
-    }))).toEqual(["files", "resume", "background_jobs", "unlink"]);
+      hasActiveSession: false,
+    }))).toEqual(["start", "unlink"]);
+
+    expect(names(__telegramChannelTestUtils.buildCommandMenu({
+      isPaired: true,
+      isGroup: true,
+      isLinkedGroup: true,
+      hasActiveSession: true,
+    }))).toEqual(["files", "session", "resume", "output_mode", "thinking", "stop", "background_jobs", "unlink"]);
   });
 
   it("syncs chat-member command menu and skips duplicate updates", async () => {
@@ -134,6 +159,7 @@ describe("Telegram command menus", () => {
       isPaired: true,
       isGroup: true,
       isLinkedGroup: false,
+      hasActiveSession: false,
     });
     await channel.syncCommandMenu?.({
       userId: "telegram:7",
@@ -141,10 +167,11 @@ describe("Telegram command menus", () => {
       isPaired: true,
       isGroup: true,
       isLinkedGroup: false,
+      hasActiveSession: false,
     });
 
     expect(calls).toHaveLength(1);
-    expect(calls[0]?.commands).toEqual(["files", "resume", "background_jobs", "link"]);
+    expect(calls[0]?.commands).toEqual(["start", "link"]);
     expect(calls[0]?.scope).toEqual({
       type: "chat_member",
       chat_id: -100,
@@ -157,9 +184,49 @@ describe("Telegram command menus", () => {
       isPaired: true,
       isGroup: true,
       isLinkedGroup: true,
+      hasActiveSession: true,
     });
 
     expect(calls).toHaveLength(2);
-    expect(calls[1]?.commands).toEqual(["files", "resume", "background_jobs", "unlink"]);
+    expect(calls[1]?.commands).toEqual(["files", "session", "resume", "output_mode", "thinking", "stop", "background_jobs", "unlink"]);
+  });
+
+  it("uses chat scope for DM command menu sync", async () => {
+    const channel = new TelegramChannel("bot-token");
+    const calls: Array<{ commands: string[]; scope: { type: string; chat_id: number; user_id?: number } }> = [];
+    const anyChannel = channel as unknown as {
+      api: {
+        setMyCommands: (
+          commands: Array<{ command: string; description: string }>,
+          scope?: { type: string; chat_id: number; user_id?: number }
+        ) => Promise<true>;
+      };
+    };
+
+    anyChannel.api = {
+      setMyCommands: async (commands, scope) => {
+        calls.push({
+          commands: commands.map((c) => c.command),
+          scope: scope as { type: string; chat_id: number; user_id?: number },
+        });
+        return true;
+      },
+    };
+
+    await channel.syncCommandMenu?.({
+      userId: "telegram:7",
+      chatId: "telegram:7",
+      isPaired: true,
+      isGroup: false,
+      isLinkedGroup: false,
+      hasActiveSession: false,
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.commands).toEqual([]);
+    expect(calls[0]?.scope).toEqual({
+      type: "chat",
+      chat_id: 7,
+    });
   });
 });

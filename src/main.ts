@@ -66,6 +66,11 @@ async function main() {
       await runResume();
       break;
     }
+    case "camp": {
+      const { runControlCenter } = await import("./cli/control-center");
+      await runControlCenter();
+      break;
+    }
     case "claude":
     case "codex":
     case "pi": {
@@ -85,7 +90,7 @@ async function main() {
       break;
     default: {
       console.error(`Unknown command: ${command}`);
-      console.error("Supported commands: tg setup, tg claude, tg codex, tg pi, tg stop, tg kill");
+      console.error("Supported commands: tg setup, tg camp, tg claude, tg codex, tg pi, tg stop, tg kill");
       console.error(`Run "tg help" for more information.`);
       process.exit(1);
     }
@@ -103,6 +108,7 @@ Commands:
   codex    Run Codex with chat bridge
   pi       Run PI with chat bridge
   resume   Resume a recent session (picker or --last for most recent)
+  camp     Run long-lived Telegram control plane for /start project sessions
 
 Options (for claude/codex/pi/resume):
   --channel <value>      Skip channel picker (use "dm", a chatId, or title substring)

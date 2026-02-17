@@ -1,0 +1,7 @@
+name = "touchgrass-website"
+main = "src/index.tsx"
+compatibility_date = "2026-02-16"
+
+[assets]
+directory = "./public"
+binding = "ASSETS"

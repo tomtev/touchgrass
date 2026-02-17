@@ -65,6 +65,38 @@ export async function loadConfig(): Promise<TgConfig> {
 
     // Merge with defaults in case new settings were added
     parsed.settings = { ...defaultSettings, ...parsed.settings };
+    if (!parsed.chatPreferences || typeof parsed.chatPreferences !== "object") {
+      parsed.chatPreferences = {};
+    } else {
+      for (const [chatId, pref] of Object.entries(parsed.chatPreferences)) {
+        if (!pref || typeof pref !== "object") {
+          delete parsed.chatPreferences[chatId];
+          continue;
+        }
+        const mode = (pref as { outputMode?: unknown }).outputMode;
+        const thinking = (pref as { thinking?: unknown }).thinking;
+        const muted = (pref as { muted?: unknown }).muted;
+        const validMode = mode === undefined || mode === "verbose" || mode === "compact";
+        const validThinking = thinking === undefined || typeof thinking === "boolean";
+        const validMuted = muted === undefined || typeof muted === "boolean";
+        if (!validMode || !validThinking || !validMuted) {
+          delete parsed.chatPreferences[chatId];
+          continue;
+        }
+        // Compact is the default and should not be persisted explicitly.
+        if (mode === "compact") {
+          delete (pref as { outputMode?: unknown }).outputMode;
+        }
+        // Keep only meaningful preference objects.
+        if (
+          (pref as { outputMode?: unknown }).outputMode === undefined &&
+          (pref as { thinking?: unknown }).thinking !== true &&
+          (pref as { muted?: unknown }).muted !== true
+        ) {
+          delete parsed.chatPreferences[chatId];
+        }
+      }
+    }
     // Ensure linkedGroups exists on all channels
     for (const ch of Object.values(parsed.channels)) {
       if (!ch.linkedGroups) ch.linkedGroups = [];

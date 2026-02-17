@@ -28,6 +28,12 @@ tg pair
 tg claude
 ```
 
+Camp mode (multi-project launcher):
+
+```bash
+tg camp --root ~/Dev
+```
+
 Current channels:
 - Telegram
 
@@ -80,7 +86,19 @@ Group note:
 tg claude [args]
 tg codex [args]
 tg pi [args]
+tg camp [--root /path]
 ```
+
+### Touchgrass Camp (🏕️)
+
+`tg camp` runs a long-lived control plane for Telegram groups/topics.
+
+- Start it once from your projects root (or pass `--root /path`).
+- In Telegram groups/topics, use `/start claude|codex|pi [project-name]` to launch a new session.
+- Use `/stop` to stop the current chat-bound session.
+- Only the paired owner account can start/stop Camp sessions.
+- If Camp is not running, `/start` replies with a `tg camp` hint.
+- Under the hood Camp spawns normal touchgrass commands with channel binding (for example `tg claude --channel <chatId>`), so session behavior stays consistent.
 
 touchgrass auto-appends a small bridge context for all three:
 - `claude` / `pi`: `--append-system-prompt "<touchgrass bridge context>"`
@@ -121,6 +139,11 @@ From Telegram chat:
 - `@?<query>` is shorthand for the same picker (example: `@?readme`)
 - `@?<query> - <prompt>` resolves the top fuzzy match and sends `@path - prompt` directly (example: `@?readme - summarize this file`)
 - `/resume` (or `tg resume`) opens a picker of recent local sessions for this tool and restarts into the selected session
+- `/output_mode simple|verbose` (or `tg output_mode simple|verbose`) sets bridge verbosity for the current chat (`simple` is default: concise tool activity + short main-tool outputs)
+- Output mode details:
+  - `simple` (default): concise tool-call events (except `Bash`/`bash`/`exec_command`), concise result summaries for `WebFetch`/`WebSearch`/`Task`, and all tool errors
+  - `verbose`: full tool-call previews and fuller tool result blocks
+- `/thinking on|off|toggle` (or `tg thinking on|off|toggle`) controls whether thinking previews are forwarded for this chat (default: off)
 - `/background_jobs` (Telegram command menu) or `/background-jobs` (or `tg background-jobs`) lists currently running background jobs for your connected session(s)
 
 ### Setup & diagnostics
@@ -129,6 +152,7 @@ From Telegram chat:
 tg setup
 tg init   # alias
 tg pair
+tg camp
 tg doctor
 tg config
 tg logs

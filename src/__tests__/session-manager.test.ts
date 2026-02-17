@@ -315,6 +315,24 @@ describe("file picker selection state", () => {
   });
 });
 
+describe("output mode picker state", () => {
+  it("stores and removes pending output mode picker", () => {
+    const mgr = createManager();
+    mgr.registerOutputModePicker({
+      pollId: "output-1",
+      messageId: "1",
+      chatId: "telegram:100" as ChannelChatId,
+      ownerUserId: "telegram:100" as ChannelUserId,
+      options: ["compact", "verbose"],
+    });
+
+    const picker = mgr.getOutputModePickerByPollId("output-1");
+    expect(picker?.options).toEqual(["compact", "verbose"]);
+    mgr.removeOutputModePicker("output-1");
+    expect(mgr.getOutputModePickerByPollId("output-1")).toBeUndefined();
+  });
+});
+
 describe("getBoundChat", () => {
   it("returns the chatId attached to a session", () => {
     const mgr = createManager();

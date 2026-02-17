@@ -1,5 +1,5 @@
 import { loadConfig } from "../config/store";
-import { getAllPairedUsers, type ChannelConfig, type TgConfig } from "../config/schema";
+import { getAllPairedUsers, getTelegramBotToken, type ChannelConfig, type TgConfig } from "../config/schema";
 import { createChannel } from "../channel/factory";
 import type { Channel, ChannelChatId } from "../channel/types";
 import { daemonRequest } from "./client";
@@ -33,10 +33,12 @@ export const __cliRunTestUtils = {
   buildResumeCommandArgs,
   parseCodexResumeArgs,
   applyTouchgrassAutoContextArgs,
+  validateRunSetupPreflight,
   parseJsonlMessage,
   resetParserState: () => {
     toolUseIdToName.clear();
     toolUseIdToInput.clear();
+    codexSessionIdToCommand.clear();
   },
 };
 
@@ -73,6 +75,43 @@ function resolveOwnerChannel(config: TgConfig, preferredChannelType?: string): O
     if (preferred) return preferred;
   }
   return candidates[0] || null;
+}
+
+interface RunSetupPreflight {
+  ok: boolean;
+  message?: string;
+  details?: string;
+}
+
+function validateRunSetupPreflight(config: TgConfig): RunSetupPreflight {
+  const token = getTelegramBotToken(config).trim();
+  if (!token) {
+    return {
+      ok: false,
+      message: "Telegram setup is incomplete.",
+      details: "Run `tg setup` to configure your bot token before starting sessions.",
+    };
+  }
+
+  const pairedUsers = getAllPairedUsers(config);
+  if (pairedUsers.length === 0) {
+    return {
+      ok: false,
+      message: "No paired owner found.",
+      details: "Run `tg pair` and send `/pair <code>` to your bot.",
+    };
+  }
+
+  const ownerCandidates = listOwnerChannels(config);
+  if (ownerCandidates.length === 0) {
+    return {
+      ok: false,
+      message: "No usable paired channel owner found.",
+      details: `Ensure one paired user per channel in your config. Config: ${paths.config}`,
+    };
+  }
+
+  return { ok: true };
 }
 
 // Arrow-key picker for terminal selection
@@ -325,6 +364,7 @@ interface ParsedMessage {
 // Map tool_use_id/call_id → tool name so we can label tool_results
 const toolUseIdToName = new Map<string, string>();
 const toolUseIdToInput = new Map<string, Record<string, unknown>>();
+const codexSessionIdToCommand = new Map<string, string>();
 
 // Only forward results for tools where the output is useful to see on Telegram
 const FORWARD_RESULT_TOOLS = new Set([
@@ -427,6 +467,29 @@ function extractStoppedTaskFromResult(
   if (!stoppedId) return null;
   const command = trimmed.match(/Successfully stopped task:\s*[A-Za-z0-9_-]+\s*\(([\s\S]+)\)/i)?.[1];
   return { taskId: stoppedId, command };
+}
+
+function normalizeCodexSessionId(value: unknown): string | undefined {
+  if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+    return String(Math.trunc(value));
+  }
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  return trimmed;
+}
+
+function detectCodexExitStatus(output: string): BackgroundJobEventInfo["status"] | null {
+  const codeMatch = output.match(/Process exited with code\s+(-?\d+)/i);
+  if (codeMatch) {
+    const code = Number(codeMatch[1]);
+    if (Number.isFinite(code) && code === 0) return "completed";
+    return "failed";
+  }
+  if (/(stdin is closed for this session|session not found|no such session)/i.test(output)) {
+    return "killed";
+  }
+  return null;
 }
 
 function parseJsonlMessage(msg: Record<string, unknown>): ParsedMessage {
@@ -677,12 +740,61 @@ function parseJsonlMessage(msg: Record<string, unknown>): ParsedMessage {
     }
 
     if (payload.type === "function_call_output" || payload.type === "custom_tool_call_output") {
-      const callId = payload.call_id as string;
+      const callId = (payload.call_id as string) || "";
       const toolName = toolUseIdToName.get(callId) ?? "";
-      if (!FORWARD_RESULT_TOOLS.has(toolName)) return EMPTY_PARSED;
+      const input = callId ? toolUseIdToInput.get(callId) : undefined;
       const output = (payload.output as string) ?? "";
-      if (!output.trim()) return EMPTY_PARSED;
-      return { ...EMPTY_PARSED, toolResults: [{ toolName: toolName || "unknown", content: output.trim(), isError: false }] };
+      const trimmedOutput = output.trim();
+      if (!trimmedOutput) return EMPTY_PARSED;
+
+      const backgroundJobEvents: BackgroundJobEventInfo[] = [];
+
+      if (toolName === "exec_command" || toolName === "write_stdin") {
+        const sessionIdFromOutput = trimmedOutput.match(/Process running with session ID\s*([0-9]+)/i)?.[1];
+        const sessionIdFromInput = normalizeCodexSessionId(input?.session_id);
+        const sessionId = sessionIdFromOutput || sessionIdFromInput;
+        const commandFromInput = typeof input?.cmd === "string" ? input.cmd : undefined;
+        const commandFromCache = sessionId ? codexSessionIdToCommand.get(sessionId) : undefined;
+        const command = commandFromInput || commandFromCache;
+
+        if (sessionId && commandFromInput && toolName === "exec_command") {
+          codexSessionIdToCommand.set(sessionId, commandFromInput);
+          while (codexSessionIdToCommand.size > 200) {
+            const first = codexSessionIdToCommand.keys().next().value as string | undefined;
+            if (!first) break;
+            codexSessionIdToCommand.delete(first);
+          }
+        }
+
+        if (sessionIdFromOutput && sessionId) {
+          backgroundJobEvents.push({
+            taskId: sessionId,
+            status: "running",
+            command,
+            urls: mergeUrls(extractUrls(trimmedOutput), inferUrlsFromCommand(command)),
+          });
+        }
+
+        const exitStatus = detectCodexExitStatus(trimmedOutput);
+        if (sessionId && exitStatus) {
+          const inferredUrls = inferUrlsFromCommand(command);
+          backgroundJobEvents.push({
+            taskId: sessionId,
+            status: exitStatus,
+            command,
+            urls: inferredUrls.length > 0 ? inferredUrls : undefined,
+          });
+          codexSessionIdToCommand.delete(sessionId);
+        }
+      }
+
+      const toolResults: ToolResultInfo[] = [];
+      if (FORWARD_RESULT_TOOLS.has(toolName)) {
+        toolResults.push({ toolName: toolName || "unknown", content: trimmedOutput, isError: false });
+      }
+
+      if (toolResults.length === 0 && backgroundJobEvents.length === 0) return EMPTY_PARSED;
+      return { ...EMPTY_PARSED, toolResults, backgroundJobEvents };
     }
   }
 
@@ -1173,18 +1285,13 @@ export async function runRun(): Promise<void> {
 
   try {
     const config = await loadConfig();
-    const pairedUsers = getAllPairedUsers(config);
+    const preflight = validateRunSetupPreflight(config);
+    if (!preflight.ok) {
+      console.error(preflight.message || "touchgrass setup is incomplete.");
+      if (preflight.details) console.error(preflight.details);
+      process.exit(1);
+    }
     const ownerCandidates = listOwnerChannels(config);
-    if (pairedUsers.length === 0) {
-      console.error("No paired owner found. Run `tg pair` first.");
-      process.exit(1);
-    }
-    if (ownerCandidates.length === 0) {
-      console.error("No usable paired channel owner found.");
-      console.error("Ensure one paired user per channel in your config.");
-      console.error(`Config: ${paths.config}`);
-      process.exit(1);
-    }
     let preferredOwnerType = preferredChannelTypeFromFlag;
     let selectedChatForBind: ChannelChatId | null = null;
     let selectedLabelForPrint: string | null = null;
@@ -1194,6 +1301,11 @@ export async function runRun(): Promise<void> {
       await ensureDaemon();
       const channelRes = await daemonRequest("/channels");
       const daemonChannels = (channelRes.channels as Array<{ chatId: string; title: string; type: string; busy: boolean; busyLabel?: string | null }>) || [];
+      if (daemonChannels.length === 0) {
+        console.error("No channels available.");
+        console.error("Run `tg setup` and `tg pair`, then verify with `tg channels`.");
+        process.exit(1);
+      }
       const pickerOptions = buildChannelPickerOptions(daemonChannels);
       const defaultOwner = resolveOwnerChannel(config, preferredOwnerType) || ownerCandidates[0];
 
@@ -1235,8 +1347,11 @@ export async function runRun(): Promise<void> {
           }
         }
       }
-    } catch {
-      // Daemon failed to start — local-only mode
+    } catch (e) {
+      console.error("Failed to load channels from daemon.");
+      console.error("Run `tg setup` and `tg pair`, then verify with `tg channels`.");
+      console.error(`Details: ${(e as Error).message}`);
+      process.exit(1);
     }
 
     let owner = preferredOwnerType
@@ -1272,48 +1387,58 @@ export async function runRun(): Promise<void> {
         ownerUserId,
         cwd: process.cwd(),
       });
-      if (res.ok && res.sessionId) {
-        remoteId = res.sessionId as string;
+      if (!res.ok || !res.sessionId) {
+        console.error("Failed to register remote session.");
+        console.error("Run `tg setup` and `tg pair`, then verify with `tg channels`.");
+        process.exit(1);
+      }
 
-        let targetBindChat = selectedChatForBind;
-        if (!channelFlag && !targetBindChat) {
-          const dmBusy = res.dmBusy as boolean;
-          if (!dmBusy) {
-            targetBindChat = chatId;
-            selectedLabelForPrint = selectedLabelForPrint || "DM";
-          }
-        }
+      remoteId = res.sessionId as string;
 
-        if (targetBindChat) {
-          try {
-            await daemonRequest("/remote/bind-chat", "POST", {
-              sessionId: remoteId,
-              chatId: targetBindChat,
-              ownerUserId,
-            });
-            chatId = targetBindChat as ChannelChatId;
-            didBindChat = true;
-            if (selectedLabelForPrint) {
-              console.log(`⛳️ Channel linked: ${selectedLabelForPrint}`);
-            }
-          } catch (bindErr) {
-            const errText = `\x1b[33m⚠ ${(bindErr as Error).message}\x1b[0m`;
-            if (selectedFromFlag) {
-              console.error(errText);
-              process.exit(1);
-            }
-            console.error(`${errText}. Keeping current channel binding.`);
-          }
+      let targetBindChat = selectedChatForBind;
+      if (!channelFlag && !targetBindChat) {
+        const dmBusy = res.dmBusy as boolean;
+        if (!dmBusy) {
+          targetBindChat = chatId;
+          selectedLabelForPrint = selectedLabelForPrint || "DM";
         }
       }
-    } catch {
-      // Daemon failed to start — local-only mode
+
+      if (targetBindChat) {
+        try {
+          await daemonRequest("/remote/bind-chat", "POST", {
+            sessionId: remoteId,
+            chatId: targetBindChat,
+            ownerUserId,
+          });
+          chatId = targetBindChat as ChannelChatId;
+          didBindChat = true;
+          if (selectedLabelForPrint) {
+            console.log(`⛳️ Channel linked: ${selectedLabelForPrint}`);
+          }
+        } catch (bindErr) {
+          const errText = `\x1b[33m⚠ ${(bindErr as Error).message}\x1b[0m`;
+          if (selectedFromFlag) {
+            console.error(errText);
+            process.exit(1);
+          }
+          console.error(`${errText}. Keeping current channel binding.`);
+        }
+      }
+    } catch (e) {
+      console.error("Failed to register session with daemon.");
+      console.error("Run `tg setup` and `tg pair`, then verify with `tg channels`.");
+      console.error(`Details: ${(e as Error).message}`);
+      process.exit(1);
     }
 
     // Set up channel for JSONL watching
     channel = createChannel(resolvedChannelName, resolvedChannelConfig);
-  } catch {
-    // Config load failed — local-only mode
+  } catch (e) {
+    console.error("Failed to load touchgrass config.");
+    console.error(`Run \`tg setup\` first. Config path: ${paths.config}`);
+    console.error(`Details: ${(e as Error).message}`);
+    process.exit(1);
   }
 
   // Write session manifest if registered with daemon
@@ -1616,8 +1741,11 @@ export async function runRun(): Promise<void> {
             }
           : undefined;
 
-        // Thinking is disabled by default — enable via future config option
-        const onThinking = undefined;
+        const onThinking = tgRemoteId
+          ? (text: string) => {
+              daemonRequest(`/remote/${tgRemoteId}/thinking`, "POST", { text }).catch(() => {});
+            }
+          : undefined;
 
         const onToolResult = tgRemoteId
           ? (results: ToolResultInfo[]) => {

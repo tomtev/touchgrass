@@ -1,5 +1,6 @@
 import type { InboundMessage } from "../../channel/types";
 import type { RouterContext } from "../command-router";
+import { handleSessionCommand } from "./session";
 
 export async function handleSessionMgmt(
   msg: InboundMessage,
@@ -15,6 +16,11 @@ export async function handleSessionMgmt(
   const safeSessionId = sessionId ? fmt.escape(sessionId) : "";
 
   switch (subCmd) {
+    case "session": {
+      await handleSessionCommand(msg, ctx);
+      return;
+    }
+
     case "ls": {
       const sessions = ctx.sessionManager.listForUser(userId);
       if (sessions.length === 0) {

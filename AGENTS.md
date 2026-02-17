@@ -18,23 +18,23 @@ Supported channels:
 ## Core Commands
 
 ```bash
-tg setup      # configure channel credentials (tg init is alias)
-tg pair       # generate pairing code
-curl -fsSL https://raw.githubusercontent.com/tomtev/touchgrass/main/install.sh | bash  # update/install latest CLI
+bun run src/main.ts setup      # configure channel credentials (init alias exists)
+bun run src/main.ts pair       # generate pairing code
+bun run src/main.ts camp [--root /path]
 
-tg claude
-tg codex
-tg pi
+bun run src/main.ts claude
+bun run src/main.ts codex
+bun run src/main.ts pi
 
-tg send <session_id> "text"
-tg send --file <session_id> <path>
+bun run src/main.ts send <session_id> "text"
+bun run src/main.ts send --file <session_id> <path>
 
-tg ls
-tg channels
-tg links
-tg peek <id>
-tg stop <id>
-tg kill <id>
+bun run src/main.ts ls
+bun run src/main.ts channels
+bun run src/main.ts links
+bun run src/main.ts peek <id>
+bun run src/main.ts stop <id>
+bun run src/main.ts kill <id>
 ```
 
 Telegram chat shorthands:
@@ -42,6 +42,20 @@ Telegram chat shorthands:
 - `@?<query>` is shorthand for the same picker
 - `@?<query> - <prompt>` auto-resolves top fuzzy match and sends `@path - prompt`
 - `/resume` or `tg resume` opens a picker of recent local sessions and restarts the same tool on the selected session
+
+## Touchgrass Camp
+
+- Command: `bun run src/main.ts camp [--root /path]`
+- Purpose: long-lived Telegram control plane for launching project sessions from chat.
+- Chat controls:
+  - `/start claude|codex|pi [project-name]` starts a session in the camp root.
+  - `/stop` stops the current chat-bound session.
+- Ownership:
+  - only the paired owner account can create new camp sessions.
+  - if camp is not active, `/start` returns a `tg camp` hint.
+- Runtime behavior:
+  - Camp launches normal `tg claude/codex/pi --channel <chatId>` commands under the hood.
+  - spawned sessions behave like normal touchgrass sessions (same routing/output rules).
 
 ## Architecture
 
@@ -71,12 +85,12 @@ Telegram chat shorthands:
 ## Operational Notes
 
 - Telegram is the only supported channel.
-- If the user asks to "update", that means running the curl installer command above.
-- After every new release/update, always restart the daemon before testing:
+- This repo workflow is local-dev only.
+- Restart the daemon before testing runtime changes:
 ```bash
 old_pid=$(cat ~/.touchgrass/daemon.pid 2>/dev/null || true)
 [ -n "$old_pid" ] && kill "$old_pid" 2>/dev/null || true
-tg channels
+bun run src/main.ts channels
 ```
 - In dev mode (`bun run src/main.ts ...`), restart the daemon after code changes so Telegram reflects updates:
 ```bash

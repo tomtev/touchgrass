@@ -20,6 +20,15 @@ export interface LinkedGroup {
 export interface TgConfig {
   channels: Record<string, ChannelConfig>;
   settings: TgSettings;
+  chatPreferences?: Record<string, ChatPreferences>;
+}
+
+export type OutputMode = "compact" | "verbose";
+
+export interface ChatPreferences {
+  outputMode?: OutputMode;
+  thinking?: boolean;
+  muted?: boolean;
 }
 
 export interface TgSettings {
@@ -42,6 +51,7 @@ export function createDefaultConfig(): TgConfig {
   return {
     channels: {},
     settings: { ...defaultSettings },
+    chatPreferences: {},
   };
 }
 
@@ -52,8 +62,66 @@ export function validateConfig(config: unknown): config is TgConfig {
     typeof c.channels === "object" &&
     c.channels !== null &&
     typeof c.settings === "object" &&
-    c.settings !== null
+    c.settings !== null &&
+    (c.chatPreferences === undefined || (typeof c.chatPreferences === "object" && c.chatPreferences !== null))
   );
+}
+
+export function getChatOutputMode(config: TgConfig, chatId: string): OutputMode {
+  const mode = config.chatPreferences?.[chatId]?.outputMode;
+  return mode === "verbose" ? "verbose" : "compact";
+}
+
+export function getChatThinkingEnabled(config: TgConfig, chatId: string): boolean {
+  return config.chatPreferences?.[chatId]?.thinking === true;
+}
+
+export function getChatMuted(config: TgConfig, chatId: string): boolean {
+  return config.chatPreferences?.[chatId]?.muted === true;
+}
+
+function pruneChatPreference(config: TgConfig, chatId: string): void {
+  const pref = config.chatPreferences?.[chatId];
+  if (!pref) return;
+  const hasOutputMode = pref.outputMode === "verbose";
+  const hasThinking = pref.thinking === true;
+  const hasMuted = pref.muted === true;
+  if (!hasOutputMode && !hasThinking && !hasMuted) {
+    delete config.chatPreferences?.[chatId];
+  }
+}
+
+export function setChatOutputMode(config: TgConfig, chatId: string, mode: OutputMode): boolean {
+  if (getChatOutputMode(config, chatId) === mode) return false;
+  if (!config.chatPreferences) config.chatPreferences = {};
+  const nextPref: ChatPreferences = { ...(config.chatPreferences[chatId] || {}) };
+  if (mode === "compact") delete nextPref.outputMode;
+  else nextPref.outputMode = mode;
+  config.chatPreferences[chatId] = nextPref;
+  pruneChatPreference(config, chatId);
+  return true;
+}
+
+export function setChatThinkingEnabled(config: TgConfig, chatId: string, enabled: boolean): boolean {
+  if (getChatThinkingEnabled(config, chatId) === enabled) return false;
+  if (!config.chatPreferences) config.chatPreferences = {};
+  const nextPref: ChatPreferences = { ...(config.chatPreferences[chatId] || {}) };
+  if (enabled) nextPref.thinking = true;
+  else delete nextPref.thinking;
+  config.chatPreferences[chatId] = nextPref;
+  pruneChatPreference(config, chatId);
+  return true;
+}
+
+export function setChatMuted(config: TgConfig, chatId: string, enabled: boolean): boolean {
+  if (getChatMuted(config, chatId) === enabled) return false;
+  if (!config.chatPreferences) config.chatPreferences = {};
+  const nextPref: ChatPreferences = { ...(config.chatPreferences[chatId] || {}) };
+  if (enabled) nextPref.muted = true;
+  else delete nextPref.muted;
+  config.chatPreferences[chatId] = nextPref;
+  pruneChatPreference(config, chatId);
+  return true;
 }
 
 // Helper to get the bot token from the telegram channel config

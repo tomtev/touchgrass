@@ -190,3 +190,52 @@ describe("auto context injection", () => {
     expect(args).toEqual(["--append-system-prompt=custom-pi", "--provider", "google"]);
   });
 });
+
+describe("run setup preflight", () => {
+  it("fails when telegram token is missing", () => {
+    const result = __cliRunTestUtils.validateRunSetupPreflight({
+      channels: {
+        telegram: {
+          type: "telegram",
+          credentials: {},
+          pairedUsers: [{ userId: "telegram:123", pairedAt: "2026-02-16T00:00:00.000Z" }],
+          linkedGroups: [],
+        },
+      },
+      settings: {
+        outputBatchMinMs: 300,
+        outputBatchMaxMs: 800,
+        outputBufferMaxChars: 4096,
+        maxSessions: 10,
+        defaultShell: "/bin/zsh",
+      },
+      chatPreferences: {},
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain("Telegram setup is incomplete");
+  });
+
+  it("passes when token and paired owner are present", () => {
+    const result = __cliRunTestUtils.validateRunSetupPreflight({
+      channels: {
+        telegram: {
+          type: "telegram",
+          credentials: { botToken: "123:abc" },
+          pairedUsers: [{ userId: "telegram:123", pairedAt: "2026-02-16T00:00:00.000Z" }],
+          linkedGroups: [],
+        },
+      },
+      settings: {
+        outputBatchMinMs: 300,
+        outputBatchMaxMs: 800,
+        outputBufferMaxChars: 4096,
+        maxSessions: 10,
+        defaultShell: "/bin/zsh",
+      },
+      chatPreferences: {},
+    });
+
+    expect(result.ok).toBe(true);
+  });
+});

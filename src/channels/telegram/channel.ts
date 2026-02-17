@@ -61,7 +61,12 @@ interface TelegramBotCommand {
 
 const TELEGRAM_COMMANDS = {
   files: { command: "files", description: "Pick repo paths for next message" },
+  session: { command: "session", description: "Show current session and resume command" },
   resume: { command: "resume", description: "Pick and resume a previous session" },
+  outputMode: { command: "output_mode", description: "Set output mode simple/verbose" },
+  thinking: { command: "thinking", description: "Toggle thinking on/off" },
+  newSession: { command: "start", description: "Start a new Camp session 🏕️" },
+  stopSession: { command: "stop", description: "Stop current chat session" },
   backgroundJobs: { command: "background_jobs", description: "List running background jobs" },
   link: { command: "link", description: "Add this chat as a channel" },
   unlink: { command: "unlink", description: "Remove this chat as a channel" },
@@ -75,13 +80,38 @@ function parseNumericChannelId(id: string): number | null {
   return Number.isFinite(value) ? value : null;
 }
 
-function buildCommandMenu(ctx: Pick<CommandMenuContext, "isPaired" | "isGroup" | "isLinkedGroup">): TelegramBotCommand[] {
+function buildCommandMenu(
+  ctx: Pick<CommandMenuContext, "isPaired" | "isGroup" | "isLinkedGroup" | "hasActiveSession">
+): TelegramBotCommand[] {
   if (!ctx.isPaired) return [TELEGRAM_COMMANDS.pair];
-  const commands: TelegramBotCommand[] = [
-    TELEGRAM_COMMANDS.files,
-    TELEGRAM_COMMANDS.resume,
-    TELEGRAM_COMMANDS.backgroundJobs,
-  ];
+
+  // Unlinked groups/topics should only show the Camp entrypoint and linking action.
+  if (ctx.isGroup && !ctx.isLinkedGroup) {
+    const commands: TelegramBotCommand[] = [];
+    if (ctx.hasActiveSession) {
+      commands.push(TELEGRAM_COMMANDS.stopSession);
+    } else {
+      commands.push(TELEGRAM_COMMANDS.newSession);
+    }
+    commands.push(TELEGRAM_COMMANDS.link);
+    return commands;
+  }
+
+  const commands: TelegramBotCommand[] = [];
+  if (ctx.isGroup && !ctx.hasActiveSession) {
+    commands.push(TELEGRAM_COMMANDS.newSession);
+  }
+  if (ctx.hasActiveSession) {
+    commands.push(
+      TELEGRAM_COMMANDS.files,
+      TELEGRAM_COMMANDS.session,
+      TELEGRAM_COMMANDS.resume,
+      TELEGRAM_COMMANDS.outputMode,
+      TELEGRAM_COMMANDS.thinking,
+      TELEGRAM_COMMANDS.stopSession,
+      TELEGRAM_COMMANDS.backgroundJobs
+    );
+  }
   if (ctx.isGroup) {
     commands.push(ctx.isLinkedGroup ? TELEGRAM_COMMANDS.unlink : TELEGRAM_COMMANDS.link);
   }
@@ -427,14 +457,21 @@ export class TelegramChannel implements Channel {
     const cacheKey = `${numChatId}:${userNum}`;
     if (this.commandMenuCache.get(cacheKey) === signature) return;
 
-    const scope: TelegramBotCommandScope = {
-      type: "chat_member",
-      chat_id: numChatId,
-      user_id: userNum,
-    };
+    // Telegram does not allow `chat_member` scopes for private chats.
+    // Use a per-chat scope for DMs and a chat_member scope for groups/topics.
+    const scope: TelegramBotCommandScope = numChatId > 0
+      ? {
+          type: "chat",
+          chat_id: numChatId,
+        }
+      : {
+          type: "chat_member",
+          chat_id: numChatId,
+          user_id: userNum,
+        };
 
     try {
-      await this.api.setMyCommands(commands, scope);
+      await this.api.setMyCommands(commands, scope, 5000);
       this.commandMenuCache.set(cacheKey, signature);
     } catch (e) {
       await logger.debug("Failed to sync Telegram command menu", {
@@ -452,14 +489,20 @@ export class TelegramChannel implements Channel {
       const me = await this.api.getMe();
       this.botUsername = me.username || null;
       await logger.info("Bot connected", { username: me.username, id: me.id });
-      // Clear broad command scopes from older versions so chat_member menus control visibility.
-      await this.api.setMyCommands([], { type: "all_private_chats" });
-      await this.api.setMyCommands([], { type: "all_group_chats" });
-      await this.api.setMyCommands([], { type: "all_chat_administrators" });
-      await this.api.setMyCommands([TELEGRAM_COMMANDS.pair]);
     } catch (e) {
       await logger.error("Failed to connect to Telegram", { error: (e as Error).message });
       throw e;
+    }
+    try {
+      // Clear broad command scopes from older versions so chat_member menus control visibility.
+      await this.api.setMyCommands([], { type: "all_private_chats" }, 5000);
+      await this.api.setMyCommands([], { type: "all_group_chats" }, 5000);
+      await this.api.setMyCommands([], { type: "all_chat_administrators" }, 5000);
+      await this.api.setMyCommands([TELEGRAM_COMMANDS.pair], undefined, 5000);
+    } catch (e) {
+      await logger.debug("Failed to initialize Telegram command menus", {
+        error: (e as Error).message,
+      });
     }
 
     this.running = true;

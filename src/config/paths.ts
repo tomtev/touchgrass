@@ -1,7 +1,14 @@
-import { join } from "path";
+import { isAbsolute, join } from "path";
 import { homedir } from "os";
 
-const TG_DIR = join(homedir(), ".touchgrass");
+const configuredDir = process.env.TOUCHGRASS_HOME?.trim();
+const isTestRuntime = process.env.NODE_ENV === "test";
+const defaultDir = isTestRuntime
+  ? join(process.cwd(), ".touchgrass-test")
+  : join(homedir(), ".touchgrass");
+const TG_DIR = configuredDir
+  ? (isAbsolute(configuredDir) ? configuredDir : join(process.cwd(), configuredDir))
+  : defaultDir;
 export const CONTROL_HOST = "127.0.0.1";
 
 export const paths = {
@@ -17,6 +24,7 @@ export const paths = {
   sessionsDir: join(TG_DIR, "sessions"),
   uploadsDir: join(TG_DIR, "uploads"),
   statusBoardsFile: join(TG_DIR, "status-boards.json"),
+  controlCenterFile: join(TG_DIR, "control-center.json"),
 };
 
 export function useTcpControlServer(): boolean {

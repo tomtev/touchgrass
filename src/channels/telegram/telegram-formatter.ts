@@ -11,7 +11,7 @@ export class TelegramFormatter implements Formatter {
   }
 
   code(text: string): string {
-    return `<code>${text}</code>`;
+    return `<code>${escapeHtml(text)}</code>`;
   }
 
   pre(text: string): string {

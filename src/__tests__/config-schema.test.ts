@@ -5,6 +5,12 @@ import {
   removeLinkedGroup,
   isLinkedGroup,
   updateLinkedGroupTitle,
+  getChatOutputMode,
+  getChatThinkingEnabled,
+  getChatMuted,
+  setChatOutputMode,
+  setChatThinkingEnabled,
+  setChatMuted,
   type TgConfig,
   type ChannelConfig,
   defaultSettings,
@@ -189,5 +195,94 @@ describe("updateLinkedGroupTitle", () => {
     const result = updateLinkedGroupTitle(config, "telegram:-100", "First Title");
     expect(result).toBe(true);
     expect(config.channels.telegram.linkedGroups[0].title).toBe("First Title");
+  });
+});
+
+describe("chat output mode", () => {
+  it("defaults to compact when no preference exists", () => {
+    const config = makeConfig({ telegram: makeChannel("telegram") });
+    expect(getChatOutputMode(config, "telegram:100")).toBe("compact");
+  });
+
+  it("sets and reads verbose mode per chat", () => {
+    const config = makeConfig({ telegram: makeChannel("telegram") });
+    const changed = setChatOutputMode(config, "telegram:100", "verbose");
+    expect(changed).toBe(true);
+    expect(getChatOutputMode(config, "telegram:100")).toBe("verbose");
+  });
+
+  it("falls back to compact for unknown stored mode", () => {
+    const config = makeConfig({ telegram: makeChannel("telegram") });
+    config.chatPreferences = {
+      "telegram:100": { outputMode: "messages_only" as unknown as "compact" | "verbose" },
+    };
+    expect(getChatOutputMode(config, "telegram:100")).toBe("compact");
+  });
+
+  it("removes explicit chat preference when resetting to compact", () => {
+    const config = makeConfig({ telegram: makeChannel("telegram") });
+    setChatOutputMode(config, "telegram:100", "verbose");
+    const changed = setChatOutputMode(config, "telegram:100", "compact");
+    expect(changed).toBe(true);
+    expect(getChatOutputMode(config, "telegram:100")).toBe("compact");
+    expect(config.chatPreferences?.["telegram:100"]).toBeUndefined();
+  });
+
+  it("keeps chat preference when resetting to compact if thinking is enabled", () => {
+    const config = makeConfig({ telegram: makeChannel("telegram") });
+    setChatOutputMode(config, "telegram:100", "verbose");
+    setChatThinkingEnabled(config, "telegram:100", true);
+    const changed = setChatOutputMode(config, "telegram:100", "compact");
+    expect(changed).toBe(true);
+    expect(getChatOutputMode(config, "telegram:100")).toBe("compact");
+    expect(getChatThinkingEnabled(config, "telegram:100")).toBe(true);
+    expect(config.chatPreferences?.["telegram:100"]).toBeDefined();
+  });
+});
+
+describe("chat thinking preference", () => {
+  it("defaults to off", () => {
+    const config = makeConfig({ telegram: makeChannel("telegram") });
+    expect(getChatThinkingEnabled(config, "telegram:100")).toBe(false);
+  });
+
+  it("enables and disables thinking per chat", () => {
+    const config = makeConfig({ telegram: makeChannel("telegram") });
+    const enabled = setChatThinkingEnabled(config, "telegram:100", true);
+    expect(enabled).toBe(true);
+    expect(getChatThinkingEnabled(config, "telegram:100")).toBe(true);
+
+    const disabled = setChatThinkingEnabled(config, "telegram:100", false);
+    expect(disabled).toBe(true);
+    expect(getChatThinkingEnabled(config, "telegram:100")).toBe(false);
+  });
+});
+
+describe("chat mute preference", () => {
+  it("defaults to unmuted", () => {
+    const config = makeConfig({ telegram: makeChannel("telegram") });
+    expect(getChatMuted(config, "telegram:100")).toBe(false);
+  });
+
+  it("enables and disables mute per chat", () => {
+    const config = makeConfig({ telegram: makeChannel("telegram") });
+    const enabled = setChatMuted(config, "telegram:100", true);
+    expect(enabled).toBe(true);
+    expect(getChatMuted(config, "telegram:100")).toBe(true);
+
+    const disabled = setChatMuted(config, "telegram:100", false);
+    expect(disabled).toBe(true);
+    expect(getChatMuted(config, "telegram:100")).toBe(false);
+  });
+
+  it("keeps chat preference when unmuting if thinking is enabled", () => {
+    const config = makeConfig({ telegram: makeChannel("telegram") });
+    setChatMuted(config, "telegram:100", true);
+    setChatThinkingEnabled(config, "telegram:100", true);
+    const changed = setChatMuted(config, "telegram:100", false);
+    expect(changed).toBe(true);
+    expect(getChatMuted(config, "telegram:100")).toBe(false);
+    expect(getChatThinkingEnabled(config, "telegram:100")).toBe(true);
+    expect(config.chatPreferences?.["telegram:100"]).toBeDefined();
   });
 });

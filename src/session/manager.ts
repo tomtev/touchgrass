@@ -82,6 +82,30 @@ export interface PendingResumePicker {
   options: PendingResumePickerOption[];
 }
 
+export interface PendingOutputModePicker {
+  pollId: string;
+  messageId: string;
+  chatId: ChannelChatId;
+  ownerUserId: ChannelUserId;
+  options: Array<"compact" | "verbose">;
+}
+
+export type PendingControlCenterNewOption =
+  | { kind: "folder"; folderName: string }
+  | { kind: "create"; folderName: string }
+  | { kind: "command"; tool: "claude" | "codex"; args: string[] }
+  | { kind: "cancel" };
+
+export interface PendingControlCenterNewPicker {
+  pollId: string;
+  messageId: string;
+  chatId: ChannelChatId;
+  ownerUserId: ChannelUserId;
+  stage: "folder" | "command";
+  selectedFolder?: string;
+  options: PendingControlCenterNewOption[];
+}
+
 export class SessionManager {
   private remotes: Map<string, RemoteSession> = new Map();
   // Map: channelChatId → sessionId (attached session)
@@ -96,6 +120,10 @@ export class SessionManager {
   private pendingFilePickers: Map<string, PendingFilePicker> = new Map();
   // Map: pollId → pending resume picker metadata
   private pendingResumePickers: Map<string, PendingResumePicker> = new Map();
+  // Map: pollId → pending output mode picker metadata
+  private pendingOutputModePickers: Map<string, PendingOutputModePicker> = new Map();
+  // Map: pollId → pending camp /start picker metadata
+  private pendingControlCenterNewPickers: Map<string, PendingControlCenterNewPicker> = new Map();
   // Map: sessionId|chatId|userId → file mentions to prepend on next text input
   private pendingFileMentions: Map<string, string[]> = new Map();
 
@@ -201,6 +229,8 @@ export class SessionManager {
     this.groupSubscriptions.clear();
     this.pendingFilePickers.clear();
     this.pendingResumePickers.clear();
+    this.pendingOutputModePickers.clear();
+    this.pendingControlCenterNewPickers.clear();
     this.pendingFileMentions.clear();
   }
 
@@ -364,6 +394,30 @@ export class SessionManager {
     this.pendingResumePickers.delete(pollId);
   }
 
+  registerOutputModePicker(picker: PendingOutputModePicker): void {
+    this.pendingOutputModePickers.set(picker.pollId, picker);
+  }
+
+  getOutputModePickerByPollId(pollId: string): PendingOutputModePicker | undefined {
+    return this.pendingOutputModePickers.get(pollId);
+  }
+
+  removeOutputModePicker(pollId: string): void {
+    this.pendingOutputModePickers.delete(pollId);
+  }
+
+  registerControlCenterNewPicker(picker: PendingControlCenterNewPicker): void {
+    this.pendingControlCenterNewPickers.set(picker.pollId, picker);
+  }
+
+  getControlCenterNewPickerByPollId(pollId: string): PendingControlCenterNewPicker | undefined {
+    return this.pendingControlCenterNewPickers.get(pollId);
+  }
+
+  removeControlCenterNewPicker(pollId: string): void {
+    this.pendingControlCenterNewPickers.delete(pollId);
+  }
+
   setPendingFileMentions(
     sessionId: string,
     chatId: ChannelChatId,
@@ -410,12 +464,13 @@ export class SessionManager {
     return undefined;
   }
 
-  reapStaleRemotes(maxAgeMs: number): RemoteSession[] {
+  reapStaleRemotes(maxAgeMs: number): Array<RemoteSession & { boundChatId: ChannelChatId | null }> {
     const now = Date.now();
-    const reaped: RemoteSession[] = [];
+    const reaped: Array<RemoteSession & { boundChatId: ChannelChatId | null }> = [];
     for (const remote of this.remotes.values()) {
       if (now - remote.lastSeenAt > maxAgeMs) {
-        reaped.push({ ...remote });
+        const boundChatId = this.getBoundChat(remote.id);
+        reaped.push({ ...remote, boundChatId });
         this.removeRemote(remote.id);
       }
     }

@@ -100,24 +100,42 @@ interface ApiResponse<T> {
 
 export class TelegramApi {
   private baseUrl: string;
+  private static readonly DEFAULT_TIMEOUT_MS = 15000;
 
   constructor(private token: string) {
     this.baseUrl = `https://api.telegram.org/bot${token}`;
   }
 
-  async call<T>(method: string, params?: Record<string, unknown>): Promise<T> {
+  async call<T>(
+    method: string,
+    params?: Record<string, unknown>,
+    timeoutMs: number = TelegramApi.DEFAULT_TIMEOUT_MS
+  ): Promise<T> {
     const url = `${this.baseUrl}/${method}`;
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: params ? JSON.stringify(params) : undefined,
-    });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: params ? JSON.stringify(params) : undefined,
+        signal: controller.signal,
+      });
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        throw new Error(`Telegram API ${method} timed out after ${timeoutMs}ms`);
+      }
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
 
     if (res.status === 429) {
       const body = (await res.json()) as ApiResponse<T>;
       const retryAfter = body.parameters?.retry_after ?? 5;
       await Bun.sleep(retryAfter * 1000);
-      return this.call(method, params);
+      return this.call(method, params, timeoutMs);
     }
 
     if (!res.ok) {
@@ -141,7 +159,7 @@ export class TelegramApi {
       offset,
       timeout,
       allowed_updates: ["message", "poll_answer", "callback_query"],
-    });
+    }, Math.max((timeout + 10) * 1000, TelegramApi.DEFAULT_TIMEOUT_MS));
   }
 
   async sendMessage(
@@ -160,9 +178,10 @@ export class TelegramApi {
 
   async setMyCommands(
     commands: Array<{ command: string; description: string }>,
-    scope?: TelegramBotCommandScope
+    scope?: TelegramBotCommandScope,
+    timeoutMs: number = TelegramApi.DEFAULT_TIMEOUT_MS
   ): Promise<true> {
-    return this.call<true>("setMyCommands", { commands, ...(scope ? { scope } : {}) });
+    return this.call<true>("setMyCommands", { commands, ...(scope ? { scope } : {}) }, timeoutMs);
   }
 
   async getFile(fileId: string): Promise<TelegramFile> {
