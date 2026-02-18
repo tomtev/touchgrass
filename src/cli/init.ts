@@ -1,7 +1,7 @@
 import { createInterface, type Interface } from "readline/promises";
 import { TelegramApi } from "../channels/telegram/api";
 import { loadConfig, saveConfig } from "../config/store";
-import { getAllPairedUsers, getTelegramBotToken } from "../config/schema";
+import { getTelegramBotToken, getTelegramChannelEntries, type ChannelConfig, type TgConfig } from "../config/schema";
 import { paths } from "../config/paths";
 import { daemonRequest } from "./client";
 import { ensureDaemon } from "./ensure-daemon";
@@ -9,6 +9,9 @@ import { isDaemonRunning, readPidFile } from "../daemon/lifecycle";
 
 interface SetupCliOptions {
   telegramToken?: string;
+  channelName: string;
+  listChannels: boolean;
+  showChannel: boolean;
   help: boolean;
 }
 
@@ -17,11 +20,14 @@ function printSetupUsage(): void {
 
 Options:
   --telegram <token>    Configure Telegram bot token non-interactively
+  --channel <name>      Configure a named Telegram channel entry (default: telegram)
+  --list-channels       List configured Telegram channel entries
+  --show                Show details for the selected channel (use with --channel)
   -h, --help            Show this help message`);
 }
 
 function parseSetupArgs(argv: string[]): SetupCliOptions {
-  const opts: SetupCliOptions = { help: false };
+  const opts: SetupCliOptions = { help: false, channelName: "telegram", listChannels: false, showChannel: false };
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -46,7 +52,48 @@ function parseSetupArgs(argv: string[]): SetupCliOptions {
       opts.telegramToken = token;
       continue;
     }
+    if (arg === "--channel") {
+      const value = argv[i + 1];
+      if (!value || value.startsWith("--")) {
+        throw new Error("--channel requires a channel name.");
+      }
+      opts.channelName = value.trim();
+      i++;
+      continue;
+    }
+    if (arg.startsWith("--channel=")) {
+      const value = arg.slice("--channel=".length).trim();
+      if (!value) {
+        throw new Error("--channel requires a channel name.");
+      }
+      opts.channelName = value;
+      continue;
+    }
+    if (arg === "--list-channels") {
+      opts.listChannels = true;
+      continue;
+    }
+    if (arg === "--show") {
+      opts.showChannel = true;
+      continue;
+    }
     throw new Error(`Unknown option for tg setup: ${arg}`);
+  }
+
+  const channelName = opts.channelName.trim();
+  if (!/^[a-z][a-z0-9_-]{0,63}$/i.test(channelName)) {
+    throw new Error("Invalid --channel value. Use letters/numbers/_/- and start with a letter.");
+  }
+  opts.channelName = channelName;
+
+  if (opts.listChannels && opts.telegramToken) {
+    throw new Error("--list-channels cannot be used with --telegram.");
+  }
+  if (opts.showChannel && opts.telegramToken) {
+    throw new Error("--show cannot be used with --telegram.");
+  }
+  if (opts.listChannels && opts.showChannel) {
+    throw new Error("Use either --list-channels or --show, not both.");
   }
 
   return opts;
@@ -150,6 +197,77 @@ async function generatePairingCodeFromDaemon(): Promise<string | null> {
   }
 }
 
+function maskToken(token: string): string {
+  const trimmed = token.trim();
+  if (!trimmed) return "(missing)";
+  if (trimmed.length <= 8) return "********";
+  return `${trimmed.slice(0, 4)}...${trimmed.slice(-4)}`;
+}
+
+function sortChannels(entries: Array<[string, ChannelConfig]>): Array<[string, ChannelConfig]> {
+  return [...entries].sort((a, b) => {
+    if (a[0] === "telegram" && b[0] !== "telegram") return -1;
+    if (b[0] === "telegram" && a[0] !== "telegram") return 1;
+    return a[0].localeCompare(b[0]);
+  });
+}
+
+function printChannelList(config: TgConfig): void {
+  const entries = sortChannels(getTelegramChannelEntries(config));
+  if (entries.length === 0) {
+    console.log("No Telegram channels configured yet.");
+    console.log("Run `tg setup --telegram <token>` to add one.");
+    return;
+  }
+
+  console.log("Configured Telegram channels:\n");
+  for (const [name, channel] of entries) {
+    const token = (channel.credentials.botToken as string) || "";
+    const tokenStatus = token ? `token ${maskToken(token)}` : "token missing";
+    const pairedCount = channel.pairedUsers?.length || 0;
+    const linkedCount = channel.linkedGroups?.length || 0;
+    console.log(`- ${name}: ${tokenStatus}, paired users ${pairedCount}, linked chats ${linkedCount}`);
+  }
+
+  console.log("\nInspect one:");
+  console.log("  tg setup --channel <name> --show");
+  console.log("Configure one:");
+  console.log("  tg setup --channel <name>");
+}
+
+function printChannelDetails(config: TgConfig, channelName: string): void {
+  const channel = config.channels[channelName];
+  if (!channel || channel.type !== "telegram") {
+    console.log(`Telegram channel '${channelName}' is not configured.`);
+    console.log(`Run: tg setup --channel ${channelName}`);
+    return;
+  }
+
+  const token = (channel.credentials.botToken as string) || "";
+  const paired = channel.pairedUsers || [];
+  const linked = channel.linkedGroups || [];
+
+  console.log(`Telegram channel: ${channelName}\n`);
+  console.log(`- token: ${token ? maskToken(token) : "(missing)"}`);
+  console.log(`- paired users: ${paired.length}`);
+  console.log(`- linked chats: ${linked.length}`);
+
+  if (paired.length > 0) {
+    console.log("\nPaired users:");
+    for (const user of paired) {
+      const username = user.username ? ` @${user.username}` : "";
+      console.log(`- ${user.userId}${username} (${user.pairedAt})`);
+    }
+  }
+
+  if (linked.length > 0) {
+    console.log("\nLinked chats:");
+    for (const group of linked) {
+      console.log(`- ${group.chatId}${group.title ? ` (${group.title})` : ""}`);
+    }
+  }
+}
+
 export async function runInit(): Promise<void> {
   let options: SetupCliOptions;
   try {
@@ -166,23 +284,33 @@ export async function runInit(): Promise<void> {
     return;
   }
 
+  const config = await loadConfig();
+  for (const key of Object.keys(config.channels)) {
+    if (config.channels[key]?.type !== "telegram") {
+      delete config.channels[key];
+    }
+  }
+
+  if (options.listChannels) {
+    printChannelList(config);
+    return;
+  }
+  if (options.showChannel) {
+    printChannelDetails(config, options.channelName);
+    return;
+  }
+
   const rl = createInterface({ input: process.stdin, output: process.stdout });
 
   try {
     console.log("⛳ touchgrass.sh — Setup (Telegram)\n");
 
-    const config = await loadConfig();
-    const hadPairedUsers = getAllPairedUsers(config).length > 0;
+    const selectedChannelName = options.channelName;
+    const selectedChannel = config.channels[selectedChannelName];
+    const hadPairedUsersInTargetChannel = (selectedChannel?.pairedUsers || []).length > 0;
 
-    // Telegram-only runtime: drop unsupported channel configs.
-    for (const key of Object.keys(config.channels)) {
-      if (key !== "telegram") {
-        delete config.channels[key];
-      }
-    }
-
-    if (!config.channels.telegram) {
-      config.channels.telegram = {
+    if (!config.channels[selectedChannelName]) {
+      config.channels[selectedChannelName] = {
         type: "telegram",
         credentials: {},
         pairedUsers: [],
@@ -190,7 +318,11 @@ export async function runInit(): Promise<void> {
       };
     }
 
-    const existingToken = getTelegramBotToken(config);
+    if (selectedChannelName !== "telegram") {
+      console.log(`Configuring Telegram channel ${selectedChannelName}.\n`);
+    }
+
+    const existingToken = getTelegramBotToken(config, selectedChannelName);
     let token = existingToken;
     let tokenUpdated = false;
 
@@ -241,14 +373,14 @@ export async function runInit(): Promise<void> {
       process.exit(1);
     }
 
-    if (tokenUpdated || !config.channels.telegram.credentials.botToken) {
-      config.channels.telegram.credentials.botToken = token;
+    if (tokenUpdated || !config.channels[selectedChannelName].credentials.botToken) {
+      config.channels[selectedChannelName].credentials.botToken = token;
     }
 
     await saveConfig(config);
     console.log(`\n✅ Config saved to ${paths.config}`);
 
-    const shouldAutoPair = !!options.telegramToken || !hadPairedUsers;
+    const shouldAutoPair = !!options.telegramToken || !hadPairedUsersInTargetChannel;
     let pairingCode: string | null = null;
     let autoPairWarning: string | undefined;
     if (shouldAutoPair) {

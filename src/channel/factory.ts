@@ -5,7 +5,7 @@ import { TelegramChannel } from "../channels/telegram/channel";
 export function createChannel(name: string, config: ChannelConfig): Channel {
   switch (config.type) {
     case "telegram":
-      return new TelegramChannel((config.credentials as { botToken: string }).botToken);
+      return new TelegramChannel((config.credentials as { botToken: string }).botToken, name);
     default:
       throw new Error(`Unsupported channel type: ${config.type}. Only telegram is supported right now.`);
   }

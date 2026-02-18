@@ -39,7 +39,7 @@ export async function handlePair(
     return;
   }
 
-  await addPairedUser(ctx.config, userId, username);
+  await addPairedUser(ctx.config, userId, username, ctx.channelName || "telegram");
   await logger.info("User paired", { userId, username });
   await ctx.channel.send(
     chatId,

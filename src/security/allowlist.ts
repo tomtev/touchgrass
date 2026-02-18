@@ -1,5 +1,6 @@
 import type { TgConfig, PairedUser } from "../config/schema";
 import type { ChannelUserId } from "../channel/types";
+import { parseChannelAddress } from "../channel/id";
 import { saveConfig } from "../config/store";
 
 export function isUserPaired(config: TgConfig, userId: ChannelUserId): boolean {
@@ -12,13 +13,24 @@ export function isUserPaired(config: TgConfig, userId: ChannelUserId): boolean {
 export async function addPairedUser(
   config: TgConfig,
   userId: ChannelUserId,
-  username?: string
+  username?: string,
+  preferredChannelName?: string
 ): Promise<void> {
   if (isUserPaired(config, userId)) return;
 
-  // Determine channel from userId prefix
-  const channelType = userId.split(":")[0];
-  const channelConfig = config.channels[channelType];
+  const parsed = parseChannelAddress(userId);
+  let channelConfig = preferredChannelName ? config.channels[preferredChannelName] : undefined;
+  if (!channelConfig || channelConfig.type !== parsed.type) {
+    if (parsed.channelName) {
+      const scoped = config.channels[parsed.channelName];
+      if (scoped && scoped.type === parsed.type) {
+        channelConfig = scoped;
+      }
+    }
+  }
+  if (!channelConfig) {
+    channelConfig = Object.values(config.channels).find((ch) => ch.type === parsed.type);
+  }
   if (!channelConfig) return;
 
   const user: PairedUser = {

@@ -39,7 +39,7 @@ describe("remote daemon recovery", () => {
     const ok = await recovery.recover("unknown", baseInput());
 
     expect(ok).toBe(true);
-    expect(ensured).toBe(1);
+    expect(ensured).toBe(0);
     expect(calls).toHaveLength(2);
     expect(calls[0]?.path).toBe("/remote/register");
     expect(calls[0]?.method).toBe("POST");
@@ -99,6 +99,34 @@ describe("remote daemon recovery", () => {
     expect(calls.filter((p) => p === "/remote/register")).toHaveLength(2);
   });
 
+  it("throttles unknown-session recovery attempts", async () => {
+    let nowMs = 1_000;
+    let ensured = 0;
+    const calls: string[] = [];
+
+    const recovery = createRemoteRecoveryController({
+      ensureDaemon: async () => {
+        ensured++;
+      },
+      daemonRequest: async (path) => {
+        calls.push(path);
+        return { ok: true };
+      },
+      log: () => {},
+      logErr: () => {},
+      minIntervalMs: 1_500,
+      now: () => nowMs,
+    });
+
+    expect(await recovery.recover("unknown", baseInput({ boundChat: null }))).toBe(true);
+    expect(await recovery.recover("unknown", baseInput({ boundChat: null }))).toBe(false);
+    nowMs = 2_600;
+    expect(await recovery.recover("unknown", baseInput({ boundChat: null }))).toBe(true);
+
+    expect(ensured).toBe(0);
+    expect(calls.filter((p) => p === "/remote/register")).toHaveLength(2);
+  });
+
   it("logs unreachable-daemon warning once until recovery succeeds", async () => {
     let nowMs = 0;
     let requestCount = 0;
@@ -150,9 +178,9 @@ describe("remote daemon recovery", () => {
       now: () => 0,
     });
 
-    const first = recovery.recover("unknown", baseInput({ boundChat: null }));
+    const first = recovery.recover("unreachable", baseInput({ boundChat: null }));
     expect(recovery.isRecovering()).toBe(true);
-    const second = await recovery.recover("unknown", baseInput({ boundChat: null }));
+    const second = await recovery.recover("unreachable", baseInput({ boundChat: null }));
     expect(second).toBe(false);
 
     resolveEnsure();

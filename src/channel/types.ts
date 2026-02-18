@@ -1,6 +1,9 @@
 import type { Formatter } from "./formatter";
+import { getParentChannelChatId, isTopicChatId } from "./id";
 
-// Tagged string IDs: "telegram:123456", "discord:98765"
+// Tagged string IDs:
+// Legacy: "telegram:123456"
+// Scoped: "telegram:bot_a:123456"
 export type ChannelUserId = string;
 export type ChannelChatId = string;
 
@@ -45,6 +48,7 @@ export interface CommandMenuContext {
   isGroup: boolean;
   isLinkedGroup: boolean;
   hasActiveSession: boolean;
+  isCampActive?: boolean;
 }
 
 export type PollAnswerHandler = (answer: {
@@ -85,13 +89,10 @@ export interface Channel {
   getBotName?(): Promise<string>;
 }
 
-/** Check if a ChannelChatId is a forum topic (has 3+ colon-separated parts) */
 export function isTopic(chatId: ChannelChatId): boolean {
-  return chatId.split(":").length >= 3;
+  return isTopicChatId(chatId);
 }
 
-/** Get the parent group chatId from a topic chatId */
 export function getParentChatId(chatId: ChannelChatId): ChannelChatId {
-  const parts = chatId.split(":");
-  return `${parts[0]}:${parts[1]}`;
+  return getParentChannelChatId(chatId);
 }

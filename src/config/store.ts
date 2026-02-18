@@ -56,9 +56,9 @@ export async function loadConfig(): Promise<TgConfig> {
       throw new Error("Invalid config format");
     }
 
-    // Telegram-only runtime: drop unsupported channel entries on load.
+    // Telegram-only runtime: keep all telegram channel entries, drop others.
     for (const [name, ch] of Object.entries(parsed.channels)) {
-      if (name !== "telegram" || ch.type !== "telegram") {
+      if (ch.type !== "telegram") {
         delete parsed.channels[name];
       }
     }

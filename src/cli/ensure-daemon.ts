@@ -2,6 +2,7 @@ import { readPidFile, isDaemonRunning } from "../daemon/lifecycle";
 import { daemonRequest } from "./client";
 import { statSync, readdirSync } from "fs";
 import { join, dirname } from "path";
+import { paths } from "../config/paths";
 
 function hasActiveSessions(status: Record<string, unknown>): boolean {
   const sessions = status.sessions;
@@ -25,8 +26,13 @@ function shouldRestartDaemonForVersion(
   return true;
 }
 
-function parseDaemonPidsFromPs(psOutput: string): number[] {
-  const pids = new Set<number>();
+interface DaemonProcess {
+  pid: number;
+  home?: string;
+}
+
+function parseDaemonPidsFromPs(psOutput: string): DaemonProcess[] {
+  const daemons = new Map<number, DaemonProcess>();
   for (const rawLine of psOutput.split(/\r?\n/)) {
     const line = rawLine.trim();
     if (!line) continue;
@@ -41,12 +47,15 @@ function parseDaemonPidsFromPs(psOutput: string): number[] {
       /(^|[\/\s])tg(?:\.exe)?\s+__daemon__(\s|$)/i.test(command) ||
       /\btouchgrass\b/i.test(command);
     if (!isTouchgrassDaemon) continue;
-    pids.add(pid);
+    const eqMatch = command.match(/--tg-home=([^\s]+)/);
+    const valueMatch = command.match(/--tg-home\s+([^\s]+)/);
+    const home = (eqMatch?.[1] || valueMatch?.[1])?.trim();
+    daemons.set(pid, { pid, home });
   }
-  return Array.from(pids);
+  return Array.from(daemons.values());
 }
 
-function listDaemonPidsFromSystem(): number[] {
+function listDaemonPidsFromSystem(): DaemonProcess[] {
   if (process.platform === "win32") return [];
   try {
     const out = Bun.spawnSync(["ps", "-axo", "pid=,command="], {
@@ -60,15 +69,21 @@ function listDaemonPidsFromSystem(): number[] {
   }
 }
 
-function selectDuplicateDaemonPids(primaryPid: number, daemonPids: number[]): number[] {
+function selectDuplicateDaemonPids(primaryPid: number, daemonPids: DaemonProcess[], homeDir: string): number[] {
   if (!Number.isFinite(primaryPid) || primaryPid <= 0) return [];
-  if (!daemonPids.includes(primaryPid)) return [];
-  return daemonPids.filter((pid) => pid !== primaryPid);
+  const normalizedHome = homeDir.trim();
+  if (!normalizedHome) return [];
+  const primary = daemonPids.find((d) => d.pid === primaryPid);
+  if (!primary) return [];
+  if (!primary.home || primary.home !== normalizedHome) return [];
+  return daemonPids
+    .filter((d) => d.pid !== primaryPid && d.home === normalizedHome)
+    .map((d) => d.pid);
 }
 
 async function reapDuplicateDaemons(primaryPid: number): Promise<void> {
   if (!Number.isFinite(primaryPid) || primaryPid <= 0) return;
-  const duplicatePids = selectDuplicateDaemonPids(primaryPid, listDaemonPidsFromSystem());
+  const duplicatePids = selectDuplicateDaemonPids(primaryPid, listDaemonPidsFromSystem(), paths.dir);
   if (duplicatePids.length === 0) return;
 
   for (const pid of duplicatePids) {
@@ -137,8 +152,8 @@ async function spawnDaemon(): Promise<void> {
   const scriptArg = process.argv[1];
   const isScript = scriptArg && (scriptArg.endsWith(".ts") || scriptArg.endsWith(".js"));
   const args = isScript
-    ? [scriptArg, "__daemon__"]
-    : ["__daemon__"];
+    ? [scriptArg, "__daemon__", "--tg-home", paths.dir]
+    : ["__daemon__", "--tg-home", paths.dir];
 
   const proc = Bun.spawn([execPath, ...args], {
     stdio: ["ignore", "ignore", "ignore"],
@@ -166,8 +181,6 @@ export async function ensureDaemon(): Promise<void> {
   if (pid && isDaemonRunning(pid)) {
     try {
       const res = await daemonRequest("/health");
-      const healthyPid = typeof res.pid === "number" ? res.pid : pid;
-      await reapDuplicateDaemons(healthyPid);
       const daemonStartedAt = res.startedAt as number | undefined;
       const scriptMtime = getCodeMtime();
 
@@ -188,8 +201,10 @@ export async function ensureDaemon(): Promise<void> {
       }
 
       // Daemon is current
+      await reapDuplicateDaemons(pid);
       return;
     } catch {
+      await reapDuplicateDaemons(pid);
       // Keep existing daemon process to avoid spawning duplicate channel pollers.
       return;
     }

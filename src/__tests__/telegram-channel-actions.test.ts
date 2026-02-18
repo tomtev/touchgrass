@@ -75,6 +75,22 @@ describe("TelegramChannel actions", () => {
     expect(sent).toEqual({ pollId: "tg-native-poll", messageId: "456" });
     expect(calls).toEqual(["sendPoll"]);
   });
+
+  it("detects polling conflict errors from Telegram 409 responses", () => {
+    const channel = new TelegramChannel("bot-token");
+    const anyChannel = channel as unknown as { isPollingConflictError: (error: unknown) => boolean };
+
+    expect(
+      anyChannel.isPollingConflictError(
+        new Error(
+          "Telegram API getUpdates failed (409): {\"ok\":false,\"error_code\":409,\"description\":\"Conflict: terminated by other getUpdates request\"}"
+        )
+      )
+    ).toBe(true);
+
+    expect(anyChannel.isPollingConflictError(new Error("Telegram API getUpdates timed out after 40000ms"))).toBe(false);
+    expect(anyChannel.isPollingConflictError(new Error("Something else failed"))).toBe(false);
+  });
 });
 
 describe("Telegram command menus", () => {
@@ -100,13 +116,22 @@ describe("Telegram command menus", () => {
       isGroup: false,
       isLinkedGroup: false,
       hasActiveSession: true,
-    }))).toEqual(["files", "session", "resume", "output_mode", "thinking", "stop", "background_jobs"]);
+    }))).toEqual(["files", "session", "resume", "output_mode", "thinking", "kill", "background_jobs"]);
 
     expect(names(__telegramChannelTestUtils.buildCommandMenu({
       isPaired: true,
       isGroup: true,
       isLinkedGroup: false,
       hasActiveSession: false,
+      isCampActive: false,
+    }))).toEqual(["start", "link"]);
+
+    expect(names(__telegramChannelTestUtils.buildCommandMenu({
+      isPaired: true,
+      isGroup: true,
+      isLinkedGroup: false,
+      hasActiveSession: false,
+      isCampActive: true,
     }))).toEqual(["start", "link"]);
 
     expect(names(__telegramChannelTestUtils.buildCommandMenu({
@@ -114,21 +139,30 @@ describe("Telegram command menus", () => {
       isGroup: true,
       isLinkedGroup: false,
       hasActiveSession: true,
-    }))).toEqual(["stop", "link"]);
+    }))).toEqual(["start", "kill", "link"]);
 
     expect(names(__telegramChannelTestUtils.buildCommandMenu({
       isPaired: true,
       isGroup: true,
       isLinkedGroup: true,
       hasActiveSession: false,
-    }))).toEqual(["start", "unlink"]);
+      isCampActive: false,
+    }))).toEqual(["start", "session", "output_mode", "thinking", "background_jobs", "unlink"]);
+
+    expect(names(__telegramChannelTestUtils.buildCommandMenu({
+      isPaired: true,
+      isGroup: true,
+      isLinkedGroup: true,
+      hasActiveSession: false,
+      isCampActive: true,
+    }))).toEqual(["start", "session", "output_mode", "thinking", "background_jobs", "unlink"]);
 
     expect(names(__telegramChannelTestUtils.buildCommandMenu({
       isPaired: true,
       isGroup: true,
       isLinkedGroup: true,
       hasActiveSession: true,
-    }))).toEqual(["files", "session", "resume", "output_mode", "thinking", "stop", "background_jobs", "unlink"]);
+    }))).toEqual(["start", "files", "session", "resume", "output_mode", "thinking", "kill", "background_jobs", "unlink"]);
   });
 
   it("syncs chat-member command menu and skips duplicate updates", async () => {
@@ -160,6 +194,7 @@ describe("Telegram command menus", () => {
       isGroup: true,
       isLinkedGroup: false,
       hasActiveSession: false,
+      isCampActive: true,
     });
     await channel.syncCommandMenu?.({
       userId: "telegram:7",
@@ -168,6 +203,7 @@ describe("Telegram command menus", () => {
       isGroup: true,
       isLinkedGroup: false,
       hasActiveSession: false,
+      isCampActive: true,
     });
 
     expect(calls).toHaveLength(1);
@@ -188,7 +224,7 @@ describe("Telegram command menus", () => {
     });
 
     expect(calls).toHaveLength(2);
-    expect(calls[1]?.commands).toEqual(["files", "session", "resume", "output_mode", "thinking", "stop", "background_jobs", "unlink"]);
+    expect(calls[1]?.commands).toEqual(["start", "files", "session", "resume", "output_mode", "thinking", "kill", "background_jobs", "unlink"]);
   });
 
   it("uses chat scope for DM command menu sync", async () => {

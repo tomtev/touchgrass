@@ -249,7 +249,65 @@ describe("camp chat commands", () => {
     expect(sent[0]).toContain("/start claude|codex|pi|kimi");
   });
 
-  it("/stop uses chat-bound stop callback", async () => {
+  it("/start in normal mode restarts attached wrapper session", async () => {
+    const sent: string[] = [];
+    const ctx = createCtx(sent, {
+      isControlCenterActive: async () => false,
+    });
+    const remote = ctx.sessionManager.registerRemote(
+      "codex --dangerously-bypass-approvals-and-sandbox",
+      "telegram:-100:4",
+      "telegram:1",
+      "/tmp/demo"
+    );
+    ctx.sessionManager.attach("telegram:-100:4", remote.id);
+
+    await routeMessage(
+      {
+        userId: "telegram:1",
+        chatId: "telegram:-100:4",
+        isGroup: true,
+        text: "/start",
+      },
+      ctx
+    );
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toContain("Start requested");
+    expect(sent[0]).toContain(remote.id);
+  });
+
+  it("/start in normal mode relaunches from daemon fallback when wrapper is gone", async () => {
+    const sent: string[] = [];
+    const starts: Array<Record<string, unknown>> = [];
+    const ctx = createCtx(sent, {
+      isControlCenterActive: async () => false,
+      startSessionForChat: async (args: Record<string, unknown>) => {
+        starts.push(args);
+        return { ok: true, projectPath: "/tmp/demo" };
+      },
+    });
+
+    await routeMessage(
+      {
+        userId: "telegram:1",
+        chatId: "telegram:-100:4",
+        isGroup: true,
+        text: "/start",
+      },
+      ctx
+    );
+
+    expect(starts).toHaveLength(1);
+    expect(starts[0]).toMatchObject({
+      chatId: "telegram:-100:4",
+      userId: "telegram:1",
+    });
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toContain("Starting");
+  });
+
+  it("/kill uses chat-bound stop callback", async () => {
     const sent: string[] = [];
     const ctx = createCtx(sent, {
       stopSessionForChat: async () => ({ ok: true, sessionId: "r-123abc" }),
@@ -259,17 +317,17 @@ describe("camp chat commands", () => {
       {
         userId: "telegram:1",
         chatId: "telegram:100",
-        text: "/stop",
+        text: "/kill",
       },
       ctx
     );
 
     expect(sent).toHaveLength(1);
-    expect(sent[0]).toContain("Stop requested");
+    expect(sent[0]).toContain("Kill requested");
     expect(sent[0]).toContain("r-123abc");
   });
 
-  it("/stop works without camp callback by using attached session", async () => {
+  it("/kill works without camp callback by using attached session", async () => {
     const sent: string[] = [];
     const ctx = createCtx(sent);
     const remote = ctx.sessionManager.registerRemote(
@@ -283,13 +341,13 @@ describe("camp chat commands", () => {
       {
         userId: "telegram:1",
         chatId: "telegram:100",
-        text: "/stop",
+        text: "/kill",
       },
       ctx
     );
 
     expect(sent).toHaveLength(1);
-    expect(sent[0]).toContain("Stop requested");
+    expect(sent[0]).toContain("Kill requested");
     expect(sent[0]).toContain(remote.id);
   });
 });

@@ -13,10 +13,21 @@ describe("parseRemoteControlAction", () => {
     ).toEqual({ type: "resume", sessionRef: "abc-123" });
   });
 
+  it("accepts start action objects", () => {
+    expect(
+      parseRemoteControlAction({ type: "start" })
+    ).toEqual({ type: "start" });
+    expect(
+      parseRemoteControlAction({ type: "start", tool: "codex", args: ["--dangerously-bypass-approvals-and-sandbox"] })
+    ).toEqual({ type: "start", tool: "codex", args: ["--dangerously-bypass-approvals-and-sandbox"] });
+  });
+
   it("rejects invalid values", () => {
     expect(parseRemoteControlAction("STOP")).toBeNull();
     expect(parseRemoteControlAction("")).toBeNull();
     expect(parseRemoteControlAction({ type: "resume" })).toBeNull();
+    expect(parseRemoteControlAction({ type: "start", tool: "invalid" })).toBeNull();
+    expect(parseRemoteControlAction({ type: "start", args: [1, 2, 3] })).toBeNull();
     expect(parseRemoteControlAction(undefined)).toBeNull();
   });
 });

@@ -40,7 +40,8 @@ export function createRemoteRecoveryController(
   const minIntervalMs = deps.minIntervalMs ?? 1500;
   const nowFn = deps.now || Date.now;
   let recovering = false;
-  let lastRecoveryAttemptAt: number | null = null;
+  let lastUnknownRecoveryAttemptAt: number | null = null;
+  let lastUnreachableRecoveryAttemptAt: number | null = null;
   let daemonUnavailableLogged = false;
 
   return {
@@ -48,14 +49,23 @@ export function createRemoteRecoveryController(
     recover: async (reason: RecoveryReason, input: RemoteRecoveryInput): Promise<boolean> => {
       if (recovering) return false;
       const now = nowFn();
-      if (
-        reason === "unreachable" &&
-        lastRecoveryAttemptAt !== null &&
-        now - lastRecoveryAttemptAt < minIntervalMs
-      ) {
-        return false;
+      if (reason === "unreachable") {
+        if (
+          lastUnreachableRecoveryAttemptAt !== null &&
+          now - lastUnreachableRecoveryAttemptAt < minIntervalMs
+        ) {
+          return false;
+        }
+        lastUnreachableRecoveryAttemptAt = now;
+      } else {
+        if (
+          lastUnknownRecoveryAttemptAt !== null &&
+          now - lastUnknownRecoveryAttemptAt < minIntervalMs
+        ) {
+          return false;
+        }
+        lastUnknownRecoveryAttemptAt = now;
       }
-      lastRecoveryAttemptAt = now;
       recovering = true;
 
       if (reason === "unknown") {
@@ -66,7 +76,9 @@ export function createRemoteRecoveryController(
       }
 
       try {
-        await deps.ensureDaemon();
+        if (reason === "unreachable") {
+          await deps.ensureDaemon();
+        }
         const regRes = await deps.daemonRequest("/remote/register", "POST", {
           command: input.fullCommand,
           chatId: input.chatId,

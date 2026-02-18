@@ -106,6 +106,18 @@ describe("addLinkedGroup", () => {
     expect(result).toBe(true);
     expect(config.channels.telegram.linkedGroups).toHaveLength(1);
   });
+
+  it("adds scoped telegram groups to the matching named channel", () => {
+    const config = makeConfig({
+      telegram: makeChannel("telegram"),
+      ops_bot: makeChannel("telegram"),
+    });
+    const result = addLinkedGroup(config, "telegram:ops_bot:-100", "Ops Group");
+    expect(result).toBe(true);
+    expect(config.channels.telegram.linkedGroups).toHaveLength(0);
+    expect(config.channels.ops_bot.linkedGroups).toHaveLength(1);
+    expect(config.channels.ops_bot.linkedGroups[0].chatId).toBe("telegram:ops_bot:-100");
+  });
 });
 
 describe("removeLinkedGroup", () => {
@@ -155,6 +167,19 @@ describe("isLinkedGroup", () => {
   it("returns false when no channels exist", () => {
     const config = makeConfig();
     expect(isLinkedGroup(config, "telegram:-100")).toBe(false);
+  });
+
+  it("resolves scoped chat IDs against the matching channel", () => {
+    const config = makeConfig({
+      telegram: makeChannel("telegram", [
+        { chatId: "telegram:-100", title: "Default", linkedAt: "2024-01-01" },
+      ]),
+      ops_bot: makeChannel("telegram", [
+        { chatId: "telegram:ops_bot:-100", title: "Ops", linkedAt: "2024-01-01" },
+      ]),
+    });
+    expect(isLinkedGroup(config, "telegram:ops_bot:-100")).toBe(true);
+    expect(isLinkedGroup(config, "telegram:other_bot:-100")).toBe(false);
   });
 });
 

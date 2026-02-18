@@ -1,3 +1,5 @@
+import { parseChannelAddress } from "../channel/id";
+
 export interface ChannelConfig {
   type: string;
   credentials: Record<string, unknown>;
@@ -6,13 +8,13 @@ export interface ChannelConfig {
 }
 
 export interface PairedUser {
-  userId: string; // e.g. "telegram:123456"
+  userId: string; // e.g. "telegram:123456" or "telegram:bot_a:123456"
   username?: string;
   pairedAt: string;
 }
 
 export interface LinkedGroup {
-  chatId: string; // e.g. "telegram:-123456"
+  chatId: string; // e.g. "telegram:-123456" or "telegram:bot_a:-123456:12"
   title?: string;
   linkedAt: string;
 }
@@ -124,11 +126,54 @@ export function setChatMuted(config: TgConfig, chatId: string, enabled: boolean)
   return true;
 }
 
-// Helper to get the bot token from the telegram channel config
-export function getTelegramBotToken(config: TgConfig): string {
-  const tg = config.channels.telegram;
-  if (!tg) return "";
-  return (tg.credentials.botToken as string) || "";
+export function getTelegramChannelEntries(config: TgConfig): Array<[string, ChannelConfig]> {
+  return Object.entries(config.channels).filter(([, ch]) => ch.type === "telegram");
+}
+
+function resolveChannelNameForAddress(
+  config: TgConfig,
+  address: string,
+  preferredChannelName?: string
+): string | undefined {
+  const parsed = parseChannelAddress(address);
+  if (!parsed.type) return undefined;
+
+  if (preferredChannelName) {
+    const preferred = config.channels[preferredChannelName];
+    if (preferred && preferred.type === parsed.type) return preferredChannelName;
+  }
+
+  if (parsed.channelName) {
+    const scoped = config.channels[parsed.channelName];
+    if (scoped && scoped.type === parsed.type) return parsed.channelName;
+  }
+
+  for (const [name, ch] of Object.entries(config.channels)) {
+    if (ch.type === parsed.type) return name;
+  }
+  return undefined;
+}
+
+// Helper to get the bot token from telegram channel config.
+// Without channelName, returns the default `telegram` token when present,
+// otherwise the first configured telegram token.
+export function getTelegramBotToken(config: TgConfig, channelName?: string): string {
+  if (channelName) {
+    const ch = config.channels[channelName];
+    if (!ch || ch.type !== "telegram") return "";
+    return (ch.credentials.botToken as string) || "";
+  }
+
+  const defaultCh = config.channels.telegram;
+  if (defaultCh?.type === "telegram") {
+    return (defaultCh.credentials.botToken as string) || "";
+  }
+
+  for (const [, ch] of getTelegramChannelEntries(config)) {
+    const token = (ch.credentials.botToken as string) || "";
+    if (token) return token;
+  }
+  return "";
 }
 
 // Helper to get all paired users across all channels
@@ -150,8 +195,24 @@ export function getAllLinkedGroups(config: TgConfig): LinkedGroup[] {
 }
 
 // Update a linked group's title if it changed. Returns true if updated.
-export function updateLinkedGroupTitle(config: TgConfig, chatId: string, title: string): boolean {
-  for (const ch of Object.values(config.channels)) {
+export function updateLinkedGroupTitle(
+  config: TgConfig,
+  chatId: string,
+  title: string,
+  preferredChannelName?: string
+): boolean {
+  const channelName = resolveChannelNameForAddress(config, chatId, preferredChannelName);
+  if (channelName) {
+    const scoped = config.channels[channelName];
+    const group = scoped?.linkedGroups?.find((g) => g.chatId === chatId);
+    if (group && group.title !== title) {
+      group.title = title;
+      return true;
+    }
+  }
+
+  for (const [name, ch] of Object.entries(config.channels)) {
+    if (channelName && name === channelName) continue;
     const group = ch.linkedGroups?.find((g) => g.chatId === chatId);
     if (group && group.title !== title) {
       group.title = title;
@@ -162,8 +223,25 @@ export function updateLinkedGroupTitle(config: TgConfig, chatId: string, title: 
 }
 
 // Remove a linked group/topic by chatId. Returns true if removed.
-export function removeLinkedGroup(config: TgConfig, chatId: string): boolean {
-  for (const ch of Object.values(config.channels)) {
+export function removeLinkedGroup(
+  config: TgConfig,
+  chatId: string,
+  preferredChannelName?: string
+): boolean {
+  const channelName = resolveChannelNameForAddress(config, chatId, preferredChannelName);
+  if (channelName) {
+    const scoped = config.channels[channelName];
+    if (scoped?.linkedGroups) {
+      const idx = scoped.linkedGroups.findIndex((g) => g.chatId === chatId);
+      if (idx >= 0) {
+        scoped.linkedGroups.splice(idx, 1);
+        return true;
+      }
+    }
+  }
+
+  for (const [name, ch] of Object.entries(config.channels)) {
+    if (channelName && name === channelName) continue;
     if (!ch.linkedGroups) continue;
     const idx = ch.linkedGroups.findIndex((g) => g.chatId === chatId);
     if (idx >= 0) {
@@ -175,30 +253,46 @@ export function removeLinkedGroup(config: TgConfig, chatId: string): boolean {
 }
 
 // Add a linked group to the first channel that matches the type
-export function addLinkedGroup(config: TgConfig, chatId: string, title?: string): boolean {
-  // Determine channel type from chatId prefix
-  const channelType = chatId.split(":")[0]; // "telegram"
-  for (const ch of Object.values(config.channels)) {
-    if (ch.type === channelType) {
-      if (!ch.linkedGroups) ch.linkedGroups = [];
-      // Don't add duplicates
-      if (ch.linkedGroups.some((g) => g.chatId === chatId)) return false;
-      ch.linkedGroups.push({ chatId, title, linkedAt: new Date().toISOString() });
-      return true;
-    }
-  }
-  return false;
+export function addLinkedGroup(
+  config: TgConfig,
+  chatId: string,
+  title?: string,
+  preferredChannelName?: string
+): boolean {
+  const channelName = resolveChannelNameForAddress(config, chatId, preferredChannelName);
+  if (!channelName) return false;
+  const ch = config.channels[channelName];
+  if (!ch) return false;
+  if (!ch.linkedGroups) ch.linkedGroups = [];
+  if (ch.linkedGroups.some((g) => g.chatId === chatId)) return false;
+  ch.linkedGroups.push({ chatId, title, linkedAt: new Date().toISOString() });
+  return true;
 }
 
-export function isLinkedGroup(config: TgConfig, chatId: string): boolean {
-  for (const ch of Object.values(config.channels)) {
+export function isLinkedGroup(config: TgConfig, chatId: string, preferredChannelName?: string): boolean {
+  const channelName = resolveChannelNameForAddress(config, chatId, preferredChannelName);
+  if (channelName) {
+    const scoped = config.channels[channelName];
+    if (scoped?.linkedGroups?.some((g) => g.chatId === chatId)) return true;
+  }
+
+  for (const [name, ch] of Object.entries(config.channels)) {
+    if (channelName && name === channelName) continue;
     if (ch.linkedGroups?.some((g) => g.chatId === chatId)) return true;
   }
   return false;
 }
 
-export function getLinkedGroupTitle(config: TgConfig, chatId: string): string | undefined {
-  for (const ch of Object.values(config.channels)) {
+export function getLinkedGroupTitle(config: TgConfig, chatId: string, preferredChannelName?: string): string | undefined {
+  const channelName = resolveChannelNameForAddress(config, chatId, preferredChannelName);
+  if (channelName) {
+    const scoped = config.channels[channelName];
+    const group = scoped?.linkedGroups?.find((g) => g.chatId === chatId);
+    if (group) return group.title;
+  }
+
+  for (const [name, ch] of Object.entries(config.channels)) {
+    if (channelName && name === channelName) continue;
     const group = ch.linkedGroups?.find((g) => g.chatId === chatId);
     if (group) return group.title;
   }

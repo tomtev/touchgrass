@@ -223,6 +223,21 @@ export class SessionManager {
     return true;
   }
 
+  requestRemoteStart(
+    id: string,
+    tool?: "claude" | "codex" | "pi" | "kimi",
+    args?: string[]
+  ): boolean {
+    const remote = this.remotes.get(id);
+    if (!remote) return false;
+    remote.controlAction = mergeRemoteControlAction(remote.controlAction, {
+      type: "start",
+      ...(tool ? { tool } : {}),
+      ...(args && args.length > 0 ? { args } : {}),
+    });
+    return true;
+  }
+
   killAll(): void {
     this.remotes.clear();
     this.attachments.clear();

@@ -68,7 +68,7 @@ export async function handleStdinInput(
 
   // 3. Multiple sessions or group without connection — no session bound
   if (remotes.length > 0) {
-    if (msg.isGroup && !isLinkedGroup(ctx.config, chatId)) {
+    if (msg.isGroup && !isLinkedGroup(ctx.config, chatId, ctx.channelName || "telegram")) {
       await ctx.channel.send(chatId, `This group is not linked. Run ${fmt.code("/link")} first.`);
     } else {
       await ctx.channel.send(

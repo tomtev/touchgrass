@@ -1,6 +1,6 @@
 import { paths, useTcpControlServer } from "../config/paths";
 import { loadConfig } from "../config/store";
-import { getAllPairedUsers } from "../config/schema";
+import { getAllPairedUsers, getTelegramChannelEntries } from "../config/schema";
 import { readPidFile, isDaemonRunning } from "../daemon/lifecycle";
 import { daemonRequest } from "./client";
 import { TelegramApi } from "../channels/telegram/api";
@@ -29,33 +29,35 @@ export async function runDoctor(): Promise<void> {
     }
 
     // 2. Telegram credentials validity
-    const telegram = config.channels.telegram;
-    if (!telegram || telegram.type !== "telegram") {
+    const telegramChannels = getTelegramChannelEntries(config);
+    if (telegramChannels.length === 0) {
       checks.push({
         name: "Channel telegram",
         status: "warn",
         detail: "Telegram channel not configured. Run `tg setup`",
       });
     } else {
-      const botToken = telegram.credentials.botToken as string | undefined;
-      if (!botToken) {
-        checks.push({
-          name: "Channel telegram",
-          status: "warn",
-          detail: "Telegram bot token missing",
-        });
-      } else {
+      for (const [name, channel] of telegramChannels) {
+        const botToken = channel.credentials.botToken as string | undefined;
+        if (!botToken) {
+          checks.push({
+            name: `Channel ${name}`,
+            status: "warn",
+            detail: "Telegram bot token missing",
+          });
+          continue;
+        }
         try {
           const api = new TelegramApi(botToken);
           const me = await api.getMe();
           checks.push({
-            name: "Channel telegram",
+            name: `Channel ${name}`,
             status: "ok",
             detail: `Telegram @${me.username || me.first_name || "bot"}`,
           });
         } catch {
           checks.push({
-            name: "Channel telegram",
+            name: `Channel ${name}`,
             status: "fail",
             detail: "Could not reach Telegram API",
           });
@@ -64,7 +66,7 @@ export async function runDoctor(): Promise<void> {
     }
 
     const unsupported = Object.entries(config.channels)
-      .filter(([name, ch]) => name !== "telegram" || ch.type !== "telegram")
+      .filter(([, ch]) => ch.type !== "telegram")
       .map(([name, ch]) => `${name}:${ch.type}`);
     if (unsupported.length > 0) {
       checks.push({

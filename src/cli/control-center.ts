@@ -42,9 +42,9 @@ function buildStartNotice(rootDir: string): string {
     "",
     "How to use:",
     "/start claude|codex|pi|kimi [project-name]",
-    "/stop",
+    "/kill",
     "",
-    "Only the owner can start/stop Camp sessions.",
+    "Only the owner can start/kill Camp sessions.",
   ].join("\n");
 }
 

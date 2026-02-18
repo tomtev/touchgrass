@@ -50,7 +50,7 @@ Telegram chat shorthands:
 - Purpose: long-lived Telegram control plane for launching project sessions from chat.
 - Chat controls:
   - `/start claude|codex|pi|kimi [project-name]` starts a session in the camp root.
-  - `/stop` stops the current chat-bound session.
+  - `/kill` kills the current chat-bound session process.
 - Ownership:
   - only the paired owner account can create new camp sessions.
   - if camp is not active, `/start` returns a `tg camp` hint.

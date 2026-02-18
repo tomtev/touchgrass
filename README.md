@@ -32,6 +32,11 @@ irm https://raw.githubusercontent.com/tomtev/touchgrass/main/install.ps1 | iex
 tg setup
 # or non-interactive:
 tg setup --telegram <bot-token>
+# configure an additional named Telegram bot entry:
+tg setup --telegram <bot-token> --channel <name>
+# inspect configured bot entries:
+tg setup --list-channels
+tg setup --channel <name> --show
 ```
 
 3. Pair from your chat (DM bot):
@@ -74,6 +79,15 @@ Two processes cooperate:
 - routes input into the right session
 - auto-stops after 30s idle
 
+### Channels vs sessions
+
+- **Configured channel entry (bot config)**: a Telegram bot definition in `config.json` (token, paired users, linked chats).  
+  Use: `tg setup --list-channels`, `tg setup --channel <name> --show`, `tg setup --channel <name>`.
+- **Runtime chat channel**: a concrete DM/group/topic the daemon can route to right now.  
+  Use: `tg channels`.
+- **Session**: a running bridged CLI process (`tg claude`, `tg codex`, `tg pi`, `tg kimi`) with an `r-...` id.  
+  Use: `tg ls`, `tg stop <id>`, `tg kill <id>`, `tg send <id> ...`.
+
 ### Telegram commands
 
 - `/files` (or `tg files <query>`) opens inline picker buttons in the same chat, lets you select multiple `@path` entries, and queues them for your next message.
@@ -114,6 +128,9 @@ tg logs
 
 - `tg setup`: interactive setup for channel credentials (Telegram token, etc.).
 - `tg setup --telegram <token>`: non-interactive setup; validates token, saves config, and prints a pairing code.
+- `tg setup --telegram <token> --channel <name>`: add/update a named Telegram bot config entry.
+- `tg setup --list-channels`: show configured Telegram channel entries.
+- `tg setup --channel <name> --show`: show details for one Telegram channel entry.
 - `tg init`: alias for `tg setup`.
 - `tg pair`: generate a one-time code to pair your Telegram account in bot DM.
 - `tg camp [--root /path]`: start the Camp control plane that can spawn/stop sessions from Telegram.
@@ -133,7 +150,7 @@ tg kill <id>
 ```
 
 - `tg ls`: list active bridge sessions.
-- `tg channels`: list configured channels and daemon health.
+- `tg channels`: list runtime chat channels (DM/groups/topics) available via the daemon.
 - `tg links`: list chat link mappings.
 - `tg peek <id> [count]`: show latest output chunks for a session.
 - `tg stop <id>`: request graceful stop for a session.
@@ -161,9 +178,26 @@ tg camp --root /path/to/projects
 - Run Camp once in your projects root (or pass `--root`).
 - In unlinked Telegram group/topic chats where the bot is present, use `/start` to launch a session flow.
 - `/start` lets you choose tool (`claude`, `codex`, `pi`, `kimi`) and project target under the configured root.
-- `/stop` stops the current chat-bound session.
-- Camp actions are owner-gated: only the paired owner can create/stop sessions.
+- `/kill` kills the current chat-bound session process (wrapper stays available for `/start`).
+- Camp actions are owner-gated: only the paired owner can create/kill sessions.
 - Under the hood, Camp launches normal touchgrass session commands with explicit channel binding, so behavior is identical to manual `tg claude` / `tg codex` runs.
+
+## Multiple bots on one server
+
+You can run multiple Camp instances on the same host safely.
+
+- Use a separate `TOUCHGRASS_HOME` per bot/camp instance.
+- Use a separate shell environment (or Linux user/container) per instance so CLI auth and files stay isolated.
+
+Example:
+
+```bash
+TOUCHGRASS_HOME=/srv/tg/bot-a/.touchgrass tg setup --telegram <token-a> --channel bot_a
+TOUCHGRASS_HOME=/srv/tg/bot-a/.touchgrass tg camp --root /srv/tg/bot-a/projects
+
+TOUCHGRASS_HOME=/srv/tg/bot-b/.touchgrass tg setup --telegram <token-b> --channel bot_b
+TOUCHGRASS_HOME=/srv/tg/bot-b/.touchgrass tg camp --root /srv/tg/bot-b/projects
+```
 
 ## FAQ
 

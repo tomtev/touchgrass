@@ -1,5 +1,6 @@
 import { loadConfig, saveConfig } from "../config/store";
 import { getAllLinkedGroups, removeLinkedGroup } from "../config/schema";
+import { isTopic } from "../channel/types";
 
 export async function runLinks(): Promise<void> {
   const config = await loadConfig();
@@ -13,8 +14,7 @@ export async function runLinks(): Promise<void> {
   console.log("\nLinked groups and topics:\n");
   for (let i = 0; i < groups.length; i++) {
     const g = groups[i];
-    const isTopic = g.chatId.split(":").length >= 3;
-    const type = isTopic ? "Topic" : "Group";
+    const type = isTopic(g.chatId) ? "Topic" : "Group";
     console.log(`  ${i + 1}. ${g.title || g.chatId}  (${type})  [${g.chatId}]`);
   }
 

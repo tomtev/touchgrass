@@ -7,6 +7,7 @@ import { ensureDaemon } from "./ensure-daemon";
 import { createRemoteRecoveryController } from "./remote-recovery";
 import { stripAnsiReadable } from "../utils/ansi";
 import { paths, ensureDirs } from "../config/paths";
+import { getChannelName, getChannelType } from "../channel/id";
 import { watch, readdirSync, statSync, readFileSync, type FSWatcher } from "fs";
 import { chmod, open, writeFile, unlink } from "fs/promises";
 import { homedir, platform } from "os";
@@ -72,9 +73,17 @@ function listOwnerChannels(config: TgConfig): OwnerChannelResolution[] {
   return candidates;
 }
 
-function resolveOwnerChannel(config: TgConfig, preferredChannelType?: string): OwnerChannelResolution | null {
+function resolveOwnerChannel(
+  config: TgConfig,
+  preferredChannelType?: string,
+  preferredChannelName?: string
+): OwnerChannelResolution | null {
   const candidates = listOwnerChannels(config);
 
+  if (preferredChannelName) {
+    const preferred = candidates.find((c) => c.channelName === preferredChannelName);
+    if (preferred) return preferred;
+  }
   if (preferredChannelType) {
     const preferred = candidates.find((c) => c.channelConfig.type === preferredChannelType);
     if (preferred) return preferred;
@@ -1498,13 +1507,14 @@ function buildResumeCommandArgs(
 
 export async function runRun(): Promise<void> {
   // Determine command: `tg claude [args]`, `tg codex [args]`, `tg pi [args]`, or `tg kimi [args]`
-  const cmdName = process.argv[2];
+  const initialCmdName = process.argv[2] as SupportedCommand | undefined;
   let cmdArgs = process.argv.slice(3);
 
-  if (!cmdName || !SUPPORTED_COMMANDS[cmdName]) {
+  if (!initialCmdName || !SUPPORTED_COMMANDS[initialCmdName]) {
     console.error(`Usage: tg claude [args...], tg codex [args...], tg pi [args...], or tg kimi [args...]`);
     process.exit(1);
   }
+  let currentTool: SupportedCommand = initialCmdName;
 
   let channelFlag: string | null = null;
   const channelIdx = cmdArgs.indexOf("--channel");
@@ -1517,13 +1527,15 @@ export async function runRun(): Promise<void> {
     cmdArgs = [...cmdArgs.slice(0, channelIdx), ...cmdArgs.slice(channelIdx + 2)];
   }
   const preferredChannelTypeFromFlag = channelFlag && channelFlag.includes(":")
-    ? channelFlag.split(":")[0]
+    ? getChannelType(channelFlag)
+    : undefined;
+  const preferredChannelNameFromFlag = channelFlag && channelFlag.includes(":")
+    ? getChannelName(channelFlag)
     : undefined;
 
-  cmdArgs = applyTouchgrassAutoContextArgs(cmdName as SupportedCommand, cmdArgs);
+  cmdArgs = applyTouchgrassAutoContextArgs(currentTool, cmdArgs);
 
-  const executable = SUPPORTED_COMMANDS[cmdName][0];
-  let fullCommand = [executable, ...cmdArgs].join(" ");
+  let fullCommand = [SUPPORTED_COMMANDS[currentTool][0], ...cmdArgs].join(" ");
   const displayName = process.cwd().split("/").pop() || "";
 
   // Try to register with daemon as a remote session
@@ -1543,6 +1555,7 @@ export async function runRun(): Promise<void> {
     }
     const ownerCandidates = listOwnerChannels(config);
     let preferredOwnerType = preferredChannelTypeFromFlag;
+    let preferredOwnerName = preferredChannelNameFromFlag;
     let selectedChatForBind: ChannelChatId | null = null;
     let selectedLabelForPrint: string | null = null;
     let selectedFromFlag = false;
@@ -1557,13 +1570,14 @@ export async function runRun(): Promise<void> {
         process.exit(1);
       }
       const pickerOptions = buildChannelPickerOptions(daemonChannels);
-      const defaultOwner = resolveOwnerChannel(config, preferredOwnerType) || ownerCandidates[0];
+      const defaultOwner = resolveOwnerChannel(config, preferredOwnerType, preferredOwnerName) || ownerCandidates[0];
 
       if (channelFlag) {
         const resolvedChatId = resolveChannelFlag(channelFlag, pickerOptions, defaultOwner.ownerChatId);
         if (resolvedChatId) {
           selectedChatForBind = resolvedChatId as ChannelChatId;
-          preferredOwnerType = resolvedChatId.split(":")[0];
+          preferredOwnerType = getChannelType(resolvedChatId);
+          preferredOwnerName = getChannelName(resolvedChatId);
           const chosen = pickerOptions.find((o) => o.chatId === resolvedChatId);
           if (chosen) {
             const typeLabel = chosen.type === "dm" ? "DM" : chosen.type === "group" ? "Group" : chosen.type === "topic" ? "Topic" : "";
@@ -1589,7 +1603,8 @@ export async function runRun(): Promise<void> {
           const chosen = pickerOptions[choice];
           if (chosen.chatId) {
             selectedChatForBind = chosen.chatId as ChannelChatId;
-            preferredOwnerType = chosen.chatId.split(":")[0];
+            preferredOwnerType = getChannelType(chosen.chatId);
+            preferredOwnerName = getChannelName(chosen.chatId);
             const typeLabel = chosen.type === "dm" ? "DM" : chosen.type === "group" ? "Group" : chosen.type === "topic" ? "Topic" : "";
             selectedLabelForPrint = `${chosen.title} (${typeLabel})`;
           } else {
@@ -1604,9 +1619,7 @@ export async function runRun(): Promise<void> {
       process.exit(1);
     }
 
-    let owner = preferredOwnerType
-      ? ownerCandidates.find((c) => c.channelConfig.type === preferredOwnerType) || null
-      : null;
+    let owner = resolveOwnerChannel(config, preferredOwnerType, preferredOwnerName);
     if (!owner) owner = ownerCandidates[0];
     if (!owner) {
       console.error("No usable paired channel owner found.");
@@ -1618,7 +1631,7 @@ export async function runRun(): Promise<void> {
     ownerUserId = owner.ownerUserId;
     chatId = owner.ownerChatId;
 
-    if (selectedChatForBind && selectedChatForBind.split(":")[0] !== owner.channelConfig.type) {
+    if (selectedChatForBind && getChannelType(selectedChatForBind) !== owner.channelConfig.type) {
       const msg = `Selected channel ${selectedChatForBind} does not match configured owner channel type (${owner.channelConfig.type}).`;
       if (selectedFromFlag) {
         console.error(msg);
@@ -1713,6 +1726,8 @@ export async function runRun(): Promise<void> {
 
   let finalExitCode: number | null = null;
   while (true) {
+    const cmdName = currentTool;
+    const executable = SUPPORTED_COMMANDS[cmdName][0];
     fullCommand = [executable, ...cmdArgs].join(" ");
     if (manifest) {
       manifest.command = fullCommand;
@@ -1870,6 +1885,11 @@ export async function runRun(): Promise<void> {
       : null;
 
     let requestedResumeSessionRef: string | null = null;
+    let requestedStart:
+      | { tool?: SupportedCommand; args?: string[] }
+      | null = null;
+    let stayAliveAfterKill = false;
+    let forceKillTimer: ReturnType<typeof setTimeout> | null = null;
     const proc = Bun.spawn([executable, ...cmdArgs], {
       terminal: {
         cols: process.stdout.columns || 80,
@@ -2191,13 +2211,15 @@ export async function runRun(): Promise<void> {
     // Poll daemon for remote input if registered
     let pollTimer: ReturnType<typeof setInterval> | null = null;
     let processingInput = false;
-    if (remoteId && chatId && ownerUserId) {
-      const recovery = createRemoteRecoveryController({
-        ensureDaemon,
-        daemonRequest,
-        log: () => {},
-        logErr: () => {},
-      });
+    const recovery = remoteId && chatId && ownerUserId
+      ? createRemoteRecoveryController({
+          ensureDaemon,
+          daemonRequest,
+          log: () => {},
+          logErr: () => {},
+        })
+      : null;
+    if (remoteId && chatId && ownerUserId && recovery) {
 
       pollTimer = setInterval(async () => {
         if (processingInput || recovery.isRecovering()) return;
@@ -2224,13 +2246,37 @@ export async function runRun(): Promise<void> {
             return;
           }
           if (remoteControl === "kill") {
+            stayAliveAfterKill = true;
+            // Graceful first: signal interrupt to the foreground PTY process.
             try {
-              proc.kill(9);
+              terminal.write(Buffer.from("\x03"));
+            } catch {}
+            try {
+              proc.kill(2);
+            } catch {}
+            // If it ignores interrupt, force-kill shortly after.
+            forceKillTimer = setTimeout(() => {
+              try {
+                proc.kill(9);
+              } catch {}
+            }, 1500);
+            try {
+              forceKillTimer.unref?.();
             } catch {}
             return;
           }
           if (remoteControl && typeof remoteControl === "object" && remoteControl.type === "resume") {
             requestedResumeSessionRef = remoteControl.sessionRef;
+            try {
+              proc.kill(9);
+            } catch {}
+            return;
+          }
+          if (remoteControl && typeof remoteControl === "object" && remoteControl.type === "start") {
+            requestedStart = {
+              ...(remoteControl.tool ? { tool: remoteControl.tool as SupportedCommand } : {}),
+              ...(remoteControl.args && remoteControl.args.length > 0 ? { args: remoteControl.args } : {}),
+            };
             try {
               proc.kill(9);
             } catch {}
@@ -2327,12 +2373,119 @@ export async function runRun(): Promise<void> {
     if (pollTimer) clearInterval(pollTimer);
     if (groupPollTimer) clearInterval(groupPollTimer);
     if (dirScanTimer) clearInterval(dirScanTimer);
+    if (forceKillTimer) clearTimeout(forceKillTimer);
     if (watcherRef.current) watcherRef.current.close();
     if (watcherRef.dir) watcherRef.dir.close();
 
     if (requestedResumeSessionRef) {
       cmdArgs = buildResumeCommandArgs(cmdName as "claude" | "codex" | "pi" | "kimi", cmdArgs, requestedResumeSessionRef);
       continue;
+    }
+
+    if (requestedStart !== null) {
+      const startAction = requestedStart as { tool?: SupportedCommand; args?: string[] };
+      if (startAction.tool) {
+        currentTool = startAction.tool;
+      }
+      if (startAction.args && startAction.args.length > 0) {
+        cmdArgs = applyTouchgrassAutoContextArgs(currentTool, startAction.args);
+      } else if (startAction.tool && startAction.tool !== cmdName) {
+        // Switching tools without explicit args should start with that tool's defaults.
+        cmdArgs = applyTouchgrassAutoContextArgs(currentTool, []);
+      }
+      continue;
+    }
+
+    if (stayAliveAfterKill && remoteId && chatId && ownerUserId) {
+      if (channel) {
+        const { fmt } = channel;
+        await channel
+          .send(
+            chatId,
+            `${fmt.escape("⛳️")} ${fmt.bold(fmt.escape(fullCommand.split(/\s+/)[0] || "session"))} ${fmt.escape(
+              "is stopped. Use /start to launch again."
+            )}`
+          )
+          .catch(() => {});
+      }
+
+      let warnedIdleInput = false;
+      while (true) {
+        try {
+          const res = await daemonRequest(`/remote/${remoteId}/input`);
+          if (res.unknown) {
+            if (recovery) {
+              await recovery.recover("unknown", {
+                remoteId,
+                fullCommand,
+                chatId,
+                ownerUserId,
+                cwd: process.cwd(),
+                subscribedGroups: Array.from(subscribedGroups),
+                boundChat,
+              });
+            }
+            await Bun.sleep(200);
+            continue;
+          }
+
+          const remoteControl = parseRemoteControlAction((res as { controlAction?: unknown }).controlAction);
+          if (remoteControl && typeof remoteControl === "object" && remoteControl.type === "resume") {
+            requestedResumeSessionRef = remoteControl.sessionRef;
+            break;
+          }
+          if (remoteControl && typeof remoteControl === "object" && remoteControl.type === "start") {
+            requestedStart = {
+              ...(remoteControl.tool ? { tool: remoteControl.tool as SupportedCommand } : {}),
+              ...(remoteControl.args && remoteControl.args.length > 0 ? { args: remoteControl.args } : {}),
+            };
+            break;
+          }
+          if (remoteControl === "stop" || remoteControl === "kill") {
+            break;
+          }
+
+          const lines = (res as { lines?: string[] }).lines;
+          if (lines && lines.length > 0 && channel && chatId && !warnedIdleInput) {
+            warnedIdleInput = true;
+            const { fmt } = channel;
+            await channel
+              .send(chatId, `${fmt.escape("⛳️")} ${fmt.escape("No running tool in this wrapper. Use /start first.")}`)
+              .catch(() => {});
+          }
+        } catch {
+          if (recovery) {
+            await recovery.recover("unreachable", {
+              remoteId,
+              fullCommand,
+              chatId,
+              ownerUserId,
+              cwd: process.cwd(),
+              subscribedGroups: Array.from(subscribedGroups),
+              boundChat,
+            });
+          }
+        }
+        await Bun.sleep(200);
+      }
+
+      if (requestedResumeSessionRef) {
+        cmdArgs = buildResumeCommandArgs(cmdName as "claude" | "codex" | "pi" | "kimi", cmdArgs, requestedResumeSessionRef);
+        continue;
+      }
+
+      if (requestedStart !== null) {
+        const startAction = requestedStart as { tool?: SupportedCommand; args?: string[] };
+        if (startAction.tool) {
+          currentTool = startAction.tool;
+        }
+        if (startAction.args && startAction.args.length > 0) {
+          cmdArgs = applyTouchgrassAutoContextArgs(currentTool, startAction.args);
+        } else if (startAction.tool && startAction.tool !== cmdName) {
+          cmdArgs = applyTouchgrassAutoContextArgs(currentTool, []);
+        }
+        continue;
+      }
     }
 
     if (remoteId) {

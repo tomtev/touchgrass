@@ -15,24 +15,36 @@ import type {
   StatusBoardResult,
   StatusBoardOptions,
 } from "../../channel/types";
+import { getRootChatIdNumber, parseChannelAddress } from "../../channel/id";
 import { TelegramFormatter } from "./telegram-formatter";
 import { escapeHtml, chunkText } from "./formatter";
 import { stripAnsi } from "../../utils/ansi";
 import { logger } from "../../daemon/logger";
 import { paths, ensureDirs } from "../../config/paths";
 import { join } from "path";
-import { chmod, readdir, stat, unlink } from "fs/promises";
+import { chmod, open, readFile, readdir, stat, unlink } from "fs/promises";
+import { createHash } from "crypto";
+import type { FileHandle } from "fs/promises";
 
-function toChatId(num: number, threadId?: number): ChannelChatId {
-  if (threadId && threadId !== 1) return `telegram:${num}:${threadId}`;
-  return `telegram:${num}`;
+function toChatId(channelName: string, num: number, threadId?: number): ChannelChatId {
+  if (channelName === "telegram") {
+    if (threadId && threadId !== 1) return `telegram:${num}:${threadId}`;
+    return `telegram:${num}`;
+  }
+  if (threadId && threadId !== 1) return `telegram:${channelName}:${num}:${threadId}`;
+  return `telegram:${channelName}:${num}`;
+}
+
+function toUserId(channelName: string, userId: number): string {
+  if (channelName === "telegram") return `telegram:${userId}`;
+  return `telegram:${channelName}:${userId}`;
 }
 
 function fromChatId(chatId: ChannelChatId): { chatId: number; threadId?: number } {
-  const parts = chatId.split(":");
-  const numChatId = Number(parts[1]);
-  if (parts.length >= 3) {
-    return { chatId: numChatId, threadId: Number(parts[2]) };
+  const parsed = parseChannelAddress(chatId);
+  const numChatId = Number(parsed.idPart);
+  if (parsed.threadPart !== undefined) {
+    return { chatId: numChatId, threadId: Number(parsed.threadPart) };
   }
   return { chatId: numChatId };
 }
@@ -65,8 +77,8 @@ const TELEGRAM_COMMANDS = {
   resume: { command: "resume", description: "Pick and resume a previous session" },
   outputMode: { command: "output_mode", description: "Set output mode simple/verbose" },
   thinking: { command: "thinking", description: "Toggle thinking on/off" },
-  newSession: { command: "start", description: "Start a new Camp session 🏕️" },
-  stopSession: { command: "stop", description: "Stop current chat session" },
+  newSession: { command: "start", description: "Start session (Camp or wrapper)" },
+  killSession: { command: "kill", description: "Kill current chat session" },
   backgroundJobs: { command: "background_jobs", description: "List running background jobs" },
   link: { command: "link", description: "Add this chat as a channel" },
   unlink: { command: "unlink", description: "Remove this chat as a channel" },
@@ -74,24 +86,22 @@ const TELEGRAM_COMMANDS = {
 } as const satisfies Record<string, TelegramBotCommand>;
 
 function parseNumericChannelId(id: string): number | null {
-  const raw = id.split(":")[1];
-  if (!raw) return null;
-  const value = Number(raw);
-  return Number.isFinite(value) ? value : null;
+  return getRootChatIdNumber(id);
 }
 
 function buildCommandMenu(
-  ctx: Pick<CommandMenuContext, "isPaired" | "isGroup" | "isLinkedGroup" | "hasActiveSession">
+  ctx: Pick<CommandMenuContext, "isPaired" | "isGroup" | "isLinkedGroup" | "hasActiveSession" | "isCampActive">
 ): TelegramBotCommand[] {
+  const campActive = ctx.isCampActive === true;
   if (!ctx.isPaired) return [TELEGRAM_COMMANDS.pair];
 
-  // Unlinked groups/topics should only show the Camp entrypoint and linking action.
+  // Unlinked groups/topics should always expose linking.
+  // Camp start only appears when Camp is active.
   if (ctx.isGroup && !ctx.isLinkedGroup) {
     const commands: TelegramBotCommand[] = [];
+    commands.push(TELEGRAM_COMMANDS.newSession);
     if (ctx.hasActiveSession) {
-      commands.push(TELEGRAM_COMMANDS.stopSession);
-    } else {
-      commands.push(TELEGRAM_COMMANDS.newSession);
+      commands.push(TELEGRAM_COMMANDS.killSession);
     }
     commands.push(TELEGRAM_COMMANDS.link);
     return commands;
@@ -100,15 +110,23 @@ function buildCommandMenu(
   const commands: TelegramBotCommand[] = [];
   if (ctx.isGroup && !ctx.hasActiveSession) {
     commands.push(TELEGRAM_COMMANDS.newSession);
+    // Keep useful chat controls visible even when idle.
+    commands.push(
+      TELEGRAM_COMMANDS.session,
+      TELEGRAM_COMMANDS.outputMode,
+      TELEGRAM_COMMANDS.thinking,
+      TELEGRAM_COMMANDS.backgroundJobs
+    );
   }
   if (ctx.hasActiveSession) {
     commands.push(
+      ...(ctx.isGroup ? [TELEGRAM_COMMANDS.newSession] : []),
       TELEGRAM_COMMANDS.files,
       TELEGRAM_COMMANDS.session,
       TELEGRAM_COMMANDS.resume,
       TELEGRAM_COMMANDS.outputMode,
       TELEGRAM_COMMANDS.thinking,
-      TELEGRAM_COMMANDS.stopSession,
+      TELEGRAM_COMMANDS.killSession,
       TELEGRAM_COMMANDS.backgroundJobs
     );
   }
@@ -125,6 +143,7 @@ export const __telegramChannelTestUtils = {
 export class TelegramChannel implements Channel {
   readonly type = "telegram";
   readonly fmt = new TelegramFormatter();
+  private readonly channelName: string;
   private api: TelegramApi;
   private running = false;
   private botUsername: string | null = null;
@@ -138,11 +157,15 @@ export class TelegramChannel implements Channel {
   private actionPollByMessage: Map<string, string> = new Map();
   private statusBoards: Map<string, { messageId: number; pinned: boolean }> = new Map();
   private commandMenuCache: Map<string, string> = new Map();
+  private readonly tokenFingerprint: string;
+  private pollerLock: { handle: FileHandle; path: string } | null = null;
   onPollAnswer: PollAnswerHandler | null = null;
   onDeadChat: ((chatId: ChannelChatId, error: Error) => void) | null = null;
 
-  constructor(botToken: string) {
+  constructor(botToken: string, channelName = "telegram") {
     this.api = new TelegramApi(botToken);
+    this.channelName = channelName;
+    this.tokenFingerprint = createHash("sha256").update(botToken).digest("hex").slice(0, 24);
   }
 
   private isDeadChatError(msg: string): boolean {
@@ -448,6 +471,79 @@ export class TelegramChannel implements Channel {
     }
   }
 
+  private pollerLockPath(): string {
+    return join(paths.dir, `telegram-poller-${this.tokenFingerprint}.lock`);
+  }
+
+  private isProcessRunning(pid: number): boolean {
+    if (!Number.isFinite(pid) || pid <= 0) return false;
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private async acquirePollerLock(): Promise<void> {
+    if (this.pollerLock) return;
+    await ensureDirs();
+    const lockPath = this.pollerLockPath();
+    const acquire = async (): Promise<boolean> => {
+      try {
+        const handle = await open(lockPath, "wx", 0o600);
+        await handle.writeFile(`${process.pid}\n`);
+        await handle.sync().catch(() => {});
+        this.pollerLock = { handle, path: lockPath };
+        return true;
+      } catch (e) {
+        const code = (e as { code?: string }).code;
+        if (code !== "EEXIST") throw e;
+        return false;
+      }
+    };
+
+    if (await acquire()) return;
+
+    try {
+      const raw = await readFile(lockPath, "utf-8");
+      const existingPid = parseInt(raw.trim(), 10);
+      if (!this.isProcessRunning(existingPid)) {
+        await unlink(lockPath).catch(() => {});
+      }
+    } catch {
+      await unlink(lockPath).catch(() => {});
+    }
+
+    if (await acquire()) return;
+
+    const holderText = await readFile(lockPath, "utf-8").catch(() => "");
+    const holderPid = Number.parseInt(holderText.trim(), 10);
+    const pidHint = Number.isFinite(holderPid) && holderPid > 0 ? ` (pid ${holderPid})` : "";
+    throw new Error(`Telegram polling lock is already held${pidHint}.`);
+  }
+
+  private async releasePollerLock(): Promise<void> {
+    const lock = this.pollerLock;
+    this.pollerLock = null;
+    if (!lock) return;
+    try {
+      await lock.handle.close();
+    } catch {}
+    await unlink(lock.path).catch(() => {});
+  }
+
+  private isPollingConflictError(error: unknown): boolean {
+    const msg = (error as Error)?.message || String(error);
+    const lower = msg.toLowerCase();
+    if (!lower.includes("getupdates")) return false;
+    return (
+      lower.includes("(409)")
+      || lower.includes("error_code\":409")
+      || lower.includes("terminated by other getupdates request")
+    );
+  }
+
   async syncCommandMenu(ctx: CommandMenuContext): Promise<void> {
     const userNum = parseNumericChannelId(ctx.userId);
     if (!userNum) return;
@@ -483,168 +579,179 @@ export class TelegramChannel implements Channel {
   }
 
   async startReceiving(onMessage: (msg: InboundMessage) => Promise<void>): Promise<void> {
-    // Validate bot and register commands
+    await this.acquirePollerLock();
     try {
-      await this.cleanupOldUploads();
-      const me = await this.api.getMe();
-      this.botUsername = me.username || null;
-      await logger.info("Bot connected", { username: me.username, id: me.id });
-    } catch (e) {
-      await logger.error("Failed to connect to Telegram", { error: (e as Error).message });
-      throw e;
-    }
-    try {
-      // Clear broad command scopes from older versions so chat_member menus control visibility.
-      await this.api.setMyCommands([], { type: "all_private_chats" }, 5000);
-      await this.api.setMyCommands([], { type: "all_group_chats" }, 5000);
-      await this.api.setMyCommands([], { type: "all_chat_administrators" }, 5000);
-      await this.api.setMyCommands([TELEGRAM_COMMANDS.pair], undefined, 5000);
-    } catch (e) {
-      await logger.debug("Failed to initialize Telegram command menus", {
-        error: (e as Error).message,
-      });
-    }
-
-    this.running = true;
-    let offset: number | undefined;
-
-    while (this.running) {
+      // Validate bot and register commands
       try {
-        const updates = await this.api.getUpdates(offset, 30);
-
-        for (const update of updates) {
-          offset = update.update_id + 1;
-
-          if (update.poll_answer && this.onPollAnswer) {
-            try {
-              const pa = update.poll_answer;
-              this.onPollAnswer({
-                pollId: pa.poll_id,
-                userId: `telegram:${pa.user.id}`,
-                optionIds: pa.option_ids,
-              });
-            } catch (e) {
-              await logger.error("Error handling poll answer", { error: (e as Error).message });
-            }
-          }
-
-          if (update.callback_query) {
-            try {
-              const parsed = parseActionCallbackData(update.callback_query.data);
-              if (parsed && this.onPollAnswer) {
-                const action = this.actionPollById.get(parsed.pollId);
-                if (action) {
-                  this.actionPollById.delete(parsed.pollId);
-                  this.actionPollByMessage.delete(`${action.chatId}:${action.messageId}`);
-                }
-                this.onPollAnswer({
-                  pollId: parsed.pollId,
-                  userId: `telegram:${update.callback_query.from.id}`,
-                  optionIds: [parsed.optionId],
-                });
-              }
-              await this.api.answerCallbackQuery(update.callback_query.id);
-            } catch (e) {
-              await logger.error("Error handling callback query", { error: (e as Error).message });
-            }
-          }
-
-          if (update.message) {
-            try {
-              const msg = update.message;
-              const isGroup = msg.chat.type !== "private";
-
-              // Cache forum topic names from service messages
-              if (msg.message_thread_id) {
-                const key = `${msg.chat.id}:${msg.message_thread_id}`;
-                // Edited name always wins (most recent)
-                if (msg.forum_topic_edited?.name) {
-                  this.topicNames.set(key, msg.forum_topic_edited.name);
-                } else if (msg.forum_topic_created) {
-                  this.topicNames.set(key, msg.forum_topic_created.name);
-                } else if (msg.reply_to_message?.forum_topic_created && !this.topicNames.has(key)) {
-                  // Only use creation message from reply chain as fallback (it has the original name, not renamed)
-                  this.topicNames.set(key, msg.reply_to_message.forum_topic_created.name);
-                }
-              }
-
-              // Download photos/documents to local disk and use file paths
-              let text = msg.text?.trim() || "";
-              const fileUrls: string[] = [];
-
-              // Determine file_id to download: photos or documents (files sent uncompressed)
-              let downloadFileId: string | null = null;
-              let downloadFileExt = "jpg";
-              if (msg.photo && msg.photo.length > 0) {
-                const largest = msg.photo[msg.photo.length - 1];
-                downloadFileId = largest.file_id;
-              } else if (msg.document) {
-                downloadFileId = msg.document.file_id;
-                const name = msg.document.file_name || "";
-                const dotIdx = name.lastIndexOf(".");
-                if (dotIdx > 0) downloadFileExt = name.slice(dotIdx + 1);
-              }
-
-              if (downloadFileId) {
-                try {
-                  const file = await this.api.getFile(downloadFileId);
-                  if (file.file_path) {
-                    const url = this.api.getFileUrl(file.file_path);
-                    const ext = file.file_path.split(".").pop() || downloadFileExt;
-                    const fileName = `${Date.now()}-${file.file_unique_id}.${ext}`;
-                    await ensureDirs();
-                    const localPath = join(paths.uploadsDir, fileName);
-                    const res = await fetch(url);
-                    if (res.ok) {
-                      const buffer = await res.arrayBuffer();
-                      await Bun.write(localPath, buffer);
-                      await chmod(localPath, 0o600).catch(() => {});
-                      fileUrls.push(localPath);
-                      const caption = msg.caption?.trim() || "";
-                      text = caption
-                        ? `${caption} ${localPath}`
-                        : localPath;
-                    } else {
-                      await logger.error("Failed to download file", { status: res.status });
-                    }
-                  }
-                } catch (e) {
-                  await logger.error("Failed to resolve file", { error: (e as Error).message });
-                }
-              }
-
-              if (!text || !msg.from) continue;
-
-              // Strip @BotUsername mentions (common in groups)
-              text = this.stripBotMention(text);
-              if (!text) continue;
-
-              // Resolve topic title from cache
-              const topicTitle = msg.message_thread_id && msg.message_thread_id !== 1
-                ? this.topicNames.get(`${msg.chat.id}:${msg.message_thread_id}`)
-                : undefined;
-
-              const inbound: InboundMessage = {
-                userId: `telegram:${msg.from.id}`,
-                chatId: toChatId(msg.chat.id, msg.message_thread_id),
-                username: msg.from.username,
-                text,
-                fileUrls: fileUrls.length > 0 ? fileUrls : undefined,
-                isGroup,
-                chatTitle: isGroup ? msg.chat.title : undefined,
-                topicTitle,
-              };
-
-              await onMessage(inbound);
-            } catch (e) {
-              await logger.error("Error handling message", { error: (e as Error).message });
-            }
-          }
-        }
+        await this.cleanupOldUploads();
+        const me = await this.api.getMe();
+        this.botUsername = me.username || null;
+        await logger.info("Bot connected", { username: me.username, id: me.id });
       } catch (e) {
-        await logger.error("Polling error", { error: (e as Error).message });
-        if (this.running) await Bun.sleep(5000);
+        await logger.error("Failed to connect to Telegram", { error: (e as Error).message });
+        throw e;
       }
+      try {
+        // Clear broad command scopes from older versions so chat_member menus control visibility.
+        await this.api.setMyCommands([], { type: "all_private_chats" }, 5000);
+        await this.api.setMyCommands([], { type: "all_group_chats" }, 5000);
+        await this.api.setMyCommands([], { type: "all_chat_administrators" }, 5000);
+        await this.api.setMyCommands([TELEGRAM_COMMANDS.pair], undefined, 5000);
+      } catch (e) {
+        await logger.debug("Failed to initialize Telegram command menus", {
+          error: (e as Error).message,
+        });
+      }
+
+      this.running = true;
+      let offset: number | undefined;
+
+      while (this.running) {
+        try {
+          const updates = await this.api.getUpdates(offset, 30);
+
+          for (const update of updates) {
+            offset = update.update_id + 1;
+
+            if (update.poll_answer && this.onPollAnswer) {
+              try {
+                const pa = update.poll_answer;
+                this.onPollAnswer({
+                  pollId: pa.poll_id,
+                  userId: toUserId(this.channelName, pa.user.id),
+                  optionIds: pa.option_ids,
+                });
+              } catch (e) {
+                await logger.error("Error handling poll answer", { error: (e as Error).message });
+              }
+            }
+
+            if (update.callback_query) {
+              try {
+                const parsed = parseActionCallbackData(update.callback_query.data);
+                if (parsed && this.onPollAnswer) {
+                  const action = this.actionPollById.get(parsed.pollId);
+                  if (action) {
+                    this.actionPollById.delete(parsed.pollId);
+                    this.actionPollByMessage.delete(`${action.chatId}:${action.messageId}`);
+                  }
+                  this.onPollAnswer({
+                    pollId: parsed.pollId,
+                    userId: toUserId(this.channelName, update.callback_query.from.id),
+                    optionIds: [parsed.optionId],
+                  });
+                }
+                await this.api.answerCallbackQuery(update.callback_query.id);
+              } catch (e) {
+                await logger.error("Error handling callback query", { error: (e as Error).message });
+              }
+            }
+
+            if (update.message) {
+              try {
+                const msg = update.message;
+                const isGroup = msg.chat.type !== "private";
+
+                // Cache forum topic names from service messages
+                if (msg.message_thread_id) {
+                  const key = `${msg.chat.id}:${msg.message_thread_id}`;
+                  // Edited name always wins (most recent)
+                  if (msg.forum_topic_edited?.name) {
+                    this.topicNames.set(key, msg.forum_topic_edited.name);
+                  } else if (msg.forum_topic_created) {
+                    this.topicNames.set(key, msg.forum_topic_created.name);
+                  } else if (msg.reply_to_message?.forum_topic_created && !this.topicNames.has(key)) {
+                    // Only use creation message from reply chain as fallback (it has the original name, not renamed)
+                    this.topicNames.set(key, msg.reply_to_message.forum_topic_created.name);
+                  }
+                }
+
+                // Download photos/documents to local disk and use file paths
+                let text = msg.text?.trim() || "";
+                const fileUrls: string[] = [];
+
+                // Determine file_id to download: photos or documents (files sent uncompressed)
+                let downloadFileId: string | null = null;
+                let downloadFileExt = "jpg";
+                if (msg.photo && msg.photo.length > 0) {
+                  const largest = msg.photo[msg.photo.length - 1];
+                  downloadFileId = largest.file_id;
+                } else if (msg.document) {
+                  downloadFileId = msg.document.file_id;
+                  const name = msg.document.file_name || "";
+                  const dotIdx = name.lastIndexOf(".");
+                  if (dotIdx > 0) downloadFileExt = name.slice(dotIdx + 1);
+                }
+
+                if (downloadFileId) {
+                  try {
+                    const file = await this.api.getFile(downloadFileId);
+                    if (file.file_path) {
+                      const url = this.api.getFileUrl(file.file_path);
+                      const ext = file.file_path.split(".").pop() || downloadFileExt;
+                      const fileName = `${Date.now()}-${file.file_unique_id}.${ext}`;
+                      await ensureDirs();
+                      const localPath = join(paths.uploadsDir, fileName);
+                      const res = await fetch(url);
+                      if (res.ok) {
+                        const buffer = await res.arrayBuffer();
+                        await Bun.write(localPath, buffer);
+                        await chmod(localPath, 0o600).catch(() => {});
+                        fileUrls.push(localPath);
+                        const caption = msg.caption?.trim() || "";
+                        text = caption
+                          ? `${caption} ${localPath}`
+                          : localPath;
+                      } else {
+                        await logger.error("Failed to download file", { status: res.status });
+                      }
+                    }
+                  } catch (e) {
+                    await logger.error("Failed to resolve file", { error: (e as Error).message });
+                  }
+                }
+
+                if (!text || !msg.from) continue;
+
+                // Strip @BotUsername mentions (common in groups)
+                text = this.stripBotMention(text);
+                if (!text) continue;
+
+                // Resolve topic title from cache
+                const topicTitle = msg.message_thread_id && msg.message_thread_id !== 1
+                  ? this.topicNames.get(`${msg.chat.id}:${msg.message_thread_id}`)
+                  : undefined;
+
+                const inbound: InboundMessage = {
+                  userId: toUserId(this.channelName, msg.from.id),
+                  chatId: toChatId(this.channelName, msg.chat.id, msg.message_thread_id),
+                  username: msg.from.username,
+                  text,
+                  fileUrls: fileUrls.length > 0 ? fileUrls : undefined,
+                  isGroup,
+                  chatTitle: isGroup ? msg.chat.title : undefined,
+                  topicTitle,
+                };
+
+                await onMessage(inbound);
+              } catch (e) {
+                await logger.error("Error handling message", { error: (e as Error).message });
+              }
+            }
+          }
+        } catch (e) {
+          if (this.isPollingConflictError(e)) {
+            await logger.error("Telegram polling conflict; stopping receiver", { error: (e as Error).message });
+            this.running = false;
+            break;
+          }
+          await logger.error("Polling error", { error: (e as Error).message });
+          if (this.running) await Bun.sleep(5000);
+        }
+      }
+    } finally {
+      this.running = false;
+      await this.releasePollerLock();
     }
   }
 

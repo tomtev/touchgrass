@@ -29,13 +29,14 @@ import type { BackgroundJobSessionSummary } from "../bot/handlers/background-job
 import { SessionManager } from "../session/manager";
 import { formatSimpleToolResult, formatToolCall } from "./tool-display";
 import { paths } from "../config/paths";
-import { loadControlCenterState } from "../control-center/state";
+import { buildCurrentCliCommandPrefix, loadControlCenterState } from "../control-center/state";
 import { generatePairingCode } from "../security/pairing";
 import { isUserPaired } from "../security/allowlist";
 import { rotateDaemonAuthToken } from "../security/daemon-auth";
 import { createChannel } from "../channel/factory";
 import type { Formatter } from "../channel/formatter";
 import type { Channel, ChannelChatId, ChannelUserId } from "../channel/types";
+import { getChannelName, getChannelType, getRootChatIdNumber, parseChannelAddress } from "../channel/id";
 import type { AskQuestion, PendingFilePickerOption } from "../session/manager";
 import { chmod, mkdir, open, readFile, stat, writeFile } from "fs/promises";
 import { basename, join, resolve, sep } from "path";
@@ -92,6 +93,17 @@ interface SessionManifest {
   startedAt: string;
 }
 
+interface LastChatSessionTemplate {
+  command: string;
+  cwd: string;
+  ownerUserId: ChannelUserId;
+  updatedAt: number;
+}
+
+function quoteShellArg(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
 export async function startDaemon(): Promise<void> {
   await logger.info("Daemon starting", { pid: process.pid });
 
@@ -115,12 +127,16 @@ export async function startDaemon(): Promise<void> {
 
   // Create channel instances from config
   const configuredChannels = Object.entries(config.channels);
-  const channels: Channel[] = [];
-  const channelByType = new Map<string, Channel>();
+  const channels: Array<{ name: string; type: string; channel: Channel }> = [];
+  const channelByName = new Map<string, Channel>();
+  const defaultChannelByType = new Map<string, Channel>();
   for (const [name, cfg] of configuredChannels) {
     const channel = createChannel(name, cfg);
-    channels.push(channel);
-    channelByType.set(cfg.type, channel);
+    channels.push({ name, type: cfg.type, channel });
+    channelByName.set(name, channel);
+    if (!defaultChannelByType.has(cfg.type)) {
+      defaultChannelByType.set(cfg.type, channel);
+    }
   }
 
   if (channels.length === 0) {
@@ -129,13 +145,17 @@ export async function startDaemon(): Promise<void> {
     process.exit(1);
   }
 
-  const getChannelForType = (type: string): Channel | null => channelByType.get(type) || null;
+  const getChannelForType = (type: string): Channel | null => defaultChannelByType.get(type) || null;
   const getChannelForChat = (chatId: ChannelChatId): Channel | null => {
-    const type = chatId.split(":")[0];
-    return getChannelForType(type);
+    const channelName = getChannelName(chatId);
+    if (channelName) {
+      const scoped = channelByName.get(channelName);
+      if (scoped) return scoped;
+    }
+    return getChannelForType(getChannelType(chatId));
   };
   const getFormatterForChat = (chatId: ChannelChatId): Formatter => {
-    return getChannelForChat(chatId)?.fmt || channels[0].fmt;
+    return getChannelForChat(chatId)?.fmt || channels[0].channel.fmt;
   };
   const getOutputModeForChat = (chatId: ChannelChatId) => getChatOutputMode(config, chatId);
   const isChatMutedForChat = (chatId: ChannelChatId): boolean => {
@@ -149,28 +169,37 @@ export async function startDaemon(): Promise<void> {
     if (!channel) return;
     channel.send(chatId, content).catch(() => {});
   };
+  let campActiveMenuCache = false;
+  let campActiveMenuCacheAt = 0;
+  const getCampActiveForMenu = async (): Promise<boolean> => {
+    const now = Date.now();
+    if (now - campActiveMenuCacheAt < 2000) return campActiveMenuCache;
+    campActiveMenuCache = !!(await loadControlCenterState());
+    campActiveMenuCacheAt = now;
+    return campActiveMenuCache;
+  };
   const syncCommandMenuForChat = (chatId: ChannelChatId, userId: ChannelUserId): void => {
     const channel = getChannelForChat(chatId);
     if (!channel?.syncCommandMenu) return;
-    const rootPart = chatId.split(":")[1];
-    const rootChatId = Number(rootPart);
-    const isGroup = Number.isFinite(rootChatId) && rootChatId < 0;
-    void channel
-      .syncCommandMenu({
+    void (async () => {
+      const rootChatId = getRootChatIdNumber(chatId);
+      const isGroup = typeof rootChatId === "number" && Number.isFinite(rootChatId) && rootChatId < 0;
+      await channel.syncCommandMenu?.({
         userId,
         chatId,
         isPaired: isUserPaired(config, userId),
         isGroup,
         isLinkedGroup: isGroup ? isLinkedGroup(config, chatId) : false,
         hasActiveSession: !!sessionManager.getAttachedRemote(chatId),
-      })
-      .catch(async (error: unknown) => {
-        await logger.debug("Failed to sync command menu from daemon lifecycle", {
-          chatId,
-          userId,
-          error: (error as Error)?.message ?? String(error),
-        });
+        isCampActive: isGroup ? await getCampActiveForMenu() : false,
       });
+    })().catch(async (error: unknown) => {
+      await logger.debug("Failed to sync command menu from daemon lifecycle", {
+        chatId,
+        userId,
+        error: (error as Error)?.message ?? String(error),
+      });
+    });
   };
   const setTypingForChat = (chatId: ChannelChatId, active: boolean): void => {
     const channel = getChannelForChat(chatId);
@@ -181,10 +210,15 @@ export async function startDaemon(): Promise<void> {
     const pairedUsers = getAllPairedUsers(config);
     const linkedGroups = getAllLinkedGroups(config);
     for (const user of pairedUsers) {
-      const userType = user.userId.split(":")[0];
+      const parsedUser = parseChannelAddress(user.userId);
+      const userType = parsedUser.type;
+      const userChannelName = parsedUser.channelName;
       syncCommandMenuForChat(user.userId, user.userId);
       for (const group of linkedGroups) {
-        if (!group.chatId.startsWith(`${userType}:`)) continue;
+        const parsedGroup = parseChannelAddress(group.chatId);
+        if (parsedGroup.type !== userType) continue;
+        const sameScope = parsedGroup.channelName === userChannelName;
+        if ((parsedGroup.channelName || userChannelName) && !sameScope) continue;
         syncCommandMenuForChat(group.chatId, user.userId);
       }
     }
@@ -204,6 +238,9 @@ export async function startDaemon(): Promise<void> {
     if (!channel?.closePoll) return;
     channel.closePoll(chatId, messageId).catch(() => {});
   };
+  const lastSessionTemplateByChat = new Map<ChannelChatId, LastChatSessionTemplate>();
+  const reconnectNoticeBySession = new Map<string, number>();
+  const RECONNECT_NOTICE_COOLDOWN_MS = 30_000;
   const backgroundJobsBySession = new Map<string, Map<string, BackgroundJobState>>();
   const persistedStatusBoards = new Map<string, PersistedStatusBoardEntry>();
   const backgroundJobAnnouncements = new Map<string, BackgroundJobStatus>();
@@ -1135,7 +1172,7 @@ export async function startDaemon(): Promise<void> {
     autoStopTimer = setTimeout(async () => {
       if (sessionManager.remoteCount() === 0) {
         await logger.info("No active sessions, auto-stopping daemon");
-        for (const ch of channels) ch.stopReceiving();
+        for (const { channel } of channels) channel.stopReceiving();
         sessionManager.killAll();
         await removeAuthToken();
         await removePidFile();
@@ -1217,7 +1254,7 @@ export async function startDaemon(): Promise<void> {
   void reconcileBackgroundState();
 
   // Wire dead chat detection — clean up subscriptions and linked groups when sends fail permanently
-  for (const channel of channels) {
+  for (const { channel } of channels) {
     if ("onDeadChat" in channel) {
       channel.onDeadChat = async (deadChatId, error) => {
         await logger.info("Dead chat detected", { chatId: deadChatId, error: error.message });
@@ -1235,7 +1272,7 @@ export async function startDaemon(): Promise<void> {
         }
         // Remove from linked groups config
         await refreshConfig();
-        if (removeLinkedGroup(config, deadChatId)) {
+        if (removeLinkedGroup(config, deadChatId, getChannelName(deadChatId))) {
           await saveConfig(config);
         }
       };
@@ -1616,7 +1653,7 @@ export async function startDaemon(): Promise<void> {
   }
 
   // Wire poll answer handler on all channels that support it
-  for (const channel of channels) {
+  for (const { channel } of channels) {
     if ("onPollAnswer" in channel) {
       channel.onPollAnswer = handlePollAnswer;
     }
@@ -1628,6 +1665,7 @@ export async function startDaemon(): Promise<void> {
   const reaperTimer = setInterval(async () => {
     const reaped = sessionManager.reapStaleRemotes(REAP_MAX_AGE);
     for (const remote of reaped) {
+      reconnectNoticeBySession.delete(remote.id);
       await clearBackgroundBoards(remote.id);
       await logger.info("Reaped stale remote session", { id: remote.id, command: remote.command });
       const fmt = getFormatterForChat(remote.chatId);
@@ -1652,7 +1690,7 @@ export async function startDaemon(): Promise<void> {
     }
     await persistStatusBoardsNow();
     cancelAutoStop();
-    for (const ch of channels) ch.stopReceiving();
+    for (const { channel } of channels) channel.stopReceiving();
     sessionManager.killAll();
   });
 
@@ -1679,7 +1717,7 @@ export async function startDaemon(): Promise<void> {
         persistStatusBoardsTimer = null;
       }
       await persistStatusBoardsNow();
-      for (const ch of channels) ch.stopReceiving();
+      for (const { channel } of channels) channel.stopReceiving();
       sessionManager.killAll();
       await removeAuthToken();
       await removePidFile();
@@ -1699,8 +1737,7 @@ export async function startDaemon(): Promise<void> {
       // DM channels: one per paired user per bot
       for (const user of pairedUsers) {
         const dmChatId = user.userId;
-        const channelType = dmChatId.split(":")[0];
-        const channel = getChannelForType(channelType);
+        const channel = getChannelForChat(dmChatId);
         let title = "DM";
         if (channel?.getBotName) {
           try { title = await channel.getBotName(); } catch {}
@@ -1718,8 +1755,7 @@ export async function startDaemon(): Promise<void> {
       // Linked groups and topics
       const rawGroups = getAllLinkedGroups(config);
       for (const g of rawGroups) {
-        const parts = g.chatId.split(":");
-        const isTopic = parts.length >= 3;
+        const isTopic = parseChannelAddress(g.chatId).threadPart !== undefined;
         const bound = sessionManager.getAttachedRemote(g.chatId);
         results.push({
           chatId: g.chatId,
@@ -1736,7 +1772,15 @@ export async function startDaemon(): Promise<void> {
       cancelAutoStop();
       const isReconnect = !!existingId && !sessionManager.getRemote(existingId);
       const remote = sessionManager.registerRemote(command, chatId, ownerUserId, cwd, existingId);
-      const remoteType = remote.chatId.split(":")[0];
+      lastSessionTemplateByChat.set(chatId, {
+        command,
+        cwd,
+        ownerUserId,
+        updatedAt: Date.now(),
+      });
+      const remoteAddress = parseChannelAddress(remote.chatId);
+      const remoteType = remoteAddress.type;
+      const remoteChannelName = remoteAddress.channelName;
 
       // Restore group subscriptions (e.g. after daemon restart, CLI re-registers with saved groups)
       if (subscribedGroups) {
@@ -1746,9 +1790,14 @@ export async function startDaemon(): Promise<void> {
       }
 
       if (isReconnect) {
-        const label = sessionLabel(command, cwd);
-        const fmt = getFormatterForChat(chatId);
-        sendToChat(chatId, `${fmt.escape("⛳️")} ${fmt.bold(fmt.escape(label))} reconnected after daemon restart. Messages sent during restart may have been lost.`);
+        const now = Date.now();
+        const lastNoticeAt = reconnectNoticeBySession.get(remote.id) ?? 0;
+        if (now - lastNoticeAt >= RECONNECT_NOTICE_COOLDOWN_MS) {
+          reconnectNoticeBySession.set(remote.id, now);
+          const label = sessionLabel(command, cwd);
+          const fmt = getFormatterForChat(chatId);
+          sendToChat(chatId, `${fmt.escape("⛳️")} ${fmt.bold(fmt.escape(label))} reconnected after daemon restart. Messages sent during restart may have been lost.`);
+        }
       }
 
       const existingBound = sessionManager.getAttachedRemote(chatId);
@@ -1756,7 +1805,14 @@ export async function startDaemon(): Promise<void> {
       const dmBusyLabel = dmBusy && existingBound ? sessionLabel(existingBound.command, existingBound.cwd) : undefined;
 
       await refreshConfig();
-      const rawGroups = getAllLinkedGroups(config).filter((g) => g.chatId.split(":")[0] === remoteType);
+      const rawGroups = getAllLinkedGroups(config).filter((g) => {
+        const parsedGroup = parseChannelAddress(g.chatId);
+        if (parsedGroup.type !== remoteType) return false;
+        if (remoteChannelName || parsedGroup.channelName) {
+          return parsedGroup.channelName === remoteChannelName;
+        }
+        return true;
+      });
 
       // Validate groups still exist, remove dead ones
       const validGroups: Array<{ chatId: string; title?: string }> = [];
@@ -1768,7 +1824,7 @@ export async function startDaemon(): Promise<void> {
             validGroups.push({ chatId: g.chatId, title: g.title });
           } else {
             await logger.info("Removing inaccessible linked group", { chatId: g.chatId, title: g.title });
-            removeLinkedGroup(config, g.chatId);
+            removeLinkedGroup(config, g.chatId, remoteChannelName);
             await saveConfig(config);
           }
         } else {
@@ -1800,7 +1856,7 @@ export async function startDaemon(): Promise<void> {
       if (!isOwnerDm && targetChannel?.validateChat) {
         const alive = await targetChannel.validateChat(chatId);
         if (!alive) {
-          removeLinkedGroup(config, chatId);
+          removeLinkedGroup(config, chatId, getChannelName(chatId));
           await saveConfig(config);
           return { ok: false, error: "Group no longer exists or bot was removed from it" };
         }
@@ -1821,6 +1877,12 @@ export async function startDaemon(): Promise<void> {
         syncCommandMenuForChat(remote.chatId, remote.ownerUserId);
       }
       sessionManager.attach(chatId, sessionId);
+      lastSessionTemplateByChat.set(chatId, {
+        command: remote.command,
+        cwd: remote.cwd,
+        ownerUserId: remote.ownerUserId,
+        updatedAt: Date.now(),
+      });
       syncCommandMenuForChat(chatId, remote.ownerUserId);
       if (isLinkedTarget) {
         sessionManager.subscribeGroup(sessionId, chatId);
@@ -1850,9 +1912,20 @@ export async function startDaemon(): Promise<void> {
     endRemote(sessionId: string, exitCode: number | null): void {
       const remote = sessionManager.getRemote(sessionId);
       if (remote) {
+        reconnectNoticeBySession.delete(sessionId);
         const status = exitCode === 0 ? "disconnected" : `disconnected (code ${exitCode ?? "unknown"})`;
         void clearBackgroundBoards(sessionId);
         const boundChat = sessionManager.getBoundChat(sessionId);
+        const template: LastChatSessionTemplate = {
+          command: remote.command,
+          cwd: remote.cwd,
+          ownerUserId: remote.ownerUserId,
+          updatedAt: Date.now(),
+        };
+        lastSessionTemplateByChat.set(remote.chatId, template);
+        if (boundChat) {
+          lastSessionTemplateByChat.set(boundChat, template);
+        }
         if (boundChat) {
           const fmt = getFormatterForChat(boundChat);
           const msg = `${fmt.escape("⛳️")} ${fmt.bold(fmt.escape(sessionLabel(remote.command, remote.cwd)))} ${fmt.escape(status)}`;
@@ -2152,11 +2225,12 @@ export async function startDaemon(): Promise<void> {
   });
 
   // Start receiving on all channels
-  for (const channel of channels) {
-    channel.startReceiving(async (msg) => {
+  for (const { name: channelName, channel } of channels) {
+    void channel.startReceiving(async (msg) => {
       await refreshConfig();
       await routeMessage(msg, {
         config,
+        channelName,
         sessionManager,
         channel,
         listBackgroundJobs: listBackgroundJobsForUserChat,
@@ -2182,7 +2256,7 @@ export async function startDaemon(): Promise<void> {
           if (existing) {
             return {
               ok: false,
-              error: `This channel is busy with ${sessionLabel(existing.command, existing.cwd)}. Use /stop first.`,
+              error: `This channel is busy with ${sessionLabel(existing.command, existing.cwd)}. Use /kill first.`,
             };
           }
 
@@ -2227,13 +2301,88 @@ export async function startDaemon(): Promise<void> {
           const remote = sessionManager.getAttachedRemote(chatId);
           if (!remote) return { ok: false, error: "No active session is attached to this chat." };
           if (remote.ownerUserId !== userId) {
-            return { ok: false, error: "Only the session owner can stop this chat session." };
+            return { ok: false, error: "Only the session owner can kill this chat session." };
           }
-          if (!sessionManager.requestRemoteStop(remote.id)) {
-            return { ok: false, error: "Could not request stop for this session." };
+          if (!sessionManager.requestRemoteKill(remote.id)) {
+            return { ok: false, error: "Could not request kill for this session." };
           }
           return { ok: true, sessionId: remote.id };
         },
+        startSessionForChat: async ({ chatId, userId, tool, toolArgs }) => {
+          const attached = sessionManager.getAttachedRemote(chatId);
+          if (attached) {
+            return {
+              ok: false,
+              error: `This channel is already attached to ${sessionLabel(attached.command, attached.cwd)}.`,
+            };
+          }
+
+          const template = lastSessionTemplateByChat.get(chatId);
+          if (!template) {
+            return {
+              ok: false,
+              error: "No previous session for this chat. Start once from terminal first.",
+            };
+          }
+          if (template.ownerUserId !== userId) {
+            return {
+              ok: false,
+              error: "Only the session owner can start this chat session.",
+            };
+          }
+
+          const commandPrefix = buildCurrentCliCommandPrefix();
+          const launchCwd = template.cwd || process.cwd();
+          try {
+            if (tool) {
+              const args = [...commandPrefix, tool, ...(toolArgs || []), "--channel", chatId];
+              const proc = Bun.spawn(args, {
+                cwd: launchCwd,
+                stdio: ["ignore", "ignore", "ignore"],
+                env: { ...process.env },
+              });
+              proc.unref();
+              const earlyExit = await Promise.race([
+                proc.exited.then((exitCode) => ({ exited: true as const, exitCode })),
+                Bun.sleep(800).then(() => ({ exited: false as const })),
+              ]);
+              if (earlyExit.exited && earlyExit.exitCode !== 0) {
+                return {
+                  ok: false,
+                  error: `Failed to launch ${tool} for this channel (exit ${earlyExit.exitCode}).`,
+                };
+              }
+              return { ok: true, projectPath: launchCwd };
+            }
+
+            const shellCmd = `${commandPrefix.map(quoteShellArg).join(" ")} ${template.command} --channel ${quoteShellArg(chatId)}`;
+            const proc = Bun.spawn(["/bin/sh", "-lc", shellCmd], {
+              cwd: launchCwd,
+              stdio: ["ignore", "ignore", "ignore"],
+              env: { ...process.env },
+            });
+            proc.unref();
+            const earlyExit = await Promise.race([
+              proc.exited.then((exitCode) => ({ exited: true as const, exitCode })),
+              Bun.sleep(800).then(() => ({ exited: false as const })),
+            ]);
+            if (earlyExit.exited && earlyExit.exitCode !== 0) {
+              return {
+                ok: false,
+                error: `Failed to relaunch previous session for this channel (exit ${earlyExit.exitCode}).`,
+              };
+            }
+            return { ok: true, projectPath: launchCwd };
+          } catch (e) {
+            return { ok: false, error: `Failed to start session: ${(e as Error).message}` };
+          }
+        },
+      });
+    }).catch(async (error: unknown) => {
+      await logger.error("Channel receiver stopped", {
+        channel: channelName,
+        type: channel.type,
+        error: (error as Error)?.message ?? String(error),
       });
     });
   }

@@ -18,6 +18,27 @@ describe("setup arg parsing", () => {
     expect(parsed.help).toBe(true);
   });
 
+  it("parses --channel <name>", () => {
+    const parsed = __initTestUtils.parseSetupArgs(["--channel", "bot2"]);
+    expect(parsed.channelName).toBe("bot2");
+  });
+
+  it("parses --channel=<name>", () => {
+    const parsed = __initTestUtils.parseSetupArgs(["--channel=ops_bot"]);
+    expect(parsed.channelName).toBe("ops_bot");
+  });
+
+  it("parses --list-channels", () => {
+    const parsed = __initTestUtils.parseSetupArgs(["--list-channels"]);
+    expect(parsed.listChannels).toBe(true);
+  });
+
+  it("parses --show", () => {
+    const parsed = __initTestUtils.parseSetupArgs(["--show"]);
+    expect(parsed.showChannel).toBe(true);
+    expect(parsed.channelName).toBe("telegram");
+  });
+
   it("throws when --telegram value is missing", () => {
     expect(() => __initTestUtils.parseSetupArgs(["--telegram"]))
       .toThrow("--telegram requires a token value.");
@@ -26,6 +47,31 @@ describe("setup arg parsing", () => {
   it("throws on unknown option", () => {
     expect(() => __initTestUtils.parseSetupArgs(["--unknown"]))
       .toThrow("Unknown option for tg setup: --unknown");
+  });
+
+  it("throws when --channel value is missing", () => {
+    expect(() => __initTestUtils.parseSetupArgs(["--channel"]))
+      .toThrow("--channel requires a channel name.");
+  });
+
+  it("throws on invalid channel value", () => {
+    expect(() => __initTestUtils.parseSetupArgs(["--channel", "123"]))
+      .toThrow("Invalid --channel value");
+  });
+
+  it("throws when --list-channels is used with --telegram", () => {
+    expect(() => __initTestUtils.parseSetupArgs(["--list-channels", "--telegram", "123:abc"]))
+      .toThrow("--list-channels cannot be used with --telegram.");
+  });
+
+  it("throws when --show is used with --telegram", () => {
+    expect(() => __initTestUtils.parseSetupArgs(["--show", "--telegram", "123:abc"]))
+      .toThrow("--show cannot be used with --telegram.");
+  });
+
+  it("throws when --list-channels and --show are combined", () => {
+    expect(() => __initTestUtils.parseSetupArgs(["--list-channels", "--show"]))
+      .toThrow("Use either --list-channels or --show, not both.");
   });
 });
 
