@@ -2,7 +2,7 @@
 
 ⛳️ Use Telegram as a remote controller for Claude Code, Codex, Kimi and Pi and more. Manage your code CLIs on the go.
 
-- Runs on top of normal code CLIs commands (claude, codex, pi, kimi).
+- Runs on top of normal code CLI commands (`claude`, `codex`, `pi`, `kimi`).
 - Prefix it with `tg` (for example `tg claude`) to wrap that session with Touchgrass and bridge it to chat.
 
 ## Install
@@ -30,21 +30,25 @@ irm https://raw.githubusercontent.com/tomtev/touchgrass/main/install.ps1 | iex
 
 ```bash
 tg setup
+# or non-interactive:
+tg setup --telegram <bot-token>
 ```
 
-3. Generate a pairing code:
+3. Pair from your chat (DM bot):
+- Telegram: `/pair <code>`
+- `tg setup --telegram <bot-token>` prints a pairing code immediately.
+- Fresh `tg setup` also prints a pairing code when no owner is paired yet.
+- If no code is shown, run:
 
 ```bash
 tg pair
 ```
 
-4. Pair from your chat (DM bot):
-- Telegram: `/pair <code>`
+4. Optional group/channel/thread linking:
+- Use `/link` inside the group/thread you want to use for bridging.
+- Group note: Disable BotFather group privacy (`/setprivacy` -> Disable) so non-command messages are visible.
 
-5. Optional group/channel/thread linking:
-- Use `/link` inside the group/thread you want want to use for bridging.
-
-6. Start a bridged terminal session:
+5. Start a bridged terminal session:
 
 ```bash
 tg claude
@@ -55,59 +59,69 @@ tg pi
 tg kimi
 ```
 
-## Channel setup guide
+## How it works
 
-### Telegram
+Two processes cooperate:
 
-1. Create a bot with [@BotFather](https://t.me/BotFather)
-2. Copy bot token
-3. Run `tg setup` and choose Telegram
-4. Run `tg pair`, then send `/pair <code>` in bot DM
+1. CLI process (`tg claude` / `tg codex` / `tg pi` / `tg kimi`):
+- starts PTY
+- watches tool JSONL output (the session files for the CLIs)
+- sends output to selected chat destination
 
-Group note:
-- Disable BotFather group privacy (`/setprivacy` -> Disable) so non-command messages are visible.
+2. Daemon:
+- auto-starts on demand
+- receives channel messages
+- routes input into the right session
+- auto-stops after 30s idle
 
-## Commands
+### Telegram commands
 
-### Session start
+- `/files` (or `tg files <query>`) opens inline picker buttons in the same chat, lets you select multiple `@path` entries, and queues them for your next message.
+- `@?<query>` is shorthand for the same picker (example: `@?readme`).
+- `@?<query> - <prompt>` resolves the top fuzzy match and sends `@path - prompt` directly (example: `@?readme - summarize this file`).
+- `/resume` (or `tg resume`) opens a picker of recent local sessions for this tool and restarts into the selected session.
+- `/output_mode simple|verbose` (or `tg output_mode simple|verbose`) sets bridge verbosity for the current chat (`simple` is default).
+- `/thinking on|off|toggle` (or `tg thinking on|off|toggle`) controls whether thinking previews are forwarded for this chat (default: off).
+- `/background_jobs` (Telegram command menu) or `/background-jobs` (or `tg background-jobs`) lists currently running background jobs for your connected session(s).
+
+## Touchgrass CLI reference
+
+### Bridge sessions
 
 ```bash
 tg claude [args]
 tg codex [args]
 tg pi [args]
 tg kimi [args]
-tg camp [--root /path]
 ```
 
-### Touchgrass Camp (🏕️)
+- `tg claude [args]`: run Claude Code with chat bridge on the selected/linked channel.
+- `tg codex [args]`: run Codex with chat bridge on the selected/linked channel.
+- `tg pi [args]`: run PI with chat bridge on the selected/linked channel.
+- `tg kimi [args]`: run Kimi with chat bridge on the selected/linked channel.
 
-`tg camp` runs a long-lived control plane for Telegram groups/topics.
-
-- Start it once from your projects root (or pass `--root /path`).
-- In Telegram groups/topics, use `/start claude|codex|pi|kimi [project-name]` to launch a new session.
-- Use `/stop` to stop the current chat-bound session.
-- Only the paired owner account can start/stop Camp sessions.
-- If Camp is not running, `/start` replies with a `tg camp` hint.
-- Under the hood Camp spawns normal touchgrass commands with channel binding (for example `tg claude --channel <chatId>`), so session behavior stays consistent.
-
-touchgrass auto-appends a small bridge context when the CLI supports direct prompt/config injection:
-- `claude` / `pi`: `--append-system-prompt "<touchgrass bridge context>"`
-- `codex`: `-c developer_instructions="<touchgrass bridge context>"`
-- `kimi`: currently no equivalent flag, so touchgrass leaves args unchanged.
-- The context tells the tool it is running inside a `tg` wrapper and users may communicate through Telegram now and other channels over time
-- It includes send-back helpers: `tg send $TG_SESSION_ID "text"` and `tg send --file $TG_SESSION_ID <path>`
-- If you already pass your own `--append-system-prompt` (Claude/PI) or `developer_instructions` config (Codex), touchgrass does not add a second one.
-
-Use `--channel` to skip picker:
+### Setup and health
 
 ```bash
-tg claude --channel dm
-tg claude --channel "Dev Team"
-tg claude --channel telegram:-987:12
-tg claude --channel none
+tg setup
+tg init
+tg pair
+tg camp [--root /path]
+tg doctor
+tg config
+tg logs
 ```
 
-### Session management
+- `tg setup`: interactive setup for channel credentials (Telegram token, etc.).
+- `tg setup --telegram <token>`: non-interactive setup; validates token, saves config, and prints a pairing code.
+- `tg init`: alias for `tg setup`.
+- `tg pair`: generate a one-time code to pair your Telegram account in bot DM.
+- `tg camp [--root /path]`: start the Camp control plane that can spawn/stop sessions from Telegram.
+- `tg doctor`: diagnostics for CLI/channel/daemon state.
+- `tg config`: print current config paths and resolved settings.
+- `tg logs`: show daemon logs.
+
+### Session operations
 
 ```bash
 tg ls
@@ -118,55 +132,42 @@ tg stop <id>
 tg kill <id>
 ```
 
-### Send input / files
+- `tg ls`: list active bridge sessions.
+- `tg channels`: list configured channels and daemon health.
+- `tg links`: list chat link mappings.
+- `tg peek <id> [count]`: show latest output chunks for a session.
+- `tg stop <id>`: request graceful stop for a session.
+- `tg kill <id>`: force-kill a stuck session.
+
+### Sending input and files
 
 ```bash
 tg send <id> "continue"
 tg send --file <id> ./notes.md
 ```
 
-From Telegram chat:
-- `/files` (or `tg files <query>`) opens inline picker buttons in the same chat, lets you select multiple `@path` entries, and queues them for your next message
-- `@?<query>` is shorthand for the same picker (example: `@?readme`)
-- `@?<query> - <prompt>` resolves the top fuzzy match and sends `@path - prompt` directly (example: `@?readme - summarize this file`)
-- `/resume` (or `tg resume`) opens a picker of recent local sessions for this tool and restarts into the selected session
-- `/output_mode simple|verbose` (or `tg output_mode simple|verbose`) sets bridge verbosity for the current chat (`simple` is default: concise tool activity + short main-tool outputs)
-- Output mode details:
-  - `simple` (default): concise tool-call events (except `Bash`/`bash`/`exec_command`), concise result summaries for `WebFetch`/`WebSearch`/`Task`, and all tool errors
-  - `verbose`: full tool-call previews and fuller tool result blocks
-- `/thinking on|off|toggle` (or `tg thinking on|off|toggle`) controls whether thinking previews are forwarded for this chat (default: off)
-- `/background_jobs` (Telegram command menu) or `/background-jobs` (or `tg background-jobs`) lists currently running background jobs for your connected session(s)
+- `tg send <id> "text"`: inject text input into a running session.
+- `tg send --file <id> <path>`: send a local file to the linked channel for that session.
 
-### Setup & diagnostics
+## Camp (🏕️)
+
+`tg camp` starts a long-running control plane for launching and stopping bridged sessions directly from Telegram groups/topics.
 
 ```bash
-tg setup
-tg init   # alias
-tg pair
 tg camp
-tg doctor
-tg config
-tg logs
+tg camp --root /path/to/projects
 ```
 
-## How it works
-
-Two processes cooperate:
-
-1. CLI process (`tg claude` / `tg codex` / `tg pi` / `tg kimi`):
-- starts PTY
-- watches tool JSONL output
-- sends output to selected chat destination
-
-2. Daemon:
-- auto-starts on demand
-- receives channel messages
-- routes input into the right session
-- auto-stops after 30s idle
+- Run Camp once in your projects root (or pass `--root`).
+- In unlinked Telegram group/topic chats where the bot is present, use `/start` to launch a session flow.
+- `/start` lets you choose tool (`claude`, `codex`, `pi`, `kimi`) and project target under the configured root.
+- `/stop` stops the current chat-bound session.
+- Camp actions are owner-gated: only the paired owner can create/stop sessions.
+- Under the hood, Camp launches normal touchgrass session commands with explicit channel binding, so behavior is identical to manual `tg claude` / `tg codex` runs.
 
 ## FAQ
 
-**Does touchgrass change how Claude/Codex/PI run?**
+**Does touchgrass change how Claude/Codex/PI/Kimi run?**
 No. You still run the normal local terminal CLI.
 
 **Can I type locally and from chat at the same time?**
