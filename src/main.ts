@@ -123,7 +123,7 @@ Options (for claude/codex/pi/kimi/resume):
   stop     Stop a session (SIGTERM / remote stop request)
   kill     Kill a session (SIGKILL / remote kill request)
   links    List and manage linked groups/topics
-  setup    Set up Telegram credentials
+  setup    Set up Telegram credentials (supports --telegram <token>)
   init     Alias for setup
   pair     Generate a pairing code
   logs     Tail the daemon log
