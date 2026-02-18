@@ -3,7 +3,7 @@
 ⛳️ Use Telegram as a remote controller for Claude Code, Codex, Kimi and Pi and more. Manage your code CLIs on the go.
 
 - Runs on top of normal code CLIs commands (claude, codex, pi, kimi).
-- Prefix it with tg (for example `tg claude`) to wrap that session with Touchgrass and bridge it to chat.
+- Prefix it with `tg` (for example `tg claude`) to wrap that session with Touchgrass and bridge it to chat.
 
 ## Install
 
