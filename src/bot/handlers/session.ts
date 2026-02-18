@@ -2,11 +2,11 @@ import type { InboundMessage } from "../../channel/types";
 import type { RemoteSession } from "../../session/manager";
 import type { RouterContext } from "../command-router";
 
-type SessionTool = "claude" | "codex" | "pi";
+type SessionTool = "claude" | "codex" | "pi" | "kimi";
 
 function detectTool(command: string): SessionTool | null {
   const head = command.trim().split(/\s+/)[0]?.toLowerCase();
-  if (head === "claude" || head === "codex" || head === "pi") return head;
+  if (head === "claude" || head === "codex" || head === "pi" || head === "kimi") return head;
   return null;
 }
 
@@ -30,6 +30,9 @@ function extractResumeRef(tool: SessionTool, command: string): string | null {
   if (tool === "pi") {
     return cleanToken(command.match(/(?:^|\s)--session(?:=|\s+)([^\s]+)/i)?.[1]);
   }
+  if (tool === "kimi") {
+    return cleanToken(command.match(/(?:^|\s)(?:--session|-S)(?:=|\s+)([^\s]+)/i)?.[1]);
+  }
   return cleanToken(
     command.match(/\bresume\s+([^\s]+)/i)?.[1] ||
     command.match(/\b--resume(?:=|\s+)([^\s]+)/i)?.[1]
@@ -38,12 +41,13 @@ function extractResumeRef(tool: SessionTool, command: string): string | null {
 
 function resumeTemplate(tool: SessionTool): string {
   if (tool === "pi") return "tg pi --session <pi_session_id>";
+  if (tool === "kimi") return "tg kimi --session <kimi_session_id>";
   if (tool === "claude") return "tg claude resume <claude_session_id>";
   return "tg codex resume <codex_session_id>";
 }
 
 function resumeCommand(tool: SessionTool, sessionRef: string): string {
-  if (tool === "pi") return `tg pi --session ${sessionRef}`;
+  if (tool === "pi" || tool === "kimi") return `tg ${tool} --session ${sessionRef}`;
   return `tg ${tool} resume ${sessionRef}`;
 }
 
@@ -56,7 +60,7 @@ export async function handleSessionCommand(
   if (!remote) {
     await ctx.channel.send(
       msg.chatId,
-      `No connected session for this chat. Start with ${fmt.code("tg claude")} (or ${fmt.code("tg codex")}, ${fmt.code("tg pi")}) and connect this channel first.`
+      `No connected session for this chat. Start with ${fmt.code("tg claude")} (or ${fmt.code("tg codex")}, ${fmt.code("tg pi")}, ${fmt.code("tg kimi")}) and connect this channel first.`
     );
     return;
   }
@@ -87,4 +91,3 @@ export async function handleSessionCommand(
 
   await ctx.channel.send(msg.chatId, lines.join("\n"));
 }
-

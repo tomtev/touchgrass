@@ -93,7 +93,7 @@ export interface PendingOutputModePicker {
 export type PendingControlCenterNewOption =
   | { kind: "folder"; folderName: string }
   | { kind: "create"; folderName: string }
-  | { kind: "command"; tool: "claude" | "codex"; args: string[] }
+  | { kind: "command"; tool: "claude" | "codex" | "pi" | "kimi"; args: string[] }
   | { kind: "cancel" };
 
 export interface PendingControlCenterNewPicker {

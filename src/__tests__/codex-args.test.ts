@@ -44,6 +44,29 @@ describe("codex resume arg parsing", () => {
   });
 });
 
+describe("kimi resume arg parsing", () => {
+  it("detects --session and strips it from base args", () => {
+    const parsed = __cliRunTestUtils.parseKimiResumeArgs([
+      "--model",
+      "kimi-k2",
+      "--session",
+      "b6e5f0a5-1c85-4d8f-9dd6-5f4f18cb0f30",
+      "--yolo",
+    ]);
+
+    expect(parsed.sessionId).toBe("b6e5f0a5-1c85-4d8f-9dd6-5f4f18cb0f30");
+    expect(parsed.useContinue).toBe(false);
+    expect(parsed.baseArgs).toEqual(["--model", "kimi-k2", "--yolo"]);
+  });
+
+  it("detects --continue/-C mode", () => {
+    const parsed = __cliRunTestUtils.parseKimiResumeArgs(["-C", "--model", "kimi-k2"]);
+    expect(parsed.sessionId).toBeNull();
+    expect(parsed.useContinue).toBe(true);
+    expect(parsed.baseArgs).toEqual(["--model", "kimi-k2"]);
+  });
+});
+
 describe("remote terminal input encoding", () => {
   it("wraps chat input as bracketed paste to avoid picker shortcuts", () => {
     const encoded = __cliRunTestUtils.encodeBracketedPaste("hello @");
@@ -89,6 +112,20 @@ describe("resume restart arg building", () => {
     expect(args).toContain("google");
     expect(args.slice(-2)).toEqual(["--session", "/tmp/new.jsonl"]);
     expect(args).not.toContain("/tmp/old.jsonl");
+  });
+
+  it("uses --session for kimi and preserves other args", () => {
+    const args = __cliRunTestUtils.buildResumeCommandArgs(
+      "kimi",
+      ["--model", "kimi-k2", "--continue", "--session", "old-kimi-session"],
+      "new-kimi-session"
+    );
+
+    expect(args).toContain("--model");
+    expect(args).toContain("kimi-k2");
+    expect(args.slice(-2)).toEqual(["--session", "new-kimi-session"]);
+    expect(args).not.toContain("old-kimi-session");
+    expect(args).not.toContain("--continue");
   });
 });
 
@@ -188,6 +225,11 @@ describe("auto context injection", () => {
       "google",
     ]);
     expect(args).toEqual(["--append-system-prompt=custom-pi", "--provider", "google"]);
+  });
+
+  it("leaves kimi args unchanged (no system prompt flag available)", () => {
+    const args = __cliRunTestUtils.applyTouchgrassAutoContextArgs("kimi", ["--model", "kimi-k2", "--yolo"]);
+    expect(args).toEqual(["--model", "kimi-k2", "--yolo"]);
   });
 });
 

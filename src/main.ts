@@ -73,7 +73,8 @@ async function main() {
     }
     case "claude":
     case "codex":
-    case "pi": {
+    case "pi":
+    case "kimi": {
       const { runRun } = await import("./cli/run");
       await runRun();
       break;
@@ -90,7 +91,7 @@ async function main() {
       break;
     default: {
       console.error(`Unknown command: ${command}`);
-      console.error("Supported commands: tg setup, tg camp, tg claude, tg codex, tg pi, tg stop, tg kill");
+      console.error("Supported commands: tg setup, tg camp, tg claude, tg codex, tg pi, tg kimi, tg stop, tg kill");
       console.error(`Run "tg help" for more information.`);
       process.exit(1);
     }
@@ -107,10 +108,11 @@ Commands:
   claude   Run Claude Code with chat bridge
   codex    Run Codex with chat bridge
   pi       Run PI with chat bridge
+  kimi     Run Kimi CLI with chat bridge
   resume   Resume a recent session (picker or --last for most recent)
   camp     Run long-lived Telegram control plane for /start project sessions
 
-Options (for claude/codex/pi/resume):
+Options (for claude/codex/pi/kimi/resume):
   --channel <value>      Skip channel picker (use "dm", a chatId, or title substring)
   --last                 Skip session picker, resume most recent (resume only)
 

@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, utimesSync, writeFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
+import { createHash } from "crypto";
 import { __resumeTestUtils, handleResumeCommand } from "../bot/handlers/resume";
 import type { ResumeSessionCandidate } from "../session/manager";
 import { SessionManager } from "../session/manager";
@@ -66,6 +67,12 @@ describe("resume session discovery", () => {
         "/tmp/2026-02-11T22-17-53-914Z_4f5814e4-8823-4d1b-ba68-8dbab84c5ca4.jsonl"
       )
     ).toBe("4f5814e4-8823-4d1b-ba68-8dbab84c5ca4");
+
+    expect(
+      __resumeTestUtils.parseKimiSessionId(
+        "/tmp/.kimi/sessions/4cf85ededc494adbc6f7c889fb447b7a/399cb3b5-2e50-4a59-a6c8-e13e61f3eb7d/wire.jsonl"
+      )
+    ).toBe("399cb3b5-2e50-4a59-a6c8-e13e61f3eb7d");
   });
 
   it("reads recent sessions from home directories", () => {
@@ -124,6 +131,20 @@ describe("resume session discovery", () => {
         }) + "\n"
       );
 
+      const kimiProjectHash = createHash("md5").update("/tmp/repo").digest("hex");
+      const kimiSessionDir = join(root, ".kimi", "sessions", kimiProjectHash, "399cb3b5-2e50-4a59-a6c8-e13e61f3eb7d");
+      mkdirSync(kimiSessionDir, { recursive: true });
+      const kimiWire = join(kimiSessionDir, "wire.jsonl");
+      writeFileSync(
+        kimiWire,
+        JSON.stringify({ type: "metadata", protocol_version: "1.1" }) + "\n" +
+          JSON.stringify({
+            timestamp: 1,
+            message: { type: "TextPart", payload: { type: "text", text: "kimi says hello" } },
+          }) + "\n"
+      );
+      utimesSync(kimiWire, new Date(), new Date("2026-02-15T12:00:00.000Z"));
+
       const claudeSessions = __resumeTestUtils.listRecentSessions("claude", "/tmp/repo");
       expect(claudeSessions[0]?.sessionRef).toBe("edc2331d-8b9f-46ce-a96f-caffb470df35");
       expect(claudeSessions[0]?.label).toContain("hello from claude");
@@ -139,6 +160,11 @@ describe("resume session discovery", () => {
       expect(piSessions[0]?.sessionRef).toBe(piFile);
       expect(piSessions[0]?.label).toContain("pi says hello");
       expect(piSessions[0]?.label).toContain("ago:");
+
+      const kimiSessions = __resumeTestUtils.listRecentSessions("kimi", "/tmp/repo");
+      expect(kimiSessions[0]?.sessionRef).toBe("399cb3b5-2e50-4a59-a6c8-e13e61f3eb7d");
+      expect(kimiSessions[0]?.label).toContain("kimi says hello");
+      expect(kimiSessions[0]?.label).toContain("ago:");
     } finally {
       process.env.HOME = originalHome;
       rmSync(root, { recursive: true, force: true });
@@ -177,6 +203,17 @@ describe("resume session discovery", () => {
         }) + "\n"
       );
       expect(__resumeTestUtils.extractLastAssistantPreview("pi", piFile)).toContain("PI output");
+
+      const kimiFile = join(root, "kimi-wire.jsonl");
+      writeFileSync(
+        kimiFile,
+        JSON.stringify({ type: "metadata", protocol_version: "1.1" }) + "\n" +
+          JSON.stringify({
+            timestamp: 1,
+            message: { type: "TextPart", payload: { type: "text", text: "Kimi output line" } },
+          }) + "\n"
+      );
+      expect(__resumeTestUtils.extractLastAssistantPreview("kimi", kimiFile)).toContain("Kimi output");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -188,6 +225,7 @@ describe("resume handler", () => {
     expect(__resumeTestUtils.detectTool("claude --dangerously-skip-permissions")).toBe("claude");
     expect(__resumeTestUtils.detectTool("codex resume abc")).toBe("codex");
     expect(__resumeTestUtils.detectTool("pi --mode json")).toBe("pi");
+    expect(__resumeTestUtils.detectTool("kimi --model kimi-k2")).toBe("kimi");
     expect(__resumeTestUtils.detectTool("bash")).toBeNull();
   });
 

@@ -294,4 +294,74 @@ describe("background job parser", () => {
       },
     ]);
   });
+
+  it("flushes buffered Kimi assistant text on step boundaries", () => {
+    __cliRunTestUtils.resetParserState();
+
+    __cliRunTestUtils.parseJsonlMessage({
+      timestamp: 1,
+      message: { type: "TextPart", payload: { type: "text", text: "Hello " } },
+    });
+    __cliRunTestUtils.parseJsonlMessage({
+      timestamp: 2,
+      message: { type: "TextPart", payload: { type: "text", text: "from Kimi" } },
+    });
+
+    const parsed = __cliRunTestUtils.parseJsonlMessage({
+      timestamp: 3,
+      message: { type: "StepInterrupted", payload: {} },
+    });
+
+    expect(parsed.assistantText).toBe("Hello from Kimi");
+  });
+
+  it("parses Kimi tool calls and forwards web_search tool result output", () => {
+    __cliRunTestUtils.resetParserState();
+
+    const callParsed = __cliRunTestUtils.parseJsonlMessage({
+      timestamp: 1,
+      message: {
+        type: "ToolCall",
+        payload: {
+          type: "function",
+          id: "kimi-call-1",
+          function: {
+            name: "web_search",
+            arguments: JSON.stringify({ query: "touchgrass" }),
+          },
+        },
+      },
+    });
+    expect(callParsed.toolCalls).toEqual([
+      {
+        id: "kimi-call-1",
+        name: "web_search",
+        input: { query: "touchgrass" },
+      },
+    ]);
+
+    const resultParsed = __cliRunTestUtils.parseJsonlMessage({
+      timestamp: 2,
+      message: {
+        type: "ToolResult",
+        payload: {
+          tool_call_id: "kimi-call-1",
+          return_value: {
+            is_error: false,
+            output: "Result A\nResult B",
+            message: "",
+            display: [],
+          },
+        },
+      },
+    });
+
+    expect(resultParsed.toolResults).toEqual([
+      {
+        toolName: "web_search",
+        content: "Result A\nResult B",
+        isError: false,
+      },
+    ]);
+  });
 });

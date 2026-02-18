@@ -13,7 +13,7 @@ export async function runChannels(): Promise<void> {
   try {
     await ensureDaemon();
   } catch {
-    console.error("Daemon is not running. Start a session first (e.g. `tg claude`).");
+    console.error("Daemon is not running. Start a session first (e.g. `tg claude` or `tg kimi`).");
     process.exit(1);
   }
 

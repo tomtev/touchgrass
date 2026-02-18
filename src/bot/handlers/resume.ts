@@ -1,6 +1,7 @@
 import { closeSync, openSync, readSync, readdirSync, statSync, type Dirent } from "fs";
 import { homedir } from "os";
-import { basename, join } from "path";
+import { basename, dirname, join } from "path";
+import { createHash } from "crypto";
 import type { InboundMessage } from "../../channel/types";
 import type { RouterContext } from "../command-router";
 import type { PendingResumePickerOption, RemoteSession, ResumeSessionCandidate } from "../../session/manager";
@@ -9,11 +10,11 @@ const RESUME_BUTTON_LIMIT = 10;
 const RESUME_SEARCH_LIMIT = 500;
 const RESUME_TAIL_BYTES = 24 * 1024;
 
-export type ResumeTool = "claude" | "codex" | "pi";
+export type ResumeTool = "claude" | "codex" | "pi" | "kimi";
 
 function detectTool(command: string): ResumeTool | null {
   const head = command.trim().split(/\s+/)[0]?.toLowerCase();
-  if (head === "claude" || head === "codex" || head === "pi") return head;
+  if (head === "claude" || head === "codex" || head === "pi" || head === "kimi") return head;
   return null;
 }
 
@@ -103,6 +104,20 @@ function parseAssistantTextLine(tool: ResumeTool, line: string): string | null {
       const text = typeof payload.message === "string" ? payload.message.trim() : "";
       return text || null;
     }
+
+    if (tool === "kimi") {
+      const wire = msg.message as Record<string, unknown> | undefined;
+      const type = typeof wire?.type === "string" ? wire.type : "";
+      const payload = wire?.payload as Record<string, unknown> | undefined;
+      if (type === "TextPart") {
+        const text = typeof payload?.text === "string" ? payload.text.trim() : "";
+        return text || null;
+      }
+      if (type === "ContentPart" && payload?.type === "text") {
+        const text = typeof payload.text === "string" ? payload.text.trim() : "";
+        return text || null;
+      }
+    }
   } catch {}
   return null;
 }
@@ -134,6 +149,10 @@ function encodedPiDir(cwd: string): string {
   return "--" + cwd.replace(/^\//, "").replace(/\//g, "-") + "--";
 }
 
+function encodedKimiDir(cwd: string): string {
+  return createHash("md5").update(cwd).digest("hex");
+}
+
 function userHomeDir(): string {
   return process.env.HOME || homedir();
 }
@@ -149,6 +168,12 @@ function parsePiSessionToken(filePath: string): string {
   const base = stripJsonl(basename(filePath));
   const parts = base.split("_");
   return parts[parts.length - 1] || base;
+}
+
+function parseKimiSessionId(filePath: string): string {
+  const parent = basename(dirname(filePath));
+  if (parent && parent !== "." && parent !== "/") return parent;
+  return basename(filePath, ".jsonl");
 }
 
 function safeStatMtime(filePath: string): number {
@@ -199,6 +224,22 @@ function walkCodexJsonl(root: string, maxResults: number): string[] {
   return out;
 }
 
+function listKimiWireFiles(root: string): string[] {
+  const files: string[] = [];
+  try {
+    const entries = readdirSync(root, { withFileTypes: true, encoding: "utf8" });
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const candidate = join(root, entry.name, "wire.jsonl");
+      try {
+        const s = statSync(candidate);
+        if (s.isFile()) files.push(candidate);
+      } catch {}
+    }
+  } catch {}
+  return files;
+}
+
 function toResumeCandidates(tool: ResumeTool, files: string[]): ResumeSessionCandidate[] {
   const mapped = files.map((filePath) => {
     const mtimeMs = safeStatMtime(filePath);
@@ -214,6 +255,15 @@ function toResumeCandidates(tool: ResumeTool, files: string[]): ResumeSessionCan
 
     if (tool === "codex") {
       const sessionId = parseCodexSessionId(filePath);
+      return {
+        sessionRef: sessionId,
+        label: buildLabel(sessionId, mtimeMs, preview),
+        mtimeMs,
+      } satisfies ResumeSessionCandidate;
+    }
+
+    if (tool === "kimi") {
+      const sessionId = parseKimiSessionId(filePath);
       return {
         sessionRef: sessionId,
         label: buildLabel(sessionId, mtimeMs, preview),
@@ -246,6 +296,11 @@ export function listRecentSessions(tool: ResumeTool, cwd: string): ResumeSession
   if (tool === "pi") {
     const dir = join(userHomeDir(), ".pi", "agent", "sessions", encodedPiDir(cleanCwd));
     return toResumeCandidates(tool, listJsonlFiles(dir));
+  }
+
+  if (tool === "kimi") {
+    const dir = join(userHomeDir(), ".kimi", "sessions", encodedKimiDir(cleanCwd));
+    return toResumeCandidates(tool, listKimiWireFiles(dir));
   }
 
   const root = join(userHomeDir(), ".codex", "sessions");
@@ -314,6 +369,7 @@ export const __resumeTestUtils = {
   listRecentSessions,
   normalizePreview,
   parseCodexSessionId,
+  parseKimiSessionId,
   parseAssistantTextLine,
   parsePiSessionToken,
 };
@@ -330,14 +386,14 @@ export async function handleResumeCommand(
   if (!remote) {
     await ctx.channel.send(
       chatId,
-      `No connected session for this chat. Start with ${fmt.code("tg claude")} (or ${fmt.code("tg codex")}, ${fmt.code("tg pi")}) and connect this channel first.`
+      `No connected session for this chat. Start with ${fmt.code("tg claude")} (or ${fmt.code("tg codex")}, ${fmt.code("tg pi")}, ${fmt.code("tg kimi")}) and connect this channel first.`
     );
     return;
   }
 
   const tool = detectTool(remote.command);
   if (!tool) {
-    await ctx.channel.send(chatId, "Resume picker currently supports Claude, Codex, and PI sessions.");
+    await ctx.channel.send(chatId, "Resume picker currently supports Claude, Codex, PI, and Kimi sessions.");
     return;
   }
 

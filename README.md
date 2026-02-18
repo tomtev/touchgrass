@@ -3,7 +3,7 @@
 Remote control Claude Code, Codex and more with Telegram.
 
 touchgrass is terminal-first:
-- you run the real CLI locally (`claude`, `codex`, `pi`)
+- you run the real CLI locally (`claude`, `codex`, `pi`, `kimi`)
 - touchgrass bridges input/output to chat
 
 ## Install
@@ -20,50 +20,41 @@ Windows (PowerShell):
 irm https://raw.githubusercontent.com/tomtev/touchgrass/main/install.ps1 | iex
 ```
 
-## Quick start
-
-```bash
-tg setup
-tg pair
-tg claude
-```
-
-Camp mode (multi-project launcher):
-
-```bash
-tg camp --root ~/Dev
-```
-
-Current channels:
-- Telegram
-
 ## Setup
 
-1. Configure channel credentials:
+1. Create a Telegram bot and copy its token:
+- Open [@BotFather](https://t.me/BotFather)
+- Run `/newbot` and complete bot creation
+- Copy the bot token
+
+2. Configure channel credentials:
 
 ```bash
 tg setup
 # (or: tg init)
 ```
 
-2. Generate a pairing code:
+3. Generate a pairing code:
 
 ```bash
 tg pair
 ```
 
-3. Pair from your chat:
+4. Pair from your chat:
 - Telegram: `/pair <code>`
 
-4. Optional group/channel/thread linking:
+5. Optional group/channel/thread linking:
 - Use `/link` or `tg link` inside the group/thread you want as a destination
 
-5. Start a bridged terminal session:
+6. Start a bridged terminal session:
 
 ```bash
 tg claude
+tg claude --dangerously-skip-permissions
 tg codex
+tg codex --dangerously-bypass-approvals-and-sandbox
 tg pi
+tg kimi
 ```
 
 ## Channel setup guide
@@ -86,6 +77,7 @@ Group note:
 tg claude [args]
 tg codex [args]
 tg pi [args]
+tg kimi [args]
 tg camp [--root /path]
 ```
 
@@ -94,15 +86,16 @@ tg camp [--root /path]
 `tg camp` runs a long-lived control plane for Telegram groups/topics.
 
 - Start it once from your projects root (or pass `--root /path`).
-- In Telegram groups/topics, use `/start claude|codex|pi [project-name]` to launch a new session.
+- In Telegram groups/topics, use `/start claude|codex|pi|kimi [project-name]` to launch a new session.
 - Use `/stop` to stop the current chat-bound session.
 - Only the paired owner account can start/stop Camp sessions.
 - If Camp is not running, `/start` replies with a `tg camp` hint.
 - Under the hood Camp spawns normal touchgrass commands with channel binding (for example `tg claude --channel <chatId>`), so session behavior stays consistent.
 
-touchgrass auto-appends a small bridge context for all three:
+touchgrass auto-appends a small bridge context when the CLI supports direct prompt/config injection:
 - `claude` / `pi`: `--append-system-prompt "<touchgrass bridge context>"`
 - `codex`: `-c developer_instructions="<touchgrass bridge context>"`
+- `kimi`: currently no equivalent flag, so touchgrass leaves args unchanged.
 - The context tells the tool it is running inside a `tg` wrapper and users may communicate through Telegram now and other channels over time
 - It includes send-back helpers: `tg send $TG_SESSION_ID "text"` and `tg send --file $TG_SESSION_ID <path>`
 - If you already pass your own `--append-system-prompt` (Claude/PI) or `developer_instructions` config (Codex), touchgrass does not add a second one.
@@ -162,7 +155,7 @@ tg logs
 
 Two processes cooperate:
 
-1. CLI process (`tg claude` / `tg codex` / `tg pi`):
+1. CLI process (`tg claude` / `tg codex` / `tg pi` / `tg kimi`):
 - starts PTY
 - watches tool JSONL output
 - sends output to selected chat destination
@@ -188,7 +181,7 @@ No. This project is focused on remote terminal control only.
 
 - Bun runtime
 - Telegram account
-- Local Claude/Codex/PI CLI installed
+- Local Claude/Codex/PI/Kimi CLI installed
 
 ## License
 

@@ -3,7 +3,7 @@
 ## What This Project Does
 
 touchgrass is a terminal bridge for controlling local AI CLI sessions from chat.
-Its core product goal is to be the best possible remote controller for Claude Code, Codex, PI, and similar terminal-first AI tools.
+Its core product goal is to be the best possible remote controller for Claude Code, Codex, PI, Kimi, and similar terminal-first AI tools.
 Users can build personal agents on top of touchgrass by defining behavior in `AGENTS.md` (without needing a separate agent runtime flag).
 
 Supported channels:
@@ -25,6 +25,7 @@ bun run src/main.ts camp [--root /path]
 bun run src/main.ts claude
 bun run src/main.ts codex
 bun run src/main.ts pi
+bun run src/main.ts kimi
 
 bun run src/main.ts send <session_id> "text"
 bun run src/main.ts send --file <session_id> <path>
@@ -48,18 +49,18 @@ Telegram chat shorthands:
 - Command: `bun run src/main.ts camp [--root /path]`
 - Purpose: long-lived Telegram control plane for launching project sessions from chat.
 - Chat controls:
-  - `/start claude|codex|pi [project-name]` starts a session in the camp root.
+  - `/start claude|codex|pi|kimi [project-name]` starts a session in the camp root.
   - `/stop` stops the current chat-bound session.
 - Ownership:
   - only the paired owner account can create new camp sessions.
   - if camp is not active, `/start` returns a `tg camp` hint.
 - Runtime behavior:
-  - Camp launches normal `tg claude/codex/pi --channel <chatId>` commands under the hood.
+  - Camp launches normal `tg claude/codex/pi/kimi --channel <chatId>` commands under the hood.
   - spawned sessions behave like normal touchgrass sessions (same routing/output rules).
 
 ## Architecture
 
-1. CLI process (`tg claude/codex/pi`):
+1. CLI process (`tg claude/codex/pi/kimi`):
 - spawns PTY
 - watches JSONL outputs
 - bridges tool output to chat

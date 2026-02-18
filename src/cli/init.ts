@@ -122,7 +122,7 @@ export async function runInit(): Promise<void> {
     console.log("  1. tg pair      Generate a pairing code");
     console.log("  2. Send /pair <code> to your bot in Telegram");
     console.log("  3. (Optional) In Telegram groups/topics, send /link");
-    console.log("  4. tg claude    Start Claude with chat bridge");
+    console.log("  4. tg claude    (or tg codex, tg pi, tg kimi) Start with chat bridge");
   } finally {
     rl.close();
   }

@@ -223,7 +223,7 @@ describe("camp chat commands", () => {
 
     expect(sent).toHaveLength(1);
     expect(sent[0]).toContain("Usage");
-    expect(sent[0]).toContain("/start claude|codex|pi");
+    expect(sent[0]).toContain("/start claude|codex|pi|kimi");
   });
 
   it("shows usage for /start@BotName without args", async () => {
@@ -246,7 +246,7 @@ describe("camp chat commands", () => {
 
     expect(sent).toHaveLength(1);
     expect(sent[0]).toContain("Usage");
-    expect(sent[0]).toContain("/start claude|codex|pi");
+    expect(sent[0]).toContain("/start claude|codex|pi|kimi");
   });
 
   it("/stop uses chat-bound stop callback", async () => {

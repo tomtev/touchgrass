@@ -23,7 +23,7 @@ import { logger } from "../daemon/logger";
 interface StartControlCenterSessionArgs {
   chatId: ChannelChatId;
   userId: ChannelUserId;
-  tool: "claude" | "codex" | "pi";
+  tool: "claude" | "codex" | "pi" | "kimi";
   projectName?: string;
   toolArgs?: string[];
 }
@@ -299,9 +299,9 @@ export async function routeMessage(
       ? text.slice("/new".length).trim()
       : text.slice("/start".length).trim();
     const tokens = argsRaw ? argsRaw.split(/\s+/).filter(Boolean) : [];
-    let requestedTool: "claude" | "codex" | "pi" | undefined;
-    if (tokens[0] && ["claude", "codex", "pi"].includes(tokens[0].toLowerCase())) {
-      requestedTool = tokens.shift()!.toLowerCase() as "claude" | "codex" | "pi";
+    let requestedTool: "claude" | "codex" | "pi" | "kimi" | undefined;
+    if (tokens[0] && ["claude", "codex", "pi", "kimi"].includes(tokens[0].toLowerCase())) {
+      requestedTool = tokens.shift()!.toLowerCase() as "claude" | "codex" | "pi" | "kimi";
     }
     const suggestedProjectName = tokens.join(" ").trim() || msg.topicTitle || msg.chatTitle || undefined;
 
@@ -324,7 +324,7 @@ export async function routeMessage(
     if (!requestedTool) {
       await ctx.channel.send(
         chatId,
-        `${fmt.escape("⛳️")} Usage: ${fmt.code("/start claude|codex|pi [project-name]")}`
+        `${fmt.escape("⛳️")} Usage: ${fmt.code("/start claude|codex|pi|kimi [project-name]")}`
       );
       return;
     }
@@ -469,7 +469,7 @@ export async function routeMessage(
 
       await ctx.channel.send(
       chatId,
-      `Unknown command. Use ${fmt.code("tg files [query]")}, ${fmt.code("tg session")}, ${fmt.code("tg resume")}, ${fmt.code("tg output_mode simple|verbose")}, ${fmt.code("tg thinking on|off|toggle")}, ${fmt.code("tg start [claude|codex|pi] [project]")}, ${fmt.code("tg stop")}, ${fmt.code("tg background-jobs")}, ${fmt.code("tg attach <id>")}, ${fmt.code("tg detach")}, ${fmt.code("tg stop <id>")}, or ${fmt.code("tg kill <id>")}. Start sessions from your terminal with ${fmt.code("tg claude")}, ${fmt.code("tg codex")}, or ${fmt.code("tg pi")}.`
+      `Unknown command. Use ${fmt.code("tg files [query]")}, ${fmt.code("tg session")}, ${fmt.code("tg resume")}, ${fmt.code("tg output_mode simple|verbose")}, ${fmt.code("tg thinking on|off|toggle")}, ${fmt.code("tg start [claude|codex|pi|kimi] [project]")}, ${fmt.code("tg stop")}, ${fmt.code("tg background-jobs")}, ${fmt.code("tg attach <id>")}, ${fmt.code("tg detach")}, ${fmt.code("tg stop <id>")}, or ${fmt.code("tg kill <id>")}. Start sessions from your terminal with ${fmt.code("tg claude")}, ${fmt.code("tg codex")}, ${fmt.code("tg pi")}, or ${fmt.code("tg kimi")}.`
     );
     return;
   }

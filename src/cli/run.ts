@@ -11,6 +11,7 @@ import { watch, readdirSync, statSync, readFileSync, type FSWatcher } from "fs";
 import { chmod, open, writeFile, unlink } from "fs/promises";
 import { homedir, platform } from "os";
 import { join } from "path";
+import { createHash } from "crypto";
 import { parseRemoteControlAction } from "../session/remote-control";
 import touchgrassAutoContext from "../prompts/touchgrass-context.md" with { type: "text" };
 
@@ -25,6 +26,7 @@ const APPROVAL_PATTERNS: Record<string, { promptText: string; optionText: string
   claude: { promptText: "Do you want to", optionText: "1. Yes" },
   codex: { promptText: "Would you like to run the following command", optionText: "1. Yes, proceed" },
   // pi: { promptText: "...", optionText: "..." },
+  // kimi: { promptText: "...", optionText: "..." },
 };
 
 // Test-only accessors for CLI arg parsing behavior.
@@ -32,6 +34,7 @@ export const __cliRunTestUtils = {
   encodeBracketedPaste,
   buildResumeCommandArgs,
   parseCodexResumeArgs,
+  parseKimiResumeArgs,
   applyTouchgrassAutoContextArgs,
   validateRunSetupPreflight,
   parseJsonlMessage,
@@ -39,6 +42,8 @@ export const __cliRunTestUtils = {
     toolUseIdToName.clear();
     toolUseIdToInput.clear();
     codexSessionIdToCommand.clear();
+    kimiAssistantTextBuffer.length = 0;
+    kimiAssistantThinkingBuffer.length = 0;
   },
 };
 
@@ -241,6 +246,7 @@ const SUPPORTED_COMMANDS: Record<string, string[]> = {
   claude: ["claude"],
   codex: ["codex"],
   pi: ["pi"],
+  kimi: ["kimi"],
 };
 
 const TOUCHGRASS_AUTO_CONTEXT = touchgrassAutoContext.trim();
@@ -272,13 +278,18 @@ function hasCodexConfigKey(args: string[], key: string): boolean {
   return false;
 }
 
-type SupportedCommand = "claude" | "codex" | "pi";
+type SupportedCommand = "claude" | "codex" | "pi" | "kimi";
 
 function applyTouchgrassAutoContextArgs(
   command: SupportedCommand,
   args: string[],
   context: string = TOUCHGRASS_AUTO_CONTEXT
 ): string[] {
+  if (command === "kimi") {
+    // Kimi CLI does not currently expose a direct system-prompt append flag.
+    return args;
+  }
+
   if (command === "codex") {
     if (hasCodexConfigKey(args, "developer_instructions")) return args;
     return ["-c", `developer_instructions=${JSON.stringify(context)}`, ...args];
@@ -303,6 +314,11 @@ function getSessionDir(command: string): string {
     // PI session path: ~/.pi/agent/sessions/--<encoded-cwd>--/
     const encoded = "--" + cwd.replace(/^\//, "").replace(/\//g, "-") + "--";
     return join(homedir(), ".pi", "agent", "sessions", encoded);
+  }
+  if (command === "kimi") {
+    // Kimi: ~/.kimi/sessions/<md5(cwd)>/<session-id>/wire.jsonl
+    const encoded = createHash("md5").update(cwd).digest("hex");
+    return join(homedir(), ".kimi", "sessions", encoded);
   }
   // Claude: ~/.claude/projects/<encoded-cwd>/
   const encoded = cwd.replace(/\//g, "-");
@@ -368,9 +384,9 @@ const codexSessionIdToCommand = new Map<string, string>();
 
 // Only forward results for tools where the output is useful to see on Telegram
 const FORWARD_RESULT_TOOLS = new Set([
-  "WebFetch", "WebSearch", "Bash",   // Claude
-  "bash",                             // PI
-  "exec_command",                     // Codex
+  "WebFetch", "WebSearch", "Bash", // Claude
+  "web_fetch", "web_search", "bash", // PI / Kimi
+  "exec_command", // Codex
 ]);
 
 // Tool rejections the user already sees in their terminal — don't echo to Telegram
@@ -492,6 +508,47 @@ function detectCodexExitStatus(output: string): BackgroundJobEventInfo["status"]
   return null;
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function extractTextFromContentPart(value: unknown): string {
+  if (!value) return "";
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) {
+    const parts = value
+      .map((item) => {
+        const rec = asRecord(item);
+        if (!rec) return "";
+        if (typeof rec.text === "string") return rec.text;
+        if (typeof rec.think === "string") return rec.think;
+        return "";
+      })
+      .filter(Boolean);
+    return parts.join("\n").trim();
+  }
+  const rec = asRecord(value);
+  if (!rec) return "";
+  if (typeof rec.text === "string") return rec.text;
+  if (typeof rec.think === "string") return rec.think;
+  return "";
+}
+
+function extractKimiToolResultText(returnValue: Record<string, unknown> | null): string {
+  if (!returnValue) return "";
+  const chunks: string[] = [];
+  if (typeof returnValue.message === "string" && returnValue.message.trim()) {
+    chunks.push(returnValue.message.trim());
+  }
+  const outputText = extractTextFromContentPart(returnValue.output);
+  if (outputText) chunks.push(outputText);
+  return chunks.join("\n").trim();
+}
+
+const kimiAssistantTextBuffer: string[] = [];
+const kimiAssistantThinkingBuffer: string[] = [];
+
 function parseJsonlMessage(msg: Record<string, unknown>): ParsedMessage {
   // Claude assistant — text, thinking, tool calls, and questions in one loop
   if (msg.type === "assistant") {
@@ -534,6 +591,103 @@ function parseJsonlMessage(msg: Record<string, unknown>): ParsedMessage {
     const assistantText = texts.join("\n").trim() || null;
     const thinking = thinkings.join("\n").trim() || null;
     return { assistantText, thinking, questions, toolCalls, toolResults: [], backgroundJobEvents: [] };
+  }
+
+  // Kimi wire.jsonl format — {"timestamp": ..., "message": {"type": "...", "payload": {...}}}
+  const wireMessage = asRecord(msg.message);
+  const wireType = typeof wireMessage?.type === "string" ? wireMessage.type : "";
+  const wirePayload = asRecord(wireMessage?.payload);
+  if (wireType && wirePayload) {
+    // Step boundaries flush buffered assistant text/thinking so we send cohesive chunks.
+    if (wireType === "StepBegin" || wireType === "StepInterrupted" || wireType === "TurnBegin") {
+      const assistantText = kimiAssistantTextBuffer.join("").trim() || null;
+      const thinking = kimiAssistantThinkingBuffer.join("").trim() || null;
+      kimiAssistantTextBuffer.length = 0;
+      kimiAssistantThinkingBuffer.length = 0;
+      if (!assistantText && !thinking) return EMPTY_PARSED;
+      return { assistantText, thinking, questions: null, toolCalls: [], toolResults: [], backgroundJobEvents: [] };
+    }
+
+    const payloadPartType = typeof wirePayload.type === "string" ? wirePayload.type : "";
+    if (wireType === "TextPart" || (wireType === "ContentPart" && payloadPartType === "text")) {
+      const text = typeof wirePayload.text === "string" ? wirePayload.text : "";
+      if (text) kimiAssistantTextBuffer.push(text);
+      return EMPTY_PARSED;
+    }
+
+    if (wireType === "ThinkPart" || (wireType === "ContentPart" && payloadPartType === "think")) {
+      const text = typeof wirePayload.think === "string" ? wirePayload.think : "";
+      if (text) kimiAssistantThinkingBuffer.push(text);
+      return EMPTY_PARSED;
+    }
+
+    if (wireType === "ToolCall") {
+      const callId = typeof wirePayload.id === "string" ? wirePayload.id : "";
+      const fn = asRecord(wirePayload.function);
+      const name = typeof fn?.name === "string" ? fn.name : "";
+      if (!name) return EMPTY_PARSED;
+      let input: Record<string, unknown> = {};
+      if (typeof fn?.arguments === "string" && fn.arguments.trim()) {
+        try {
+          input = JSON.parse(fn.arguments) as Record<string, unknown>;
+        } catch {
+          input = { arguments: fn.arguments };
+        }
+      }
+      if (callId) {
+        toolUseIdToName.set(callId, name);
+        toolUseIdToInput.set(callId, input);
+      }
+      capIdMap();
+      return { ...EMPTY_PARSED, toolCalls: [{ id: callId, name, input }] };
+    }
+
+    if (wireType === "ToolResult") {
+      const callId = typeof wirePayload.tool_call_id === "string" ? wirePayload.tool_call_id : "";
+      const toolName = callId ? toolUseIdToName.get(callId) ?? "" : "";
+      const returnValue = asRecord(wirePayload.return_value);
+      const isError = returnValue?.is_error === true;
+      const content = extractKimiToolResultText(returnValue);
+
+      const backgroundJobEvents: BackgroundJobEventInfo[] = [];
+      const input = callId ? toolUseIdToInput.get(callId) : undefined;
+      const command = typeof input?.command === "string"
+        ? input.command
+        : typeof input?.cmd === "string"
+        ? input.cmd
+        : undefined;
+      if (content) {
+        const stoppedTask = extractStoppedTaskFromResult(content);
+        if (stoppedTask?.taskId) {
+          backgroundJobEvents.push({
+            taskId: stoppedTask.taskId,
+            status: "killed",
+            command: stoppedTask.command || command,
+            urls: mergeUrls(extractUrls(content), inferUrlsFromCommand(stoppedTask.command || command)),
+          });
+        }
+        const startedId = content.match(/Command running in background with ID:\s*([A-Za-z0-9_-]+)/i)?.[1];
+        if (startedId) {
+          backgroundJobEvents.push({
+            taskId: startedId,
+            status: "running",
+            command,
+            urls: mergeUrls(extractUrls(content), inferUrlsFromCommand(command)),
+          });
+        }
+      }
+
+      if (isError && isToolRejection(content)) return EMPTY_PARSED;
+      const toolResults: ToolResultInfo[] = [];
+      const shouldForwardToolResult = isError || FORWARD_RESULT_TOOLS.has(toolName);
+      if (content && shouldForwardToolResult) {
+        toolResults.push({ toolName: toolName || "unknown", content, isError });
+      }
+      if (toolResults.length === 0 && backgroundJobEvents.length === 0) return EMPTY_PARSED;
+      return { ...EMPTY_PARSED, toolResults, backgroundJobEvents };
+    }
+
+    return EMPTY_PARSED;
   }
 
   // PI format — role determines assistant vs tool result
@@ -1207,6 +1361,96 @@ function findLatestCodexSessionFile(): string | null {
   return newestPath;
 }
 
+interface ParsedKimiResumeArgs {
+  baseArgs: string[];
+  sessionId: string | null;
+  useContinue: boolean;
+}
+
+function parseKimiResumeArgs(args: string[]): ParsedKimiResumeArgs {
+  let sessionId: string | null = null;
+  let useContinue = false;
+  const baseArgs: string[] = [];
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+
+    if (arg === "--session" || arg === "-S") {
+      const next = args[i + 1];
+      if (next && !next.startsWith("-")) {
+        sessionId = next;
+        i++;
+      }
+      continue;
+    }
+
+    if (arg.startsWith("--session=")) {
+      const value = arg.slice("--session=".length).trim();
+      if (value) sessionId = value;
+      continue;
+    }
+
+    if (arg.startsWith("-S=")) {
+      const value = arg.slice("-S=".length).trim();
+      if (value) sessionId = value;
+      continue;
+    }
+
+    if (arg === "--continue" || arg === "-C" || arg.startsWith("--continue=") || arg.startsWith("-C=")) {
+      useContinue = true;
+      continue;
+    }
+
+    baseArgs.push(arg);
+  }
+
+  return { baseArgs, sessionId, useContinue };
+}
+
+function listKimiSessionWireFiles(kimiProjectRoot: string): string[] {
+  const files: string[] = [];
+  try {
+    for (const entry of readdirSync(kimiProjectRoot, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const candidate = join(kimiProjectRoot, entry.name, "wire.jsonl");
+      try {
+        const st = statSync(candidate);
+        if (st.isFile()) files.push(candidate);
+      } catch {}
+    }
+  } catch {}
+  return files;
+}
+
+function findKimiSessionFileById(kimiProjectRoot: string, sessionId: string): string | null {
+  if (!sessionId) return null;
+  const direct = join(kimiProjectRoot, sessionId, "wire.jsonl");
+  try {
+    const st = statSync(direct);
+    if (st.isFile()) return direct;
+  } catch {}
+
+  for (const filePath of listKimiSessionWireFiles(kimiProjectRoot)) {
+    if (filePath.includes(sessionId)) return filePath;
+  }
+  return null;
+}
+
+function findLatestKimiSessionFile(kimiProjectRoot: string): string | null {
+  let newest: string | null = null;
+  let newestMtime = 0;
+  for (const filePath of listKimiSessionWireFiles(kimiProjectRoot)) {
+    try {
+      const st = statSync(filePath);
+      if (st.mtimeMs > newestMtime) {
+        newestMtime = st.mtimeMs;
+        newest = filePath;
+      }
+    } catch {}
+  }
+  return newest;
+}
+
 function stripFlagWithOptionalValue(args: string[], longFlag: string, shortFlag?: string): string[] {
   const out: string[] = [];
   for (let i = 0; i < args.length; i++) {
@@ -1222,7 +1466,7 @@ function stripFlagWithOptionalValue(args: string[], longFlag: string, shortFlag?
 }
 
 function buildResumeCommandArgs(
-  command: "claude" | "codex" | "pi",
+  command: "claude" | "codex" | "pi" | "kimi",
   currentArgs: string[],
   sessionRef: string
 ): string[] {
@@ -1240,6 +1484,12 @@ function buildResumeCommandArgs(
     return [...parsed.baseArgs, "resume", sessionRef];
   }
 
+  if (command === "kimi") {
+    const withoutContinue = stripFlagWithOptionalValue(currentArgs, "--continue", "-C");
+    const withoutSession = stripFlagWithOptionalValue(withoutContinue, "--session", "-S");
+    return [...withoutSession, "--session", sessionRef];
+  }
+
   const withoutContinue = stripFlagWithOptionalValue(currentArgs, "--continue", "-c");
   const withoutResume = stripFlagWithOptionalValue(withoutContinue, "--resume", "-r");
   const withoutSession = stripFlagWithOptionalValue(withoutResume, "--session");
@@ -1247,12 +1497,12 @@ function buildResumeCommandArgs(
 }
 
 export async function runRun(): Promise<void> {
-  // Determine command: `tg claude [args]` or `tg codex [args]`
+  // Determine command: `tg claude [args]`, `tg codex [args]`, `tg pi [args]`, or `tg kimi [args]`
   const cmdName = process.argv[2];
   let cmdArgs = process.argv.slice(3);
 
   if (!cmdName || !SUPPORTED_COMMANDS[cmdName]) {
-    console.error(`Usage: tg claude [args...], tg codex [args...], or tg pi [args...]`);
+    console.error(`Usage: tg claude [args...], tg codex [args...], tg pi [args...], or tg kimi [args...]`);
     process.exit(1);
   }
 
@@ -1473,25 +1723,49 @@ export async function runRun(): Promise<void> {
     // - Claude: --resume <session-id>
     // - Codex: resume <session-id>
     // - PI: --continue/-c (latest session), --session <path>
+    // - Kimi: --session <session-id>, --continue/-C (latest session)
     let resumeSessionFile: string | null = null;
 
     // Snapshot existing JSONL files BEFORE spawning so the tool's new file is detected
     const projectDir = channel && chatId ? getSessionDir(cmdName) : "";
     const existingFiles = new Set<string>();
     if (projectDir) {
-      try {
-        for (const f of readdirSync(projectDir)) {
-          if (f.endsWith(".jsonl")) existingFiles.add(f);
+      if (cmdName === "kimi") {
+        for (const filePath of listKimiSessionWireFiles(projectDir)) {
+          existingFiles.add(filePath);
         }
-      } catch {}
+      } else {
+        try {
+          for (const f of readdirSync(projectDir)) {
+            if (f.endsWith(".jsonl")) existingFiles.add(f);
+          }
+        } catch {}
+      }
 
       // Check for resume session ID in args
       let resumeId: string | null = null;
       let codexResumeLast = false;
+      let kimiResumeContinue = false;
       if (cmdName === "codex") {
         const parsed = parseCodexResumeArgs(cmdArgs);
         resumeId = parsed.resumeId;
         codexResumeLast = parsed.useResumeLast;
+      } else if (cmdName === "kimi") {
+        const parsed = parseKimiResumeArgs(cmdArgs);
+        resumeId = parsed.sessionId;
+        kimiResumeContinue = parsed.useContinue;
+      } else if (cmdName === "pi") {
+        const sessionIdx = cmdArgs.findIndex((a) => a === "--session");
+        if (sessionIdx !== -1 && sessionIdx + 1 < cmdArgs.length) {
+          resumeId = cmdArgs[sessionIdx + 1];
+        }
+        if (!resumeId) {
+          const sessionEq = cmdArgs.find((a) => a.startsWith("--session="));
+          if (sessionEq) {
+            const value = sessionEq.slice("--session=".length);
+            if (value) resumeId = value;
+          }
+        }
       } else {
         const resumeIdx = cmdArgs.findIndex((a) => a === "--resume" || a === "-r");
         if (resumeIdx !== -1 && resumeIdx + 1 < cmdArgs.length) {
@@ -1509,21 +1783,44 @@ export async function runRun(): Promise<void> {
       if (resumeId) {
         // Search for JSONL file matching the session ID
         try {
-          // Claude/PI: <id>.jsonl in project dir, or filename contains ID
-          if (existingFiles.has(`${resumeId}.jsonl`)) {
-            resumeSessionFile = join(projectDir, `${resumeId}.jsonl`);
-          } else {
-            for (const f of existingFiles) {
-              if (f.includes(resumeId)) {
-                resumeSessionFile = join(projectDir, f);
-                break;
+          if (cmdName === "kimi") {
+            resumeSessionFile = findKimiSessionFileById(projectDir, resumeId);
+          } else if (cmdName === "pi") {
+            const candidate = resumeId.endsWith(".jsonl")
+              ? (resumeId.startsWith("/") ? resumeId : join(projectDir, resumeId))
+              : "";
+            if (candidate) {
+              try {
+                const st = statSync(candidate);
+                if (st.isFile()) resumeSessionFile = candidate;
+              } catch {}
+            }
+            if (!resumeSessionFile) {
+              // PI fallback: filename match in project dir.
+              for (const f of existingFiles) {
+                if (f.includes(resumeId)) {
+                  resumeSessionFile = join(projectDir, f);
+                  break;
+                }
               }
             }
-          }
+          } else {
+            // Claude: <id>.jsonl in project dir, or filename contains ID
+            if (existingFiles.has(`${resumeId}.jsonl`)) {
+              resumeSessionFile = join(projectDir, `${resumeId}.jsonl`);
+            } else {
+              for (const f of existingFiles) {
+                if (f.includes(resumeId)) {
+                  resumeSessionFile = join(projectDir, f);
+                  break;
+                }
+              }
+            }
 
-          // Codex: session may be in a different date directory — search recursively
-          if (!resumeSessionFile && cmdName === "codex") {
-            resumeSessionFile = findCodexSessionFileById(resumeId);
+            // Codex: session may be in a different date directory — search recursively
+            if (!resumeSessionFile && cmdName === "codex") {
+              resumeSessionFile = findCodexSessionFileById(resumeId);
+            }
           }
         } catch {}
       }
@@ -1533,8 +1830,13 @@ export async function runRun(): Promise<void> {
         resumeSessionFile = findLatestCodexSessionFile();
       }
 
+      // Kimi --continue/-C should tail whichever session file was active most recently.
+      if (!resumeSessionFile && cmdName === "kimi" && kimiResumeContinue) {
+        resumeSessionFile = findLatestKimiSessionFile(projectDir);
+      }
+
       // PI --continue/-c: use the most recent JSONL file
-      if (!resumeSessionFile && (cmdArgs.includes("--continue") || cmdArgs.includes("-c"))) {
+      if (!resumeSessionFile && cmdName === "pi" && (cmdArgs.includes("--continue") || cmdArgs.includes("-c"))) {
         try {
           let newest = "";
           let newestMtime = 0;
@@ -1809,6 +2111,28 @@ export async function runRun(): Promise<void> {
 
       // Check for files that appeared between snapshot and now (e.g. PI creates file at startup)
       const checkForNewFiles = () => {
+        if (cmdName === "kimi") {
+          try {
+            const unseen = listKimiSessionWireFiles(projectDir)
+              .filter((filePath) => !existingFiles.has(filePath))
+              .sort((a, b) => {
+                let aMtime = 0;
+                let bMtime = 0;
+                try { aMtime = statSync(a).mtimeMs; } catch {}
+                try { bMtime = statSync(b).mtimeMs; } catch {}
+                return bMtime - aMtime;
+              });
+            for (const filePath of unseen) {
+              existingFiles.add(filePath);
+              if (!watcherRef.current) {
+                startFileWatch(filePath);
+                return;
+              }
+            }
+          } catch {}
+          return;
+        }
+
         try {
           for (const f of readdirSync(projectDir)) {
             if (!f.endsWith(".jsonl")) continue;
@@ -1826,17 +2150,23 @@ export async function runRun(): Promise<void> {
 
       // Watch the project directory for new .jsonl files
       try {
-        watcherRef.dir = watch(projectDir, (_event, filename) => {
-          if (!filename?.endsWith(".jsonl")) return;
-          if (existingFiles.has(filename)) return;
-          existingFiles.add(filename);
-          const filePath = join(projectDir, filename);
-          if (!watcherRef.current) {
-            startFileWatch(filePath);
-            return;
-          }
-          maybeSwitchToRolloverSession(filePath);
-        });
+        if (cmdName === "kimi") {
+          watcherRef.dir = watch(projectDir, () => {
+            checkForNewFiles();
+          });
+        } else {
+          watcherRef.dir = watch(projectDir, (_event, filename) => {
+            if (!filename?.endsWith(".jsonl")) return;
+            if (existingFiles.has(filename)) return;
+            existingFiles.add(filename);
+            const filePath = join(projectDir, filename);
+            if (!watcherRef.current) {
+              startFileWatch(filePath);
+              return;
+            }
+            maybeSwitchToRolloverSession(filePath);
+          });
+        }
       } catch {}
 
       // Immediate check + periodic poll for tools that create files before watcher is ready
@@ -1850,8 +2180,8 @@ export async function runRun(): Promise<void> {
       }, 500);
       setTimeout(() => clearInterval(bootstrapScanTimer), 30_000);
 
-      // Keep scanning for Claude rollovers (plan-mode handoff can create a new session file).
-      if (cmdName === "claude") {
+      // Keep scanning for Claude rollovers and Kimi nested session files.
+      if (cmdName === "claude" || cmdName === "kimi") {
         dirScanTimer = setInterval(() => {
           checkForNewFiles();
         }, 2000);
@@ -2001,7 +2331,7 @@ export async function runRun(): Promise<void> {
     if (watcherRef.dir) watcherRef.dir.close();
 
     if (requestedResumeSessionRef) {
-      cmdArgs = buildResumeCommandArgs(cmdName as "claude" | "codex" | "pi", cmdArgs, requestedResumeSessionRef);
+      cmdArgs = buildResumeCommandArgs(cmdName as "claude" | "codex" | "pi" | "kimi", cmdArgs, requestedResumeSessionRef);
       continue;
     }
 

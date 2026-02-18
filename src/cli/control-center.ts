@@ -41,7 +41,7 @@ function buildStartNotice(rootDir: string): string {
     `Root: ${rootDir}`,
     "",
     "How to use:",
-    "/start claude|codex|pi [project-name]",
+    "/start claude|codex|pi|kimi [project-name]",
     "/stop",
     "",
     "Only the owner can start/stop Camp sessions.",

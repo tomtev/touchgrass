@@ -2,7 +2,7 @@ import { listRecentSessions, type ResumeTool } from "../bot/handlers/resume";
 import type { ResumeSessionCandidate } from "../session/manager";
 import { terminalPicker } from "./run";
 
-const TOOLS: ResumeTool[] = ["claude", "codex", "pi"];
+const TOOLS: ResumeTool[] = ["claude", "codex", "pi", "kimi"];
 const MAX_PICKER_OPTIONS = 20;
 
 interface ToolSession extends ResumeSessionCandidate {
@@ -27,6 +27,8 @@ function launchTool(tool: ResumeTool, sessionRef: string, channelFlag: string | 
     argv.push("--resume", sessionRef);
   } else if (tool === "codex") {
     argv.push("resume", sessionRef);
+  } else if (tool === "kimi") {
+    argv.push("--session", sessionRef);
   } else {
     argv.push("--session", sessionRef);
   }
