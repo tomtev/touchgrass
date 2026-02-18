@@ -20,7 +20,6 @@ Supported channels:
 ```bash
 bun run src/main.ts setup      # configure channel credentials (init alias exists)
 bun run src/main.ts pair       # generate pairing code
-bun run src/main.ts camp [--root /path]
 
 bun run src/main.ts claude
 bun run src/main.ts codex
@@ -43,20 +42,6 @@ Telegram chat shorthands:
 - `@?<query>` is shorthand for the same picker
 - `@?<query> - <prompt>` auto-resolves top fuzzy match and sends `@path - prompt`
 - `/resume` or `tg resume` opens a picker of recent local sessions and restarts the same tool on the selected session
-
-## Touchgrass Camp
-
-- Command: `bun run src/main.ts camp [--root /path]`
-- Purpose: long-lived Telegram control plane for launching project sessions from chat.
-- Chat controls:
-  - `/start claude|codex|pi|kimi [project-name]` starts a session in the camp root.
-  - `/kill` kills the current chat-bound session process.
-- Ownership:
-  - only the paired owner account can create new camp sessions.
-  - if camp is not active, `/start` returns a `tg camp` hint.
-- Runtime behavior:
-  - Camp launches normal `tg claude/codex/pi/kimi --channel <chatId>` commands under the hood.
-  - spawned sessions behave like normal touchgrass sessions (same routing/output rules).
 
 ## Architecture
 

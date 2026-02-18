@@ -120,7 +120,6 @@ tg kimi [args]
 tg setup
 tg init
 tg pair
-tg camp [--root /path]
 tg doctor
 tg config
 tg logs
@@ -133,7 +132,6 @@ tg logs
 - `tg setup --channel <name> --show`: show details for one Telegram channel entry.
 - `tg init`: alias for `tg setup`.
 - `tg pair`: generate a one-time code to pair your Telegram account in bot DM.
-- `tg camp [--root /path]`: start the Camp control plane that can spawn/stop sessions from Telegram.
 - `tg doctor`: diagnostics for CLI/channel/daemon state.
 - `tg config`: print current config paths and resolved settings.
 - `tg logs`: show daemon logs.
@@ -166,37 +164,21 @@ tg send --file <id> ./notes.md
 - `tg send <id> "text"`: inject text input into a running session.
 - `tg send --file <id> <path>`: send a local file to the linked channel for that session.
 
-## Camp (🏕️)
-
-`tg camp` starts a long-running control plane for launching and stopping bridged sessions directly from Telegram groups/topics.
-
-```bash
-tg camp
-tg camp --root /path/to/projects
-```
-
-- Run Camp once in your projects root (or pass `--root`).
-- In unlinked Telegram group/topic chats where the bot is present, use `/start` to launch a session flow.
-- `/start` lets you choose tool (`claude`, `codex`, `pi`, `kimi`) and project target under the configured root.
-- `/kill` kills the current chat-bound session process (wrapper stays available for `/start`).
-- Camp actions are owner-gated: only the paired owner can create/kill sessions.
-- Under the hood, Camp launches normal touchgrass session commands with explicit channel binding, so behavior is identical to manual `tg claude` / `tg codex` runs.
-
 ## Multiple bots on one server
 
-You can run multiple Camp instances on the same host safely.
+You can run multiple bot configs on the same host safely.
 
-- Use a separate `TOUCHGRASS_HOME` per bot/camp instance.
+- Use a separate `TOUCHGRASS_HOME` per bot instance.
 - Use a separate shell environment (or Linux user/container) per instance so CLI auth and files stay isolated.
 
 Example:
 
 ```bash
 TOUCHGRASS_HOME=/srv/tg/bot-a/.touchgrass tg setup --telegram <token-a> --channel bot_a
-TOUCHGRASS_HOME=/srv/tg/bot-a/.touchgrass tg camp --root /srv/tg/bot-a/projects
+TOUCHGRASS_HOME=/srv/tg/bot-a/.touchgrass tg claude --channel dm
 
 TOUCHGRASS_HOME=/srv/tg/bot-b/.touchgrass tg setup --telegram <token-b> --channel bot_b
-TOUCHGRASS_HOME=/srv/tg/bot-b/.touchgrass tg camp --root /srv/tg/bot-b/projects
+TOUCHGRASS_HOME=/srv/tg/bot-b/.touchgrass tg codex --channel dm
 ```
 
 ## FAQ

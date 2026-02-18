@@ -48,7 +48,6 @@ export interface CommandMenuContext {
   isGroup: boolean;
   isLinkedGroup: boolean;
   hasActiveSession: boolean;
-  isCampActive?: boolean;
 }
 
 export type PollAnswerHandler = (answer: {

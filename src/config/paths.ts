@@ -24,7 +24,6 @@ export const paths = {
   sessionsDir: join(TG_DIR, "sessions"),
   uploadsDir: join(TG_DIR, "uploads"),
   statusBoardsFile: join(TG_DIR, "status-boards.json"),
-  controlCenterFile: join(TG_DIR, "control-center.json"),
 };
 
 export function useTcpControlServer(): boolean {

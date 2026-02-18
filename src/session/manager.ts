@@ -90,22 +90,6 @@ export interface PendingOutputModePicker {
   options: Array<"compact" | "verbose">;
 }
 
-export type PendingControlCenterNewOption =
-  | { kind: "folder"; folderName: string }
-  | { kind: "create"; folderName: string }
-  | { kind: "command"; tool: "claude" | "codex" | "pi" | "kimi"; args: string[] }
-  | { kind: "cancel" };
-
-export interface PendingControlCenterNewPicker {
-  pollId: string;
-  messageId: string;
-  chatId: ChannelChatId;
-  ownerUserId: ChannelUserId;
-  stage: "folder" | "command";
-  selectedFolder?: string;
-  options: PendingControlCenterNewOption[];
-}
-
 export class SessionManager {
   private remotes: Map<string, RemoteSession> = new Map();
   // Map: channelChatId → sessionId (attached session)
@@ -122,8 +106,6 @@ export class SessionManager {
   private pendingResumePickers: Map<string, PendingResumePicker> = new Map();
   // Map: pollId → pending output mode picker metadata
   private pendingOutputModePickers: Map<string, PendingOutputModePicker> = new Map();
-  // Map: pollId → pending camp /start picker metadata
-  private pendingControlCenterNewPickers: Map<string, PendingControlCenterNewPicker> = new Map();
   // Map: sessionId|chatId|userId → file mentions to prepend on next text input
   private pendingFileMentions: Map<string, string[]> = new Map();
 
@@ -223,21 +205,6 @@ export class SessionManager {
     return true;
   }
 
-  requestRemoteStart(
-    id: string,
-    tool?: "claude" | "codex" | "pi" | "kimi",
-    args?: string[]
-  ): boolean {
-    const remote = this.remotes.get(id);
-    if (!remote) return false;
-    remote.controlAction = mergeRemoteControlAction(remote.controlAction, {
-      type: "start",
-      ...(tool ? { tool } : {}),
-      ...(args && args.length > 0 ? { args } : {}),
-    });
-    return true;
-  }
-
   killAll(): void {
     this.remotes.clear();
     this.attachments.clear();
@@ -245,7 +212,6 @@ export class SessionManager {
     this.pendingFilePickers.clear();
     this.pendingResumePickers.clear();
     this.pendingOutputModePickers.clear();
-    this.pendingControlCenterNewPickers.clear();
     this.pendingFileMentions.clear();
   }
 
@@ -419,18 +385,6 @@ export class SessionManager {
 
   removeOutputModePicker(pollId: string): void {
     this.pendingOutputModePickers.delete(pollId);
-  }
-
-  registerControlCenterNewPicker(picker: PendingControlCenterNewPicker): void {
-    this.pendingControlCenterNewPickers.set(picker.pollId, picker);
-  }
-
-  getControlCenterNewPickerByPollId(pollId: string): PendingControlCenterNewPicker | undefined {
-    return this.pendingControlCenterNewPickers.get(pollId);
-  }
-
-  removeControlCenterNewPicker(pollId: string): void {
-    this.pendingControlCenterNewPickers.delete(pollId);
   }
 
   setPendingFileMentions(

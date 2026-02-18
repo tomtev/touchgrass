@@ -1885,9 +1885,6 @@ export async function runRun(): Promise<void> {
       : null;
 
     let requestedResumeSessionRef: string | null = null;
-    let requestedStart:
-      | { tool?: SupportedCommand; args?: string[] }
-      | null = null;
     let stayAliveAfterKill = false;
     let forceKillTimer: ReturnType<typeof setTimeout> | null = null;
     const proc = Bun.spawn([executable, ...cmdArgs], {
@@ -2272,16 +2269,6 @@ export async function runRun(): Promise<void> {
             } catch {}
             return;
           }
-          if (remoteControl && typeof remoteControl === "object" && remoteControl.type === "start") {
-            requestedStart = {
-              ...(remoteControl.tool ? { tool: remoteControl.tool as SupportedCommand } : {}),
-              ...(remoteControl.args && remoteControl.args.length > 0 ? { args: remoteControl.args } : {}),
-            };
-            try {
-              proc.kill(9);
-            } catch {}
-            return;
-          }
 
           const lines = res.lines as string[] | undefined;
           if (lines && lines.length > 0) {
@@ -2382,20 +2369,6 @@ export async function runRun(): Promise<void> {
       continue;
     }
 
-    if (requestedStart !== null) {
-      const startAction = requestedStart as { tool?: SupportedCommand; args?: string[] };
-      if (startAction.tool) {
-        currentTool = startAction.tool;
-      }
-      if (startAction.args && startAction.args.length > 0) {
-        cmdArgs = applyTouchgrassAutoContextArgs(currentTool, startAction.args);
-      } else if (startAction.tool && startAction.tool !== cmdName) {
-        // Switching tools without explicit args should start with that tool's defaults.
-        cmdArgs = applyTouchgrassAutoContextArgs(currentTool, []);
-      }
-      continue;
-    }
-
     if (stayAliveAfterKill && remoteId && chatId && ownerUserId) {
       if (channel) {
         const { fmt } = channel;
@@ -2403,7 +2376,7 @@ export async function runRun(): Promise<void> {
           .send(
             chatId,
             `${fmt.escape("⛳️")} ${fmt.bold(fmt.escape(fullCommand.split(/\s+/)[0] || "session"))} ${fmt.escape(
-              "is stopped. Use /start to launch again."
+              "is stopped. Start a new session from your terminal."
             )}`
           )
           .catch(() => {});
@@ -2434,13 +2407,6 @@ export async function runRun(): Promise<void> {
             requestedResumeSessionRef = remoteControl.sessionRef;
             break;
           }
-          if (remoteControl && typeof remoteControl === "object" && remoteControl.type === "start") {
-            requestedStart = {
-              ...(remoteControl.tool ? { tool: remoteControl.tool as SupportedCommand } : {}),
-              ...(remoteControl.args && remoteControl.args.length > 0 ? { args: remoteControl.args } : {}),
-            };
-            break;
-          }
           if (remoteControl === "stop" || remoteControl === "kill") {
             break;
           }
@@ -2450,7 +2416,7 @@ export async function runRun(): Promise<void> {
             warnedIdleInput = true;
             const { fmt } = channel;
             await channel
-              .send(chatId, `${fmt.escape("⛳️")} ${fmt.escape("No running tool in this wrapper. Use /start first.")}`)
+              .send(chatId, `${fmt.escape("⛳️")} ${fmt.escape("No running tool in this wrapper. Start again from your terminal.")}`)
               .catch(() => {});
           }
         } catch {
@@ -2471,19 +2437,6 @@ export async function runRun(): Promise<void> {
 
       if (requestedResumeSessionRef) {
         cmdArgs = buildResumeCommandArgs(cmdName as "claude" | "codex" | "pi" | "kimi", cmdArgs, requestedResumeSessionRef);
-        continue;
-      }
-
-      if (requestedStart !== null) {
-        const startAction = requestedStart as { tool?: SupportedCommand; args?: string[] };
-        if (startAction.tool) {
-          currentTool = startAction.tool;
-        }
-        if (startAction.args && startAction.args.length > 0) {
-          cmdArgs = applyTouchgrassAutoContextArgs(currentTool, startAction.args);
-        } else if (startAction.tool && startAction.tool !== cmdName) {
-          cmdArgs = applyTouchgrassAutoContextArgs(currentTool, []);
-        }
         continue;
       }
     }

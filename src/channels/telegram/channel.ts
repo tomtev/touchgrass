@@ -77,8 +77,6 @@ const TELEGRAM_COMMANDS = {
   resume: { command: "resume", description: "Pick and resume a previous session" },
   outputMode: { command: "output_mode", description: "Set output mode simple/verbose" },
   thinking: { command: "thinking", description: "Toggle thinking on/off" },
-  newSession: { command: "start", description: "Start session (Camp or wrapper)" },
-  killSession: { command: "kill", description: "Kill current chat session" },
   backgroundJobs: { command: "background_jobs", description: "List running background jobs" },
   link: { command: "link", description: "Add this chat as a channel" },
   unlink: { command: "unlink", description: "Remove this chat as a channel" },
@@ -90,43 +88,22 @@ function parseNumericChannelId(id: string): number | null {
 }
 
 function buildCommandMenu(
-  ctx: Pick<CommandMenuContext, "isPaired" | "isGroup" | "isLinkedGroup" | "hasActiveSession" | "isCampActive">
+  ctx: Pick<CommandMenuContext, "isPaired" | "isGroup" | "isLinkedGroup" | "hasActiveSession">
 ): TelegramBotCommand[] {
-  const campActive = ctx.isCampActive === true;
   if (!ctx.isPaired) return [TELEGRAM_COMMANDS.pair];
 
-  // Unlinked groups/topics should always expose linking.
-  // Camp start only appears when Camp is active.
   if (ctx.isGroup && !ctx.isLinkedGroup) {
-    const commands: TelegramBotCommand[] = [];
-    commands.push(TELEGRAM_COMMANDS.newSession);
-    if (ctx.hasActiveSession) {
-      commands.push(TELEGRAM_COMMANDS.killSession);
-    }
-    commands.push(TELEGRAM_COMMANDS.link);
-    return commands;
+    return [TELEGRAM_COMMANDS.link];
   }
 
   const commands: TelegramBotCommand[] = [];
-  if (ctx.isGroup && !ctx.hasActiveSession) {
-    commands.push(TELEGRAM_COMMANDS.newSession);
-    // Keep useful chat controls visible even when idle.
-    commands.push(
-      TELEGRAM_COMMANDS.session,
-      TELEGRAM_COMMANDS.outputMode,
-      TELEGRAM_COMMANDS.thinking,
-      TELEGRAM_COMMANDS.backgroundJobs
-    );
-  }
   if (ctx.hasActiveSession) {
     commands.push(
-      ...(ctx.isGroup ? [TELEGRAM_COMMANDS.newSession] : []),
       TELEGRAM_COMMANDS.files,
       TELEGRAM_COMMANDS.session,
       TELEGRAM_COMMANDS.resume,
       TELEGRAM_COMMANDS.outputMode,
       TELEGRAM_COMMANDS.thinking,
-      TELEGRAM_COMMANDS.killSession,
       TELEGRAM_COMMANDS.backgroundJobs
     );
   }

@@ -29,7 +29,6 @@ import type { BackgroundJobSessionSummary } from "../bot/handlers/background-job
 import { SessionManager } from "../session/manager";
 import { formatSimpleToolResult, formatToolCall } from "./tool-display";
 import { paths } from "../config/paths";
-import { buildCurrentCliCommandPrefix, loadControlCenterState } from "../control-center/state";
 import { generatePairingCode } from "../security/pairing";
 import { isUserPaired } from "../security/allowlist";
 import { rotateDaemonAuthToken } from "../security/daemon-auth";
@@ -38,8 +37,8 @@ import type { Formatter } from "../channel/formatter";
 import type { Channel, ChannelChatId, ChannelUserId } from "../channel/types";
 import { getChannelName, getChannelType, getRootChatIdNumber, parseChannelAddress } from "../channel/id";
 import type { AskQuestion, PendingFilePickerOption } from "../session/manager";
-import { chmod, mkdir, open, readFile, stat, writeFile } from "fs/promises";
-import { basename, join, resolve, sep } from "path";
+import { chmod, open, readFile, stat, writeFile } from "fs/promises";
+import { basename, join } from "path";
 
 const DAEMON_STARTED_AT = Date.now();
 
@@ -48,11 +47,6 @@ function sessionLabel(command: string, cwd: string): string {
   const tool = command.split(" ")[0];
   const folder = cwd.split("/").pop();
   return folder ? `${tool} (${folder})` : tool;
-}
-
-function slugifyProjectName(input: string): string {
-  const normalized = input.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/-+/g, "-");
-  return normalized.replace(/^-+|-+$/g, "") || "project";
 }
 
 type BackgroundJobStatus = "running" | "completed" | "failed" | "killed";
@@ -91,17 +85,6 @@ interface SessionManifest {
   pid: number;
   jsonlFile: string | null;
   startedAt: string;
-}
-
-interface LastChatSessionTemplate {
-  command: string;
-  cwd: string;
-  ownerUserId: ChannelUserId;
-  updatedAt: number;
-}
-
-function quoteShellArg(value: string): string {
-  return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
 export async function startDaemon(): Promise<void> {
@@ -169,15 +152,6 @@ export async function startDaemon(): Promise<void> {
     if (!channel) return;
     channel.send(chatId, content).catch(() => {});
   };
-  let campActiveMenuCache = false;
-  let campActiveMenuCacheAt = 0;
-  const getCampActiveForMenu = async (): Promise<boolean> => {
-    const now = Date.now();
-    if (now - campActiveMenuCacheAt < 2000) return campActiveMenuCache;
-    campActiveMenuCache = !!(await loadControlCenterState());
-    campActiveMenuCacheAt = now;
-    return campActiveMenuCache;
-  };
   const syncCommandMenuForChat = (chatId: ChannelChatId, userId: ChannelUserId): void => {
     const channel = getChannelForChat(chatId);
     if (!channel?.syncCommandMenu) return;
@@ -191,7 +165,6 @@ export async function startDaemon(): Promise<void> {
         isGroup,
         isLinkedGroup: isGroup ? isLinkedGroup(config, chatId) : false,
         hasActiveSession: !!sessionManager.getAttachedRemote(chatId),
-        isCampActive: isGroup ? await getCampActiveForMenu() : false,
       });
     })().catch(async (error: unknown) => {
       await logger.debug("Failed to sync command menu from daemon lifecycle", {
@@ -238,7 +211,6 @@ export async function startDaemon(): Promise<void> {
     if (!channel?.closePoll) return;
     channel.closePoll(chatId, messageId).catch(() => {});
   };
-  const lastSessionTemplateByChat = new Map<ChannelChatId, LastChatSessionTemplate>();
   const reconnectNoticeBySession = new Map<string, number>();
   const RECONNECT_NOTICE_COOLDOWN_MS = 30_000;
   const backgroundJobsBySession = new Map<string, Map<string, BackgroundJobState>>();
@@ -1772,12 +1744,6 @@ export async function startDaemon(): Promise<void> {
       cancelAutoStop();
       const isReconnect = !!existingId && !sessionManager.getRemote(existingId);
       const remote = sessionManager.registerRemote(command, chatId, ownerUserId, cwd, existingId);
-      lastSessionTemplateByChat.set(chatId, {
-        command,
-        cwd,
-        ownerUserId,
-        updatedAt: Date.now(),
-      });
       const remoteAddress = parseChannelAddress(remote.chatId);
       const remoteType = remoteAddress.type;
       const remoteChannelName = remoteAddress.channelName;
@@ -1877,12 +1843,6 @@ export async function startDaemon(): Promise<void> {
         syncCommandMenuForChat(remote.chatId, remote.ownerUserId);
       }
       sessionManager.attach(chatId, sessionId);
-      lastSessionTemplateByChat.set(chatId, {
-        command: remote.command,
-        cwd: remote.cwd,
-        ownerUserId: remote.ownerUserId,
-        updatedAt: Date.now(),
-      });
       syncCommandMenuForChat(chatId, remote.ownerUserId);
       if (isLinkedTarget) {
         sessionManager.subscribeGroup(sessionId, chatId);
@@ -1916,16 +1876,6 @@ export async function startDaemon(): Promise<void> {
         const status = exitCode === 0 ? "disconnected" : `disconnected (code ${exitCode ?? "unknown"})`;
         void clearBackgroundBoards(sessionId);
         const boundChat = sessionManager.getBoundChat(sessionId);
-        const template: LastChatSessionTemplate = {
-          command: remote.command,
-          cwd: remote.cwd,
-          ownerUserId: remote.ownerUserId,
-          updatedAt: Date.now(),
-        };
-        lastSessionTemplateByChat.set(remote.chatId, template);
-        if (boundChat) {
-          lastSessionTemplateByChat.set(boundChat, template);
-        }
         if (boundChat) {
           const fmt = getFormatterForChat(boundChat);
           const msg = `${fmt.escape("⛳️")} ${fmt.bold(fmt.escape(sessionLabel(remote.command, remote.cwd)))} ${fmt.escape(status)}`;
@@ -2234,149 +2184,6 @@ export async function startDaemon(): Promise<void> {
         sessionManager,
         channel,
         listBackgroundJobs: listBackgroundJobsForUserChat,
-        isControlCenterActive: async () => {
-          const state = await loadControlCenterState();
-          return !!state;
-        },
-        startControlCenterSession: async ({ chatId, userId, tool, projectName }) => {
-          const state = await loadControlCenterState();
-          if (!state) {
-            return { ok: false, error: "Camp is not active." };
-          }
-          if (!state.ownerUserId) {
-            return {
-              ok: false,
-              error: "Camp owner is not set. Restart Camp after pairing in Telegram DM.",
-            };
-          }
-          if (state.ownerUserId !== userId) {
-            return { ok: false, error: "Only the Camp owner can start sessions." };
-          }
-          const existing = sessionManager.getAttachedRemote(chatId);
-          if (existing) {
-            return {
-              ok: false,
-              error: `This channel is busy with ${sessionLabel(existing.command, existing.cwd)}. Use /kill first.`,
-            };
-          }
-
-          const safeProject = slugifyProjectName(projectName || chatId.replace(/[:]/g, "-"));
-          const root = resolve(state.rootDir);
-          const projectPath = resolve(root, safeProject);
-          const withinRoot = projectPath === root || projectPath.startsWith(root + sep);
-          if (!withinRoot) {
-            return { ok: false, error: "Invalid project path." };
-          }
-
-          try {
-            await mkdir(projectPath, { recursive: true });
-          } catch (e) {
-            return { ok: false, error: `Could not create project folder: ${(e as Error).message}` };
-          }
-
-          try {
-            const args = [...state.commandPrefix, tool, "--channel", chatId];
-            const proc = Bun.spawn(args, {
-              cwd: projectPath,
-              stdio: ["ignore", "ignore", "ignore"],
-              env: { ...process.env },
-            });
-            proc.unref();
-            const earlyExit = await Promise.race([
-              proc.exited.then((exitCode) => ({ exited: true as const, exitCode })),
-              Bun.sleep(800).then(() => ({ exited: false as const })),
-            ]);
-            if (earlyExit.exited && earlyExit.exitCode !== 0) {
-              return {
-                ok: false,
-                error: `Failed to launch ${tool} for this channel (exit ${earlyExit.exitCode}).`,
-              };
-            }
-            return { ok: true, projectPath };
-          } catch (e) {
-            return { ok: false, error: `Failed to start ${tool}: ${(e as Error).message}` };
-          }
-        },
-        stopSessionForChat: async (userId, chatId) => {
-          const remote = sessionManager.getAttachedRemote(chatId);
-          if (!remote) return { ok: false, error: "No active session is attached to this chat." };
-          if (remote.ownerUserId !== userId) {
-            return { ok: false, error: "Only the session owner can kill this chat session." };
-          }
-          if (!sessionManager.requestRemoteKill(remote.id)) {
-            return { ok: false, error: "Could not request kill for this session." };
-          }
-          return { ok: true, sessionId: remote.id };
-        },
-        startSessionForChat: async ({ chatId, userId, tool, toolArgs }) => {
-          const attached = sessionManager.getAttachedRemote(chatId);
-          if (attached) {
-            return {
-              ok: false,
-              error: `This channel is already attached to ${sessionLabel(attached.command, attached.cwd)}.`,
-            };
-          }
-
-          const template = lastSessionTemplateByChat.get(chatId);
-          if (!template) {
-            return {
-              ok: false,
-              error: "No previous session for this chat. Start once from terminal first.",
-            };
-          }
-          if (template.ownerUserId !== userId) {
-            return {
-              ok: false,
-              error: "Only the session owner can start this chat session.",
-            };
-          }
-
-          const commandPrefix = buildCurrentCliCommandPrefix();
-          const launchCwd = template.cwd || process.cwd();
-          try {
-            if (tool) {
-              const args = [...commandPrefix, tool, ...(toolArgs || []), "--channel", chatId];
-              const proc = Bun.spawn(args, {
-                cwd: launchCwd,
-                stdio: ["ignore", "ignore", "ignore"],
-                env: { ...process.env },
-              });
-              proc.unref();
-              const earlyExit = await Promise.race([
-                proc.exited.then((exitCode) => ({ exited: true as const, exitCode })),
-                Bun.sleep(800).then(() => ({ exited: false as const })),
-              ]);
-              if (earlyExit.exited && earlyExit.exitCode !== 0) {
-                return {
-                  ok: false,
-                  error: `Failed to launch ${tool} for this channel (exit ${earlyExit.exitCode}).`,
-                };
-              }
-              return { ok: true, projectPath: launchCwd };
-            }
-
-            const shellCmd = `${commandPrefix.map(quoteShellArg).join(" ")} ${template.command} --channel ${quoteShellArg(chatId)}`;
-            const proc = Bun.spawn(["/bin/sh", "-lc", shellCmd], {
-              cwd: launchCwd,
-              stdio: ["ignore", "ignore", "ignore"],
-              env: { ...process.env },
-            });
-            proc.unref();
-            const earlyExit = await Promise.race([
-              proc.exited.then((exitCode) => ({ exited: true as const, exitCode })),
-              Bun.sleep(800).then(() => ({ exited: false as const })),
-            ]);
-            if (earlyExit.exited && earlyExit.exitCode !== 0) {
-              return {
-                ok: false,
-                error: `Failed to relaunch previous session for this channel (exit ${earlyExit.exitCode}).`,
-              };
-            }
-            return { ok: true, projectPath: launchCwd };
-          } catch (e) {
-            return { ok: false, error: `Failed to start session: ${(e as Error).message}` };
-          }
-        },
       });
     }).catch(async (error: unknown) => {
       await logger.error("Channel receiver stopped", {

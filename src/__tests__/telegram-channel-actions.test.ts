@@ -116,53 +116,35 @@ describe("Telegram command menus", () => {
       isGroup: false,
       isLinkedGroup: false,
       hasActiveSession: true,
-    }))).toEqual(["files", "session", "resume", "output_mode", "thinking", "kill", "background_jobs"]);
+    }))).toEqual(["files", "session", "resume", "output_mode", "thinking", "background_jobs"]);
 
     expect(names(__telegramChannelTestUtils.buildCommandMenu({
       isPaired: true,
       isGroup: true,
       isLinkedGroup: false,
       hasActiveSession: false,
-      isCampActive: false,
-    }))).toEqual(["start", "link"]);
-
-    expect(names(__telegramChannelTestUtils.buildCommandMenu({
-      isPaired: true,
-      isGroup: true,
-      isLinkedGroup: false,
-      hasActiveSession: false,
-      isCampActive: true,
-    }))).toEqual(["start", "link"]);
+    }))).toEqual(["link"]);
 
     expect(names(__telegramChannelTestUtils.buildCommandMenu({
       isPaired: true,
       isGroup: true,
       isLinkedGroup: false,
       hasActiveSession: true,
-    }))).toEqual(["start", "kill", "link"]);
+    }))).toEqual(["link"]);
 
     expect(names(__telegramChannelTestUtils.buildCommandMenu({
       isPaired: true,
       isGroup: true,
       isLinkedGroup: true,
       hasActiveSession: false,
-      isCampActive: false,
-    }))).toEqual(["start", "session", "output_mode", "thinking", "background_jobs", "unlink"]);
-
-    expect(names(__telegramChannelTestUtils.buildCommandMenu({
-      isPaired: true,
-      isGroup: true,
-      isLinkedGroup: true,
-      hasActiveSession: false,
-      isCampActive: true,
-    }))).toEqual(["start", "session", "output_mode", "thinking", "background_jobs", "unlink"]);
+    }))).toEqual(["unlink"]);
 
     expect(names(__telegramChannelTestUtils.buildCommandMenu({
       isPaired: true,
       isGroup: true,
       isLinkedGroup: true,
       hasActiveSession: true,
-    }))).toEqual(["start", "files", "session", "resume", "output_mode", "thinking", "kill", "background_jobs", "unlink"]);
+    }))).toEqual(["files", "session", "resume", "output_mode", "thinking", "background_jobs", "unlink"]);
   });
 
   it("syncs chat-member command menu and skips duplicate updates", async () => {
@@ -194,7 +176,6 @@ describe("Telegram command menus", () => {
       isGroup: true,
       isLinkedGroup: false,
       hasActiveSession: false,
-      isCampActive: true,
     });
     await channel.syncCommandMenu?.({
       userId: "telegram:7",
@@ -203,11 +184,10 @@ describe("Telegram command menus", () => {
       isGroup: true,
       isLinkedGroup: false,
       hasActiveSession: false,
-      isCampActive: true,
     });
 
     expect(calls).toHaveLength(1);
-    expect(calls[0]?.commands).toEqual(["start", "link"]);
+    expect(calls[0]?.commands).toEqual(["link"]);
     expect(calls[0]?.scope).toEqual({
       type: "chat_member",
       chat_id: -100,
@@ -224,7 +204,7 @@ describe("Telegram command menus", () => {
     });
 
     expect(calls).toHaveLength(2);
-    expect(calls[1]?.commands).toEqual(["start", "files", "session", "resume", "output_mode", "thinking", "kill", "background_jobs", "unlink"]);
+    expect(calls[1]?.commands).toEqual(["files", "session", "resume", "output_mode", "thinking", "background_jobs", "unlink"]);
   });
 
   it("uses chat scope for DM command menu sync", async () => {
