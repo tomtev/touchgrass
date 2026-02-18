@@ -2,9 +2,7 @@ import type { Context } from "hono";
 import { Hono } from "hono";
 import { raw } from "hono/html";
 
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 type Bindings = {
   ASSETS: Fetcher;
@@ -18,6 +16,26 @@ const app = new Hono<Env>();
 
 const emojiFavicon =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ctext y='50' font-size='50'%3E%E2%9B%B3%EF%B8%8F%3C/text%3E%3C/svg%3E";
+const installCommand = "curl -fsSL https://touchgrass.sh/install.sh | bash";
+const siteUrl = "https://touchgrass.sh";
+const pageTitle = "touchgrass.sh | Telegram remote controller for Claude Code, Codex, Kimi, and PI";
+const pageDescription =
+  "Use Telegram as a remote controller for Claude Code, Codex, Kimi, and PI. Start local CLI sessions, bridge input/output to chat, and manage them on the go.";
+const ogImageUrl = `${siteUrl}/og.png`;
+const seoSchema = {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  name: "touchgrass.sh",
+  applicationCategory: "DeveloperApplication",
+  operatingSystem: "macOS, Linux, Windows",
+  description: pageDescription,
+  url: siteUrl,
+  offers: {
+    "@type": "Offer",
+    price: "0",
+    priceCurrency: "USD",
+  },
+};
 
 const grassScript = String.raw`(() => {
   const stage = document.getElementById("hero-grass-stage");
@@ -267,6 +285,27 @@ const grassScript = String.raw`(() => {
   rebuild();
 })();`;
 
+const installCopyScript = String.raw`(() => {
+  const copyButton = document.getElementById("copy-install-command");
+  if (!copyButton) return;
+  const command = copyButton.getAttribute("data-command") || "";
+  copyButton.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(command);
+      const original = copyButton.textContent;
+      copyButton.textContent = "Copied";
+      setTimeout(() => {
+        copyButton.textContent = original || "Copy";
+      }, 1300);
+    } catch {
+      copyButton.textContent = "Failed";
+      setTimeout(() => {
+        copyButton.textContent = "Copy";
+      }, 1300);
+    }
+  });
+})();`;
+
 async function serveAsset(c: Context<Env>, pathname: string) {
   const assetUrl = new URL(c.req.url);
   assetUrl.pathname = pathname;
@@ -274,6 +313,11 @@ async function serveAsset(c: Context<Env>, pathname: string) {
 }
 
 app.get("/styles.css", (c) => serveAsset(c, "/styles.css"));
+app.get("/install.sh", (c) => serveAsset(c, "/install.sh"));
+app.get("/install.ps1", (c) => serveAsset(c, "/install.ps1"));
+app.get("/og.png", (c) => serveAsset(c, "/og.png"));
+app.get("/robots.txt", (c) => serveAsset(c, "/robots.txt"));
+app.get("/sitemap.xml", (c) => serveAsset(c, "/sitemap.xml"));
 
 app.get("/", (c) => {
   return c.html(
@@ -281,116 +325,129 @@ app.get("/", (c) => {
       <head>
         <meta charSet="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>touchgrass.sh</title>
-        <meta name="description" content="Remote controller for Claude Code & Codex" />
+        <title>{pageTitle}</title>
+        <meta name="description" content={pageDescription} />
+        <meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1" />
+        <meta
+          name="keywords"
+          content="touchgrass, telegram bot, claude code, codex, kimi, pi, remote terminal, ai cli controller"
+        />
+        <meta name="author" content="touchgrass.sh" />
+        <meta name="theme-color" content="#04090a" />
+
+        <link rel="canonical" href={siteUrl} />
         <link rel="icon" href={emojiFavicon} />
+
+        <meta property="og:type" content="website" />
+        <meta property="og:site_name" content="touchgrass.sh" />
+        <meta property="og:url" content={siteUrl} />
+        <meta property="og:title" content={pageTitle} />
+        <meta property="og:description" content={pageDescription} />
+        <meta property="og:image" content={ogImageUrl} />
+        <meta property="og:image:alt" content="touchgrass terminal bridge hero preview" />
+
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:title" content={pageTitle} />
+        <meta name="twitter:description" content={pageDescription} />
+        <meta name="twitter:image" content={ogImageUrl} />
+
         <link rel="stylesheet" href="/styles.css" />
+        <script type="application/ld+json">{raw(JSON.stringify(seoSchema))}</script>
       </head>
       <body>
         <main class="min-h-screen bg-[#d9e4df]">
-          <div class="mx-auto max-w-6xl px-6 py-14 lg:px-8">
-            <header class="mb-10 flex items-center justify-between">
-              <div class="flex items-center gap-3">
-                <span class="text-2xl" aria-hidden="true">⛳️</span>
-                <div>
-                  <p class="font-headline text-sm tracking-wide text-muted-foreground">touchgrass.sh</p>
-                  <p class="text-xs text-muted-foreground">Cloudflare Worker + Hono SSR</p>
-                </div>
-              </div>
-              <Badge class="bg-primary/10 text-primary">WIP</Badge>
-            </header>
+          <section
+            id="hero-grass-stage"
+            class="hero-ascii-stage relative min-h-screen w-screen overflow-hidden border-y border-emerald-900/35 text-emerald-200"
+          >
+            <pre id="ascii-sky" class="hero-ascii-layer hero-ascii-sky px-0 py-4 text-[12px] leading-[12px]"></pre>
+            <pre id="ascii-clouds" class="hero-ascii-layer hero-ascii-clouds px-0 py-4 text-[12px] leading-[12px]"></pre>
+            <pre id="ascii-sun" class="hero-ascii-layer hero-ascii-sun px-0 py-4 text-[12px] leading-[12px]"></pre>
+            <pre
+              id="grass-grid"
+              class="hero-ascii-layer hero-grass-layer hero-grass-fixed px-0 py-4 text-[12px] leading-[12px]"
+            ></pre>
 
-            <section
-              id="hero-grass-stage"
-              class="hero-ascii-stage relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] mb-14 min-h-[34rem] w-screen overflow-hidden border-y border-emerald-900/35 text-emerald-200"
-            >
-              <pre id="ascii-sky" class="hero-ascii-layer hero-ascii-sky px-0 py-4 text-[12px] leading-[12px]"></pre>
-              <pre id="ascii-clouds" class="hero-ascii-layer hero-ascii-clouds px-0 py-4 text-[12px] leading-[12px]"></pre>
-              <pre id="ascii-sun" class="hero-ascii-layer hero-ascii-sun px-0 py-4 text-[12px] leading-[12px]"></pre>
-              <pre id="grass-grid" class="hero-ascii-layer hero-grass-layer px-0 py-4 text-[12px] leading-[12px]"></pre>
-
-              <div class="relative z-10 mx-auto grid max-w-6xl gap-8 px-6 py-10 lg:grid-cols-2 lg:items-center lg:px-8">
+            <div class="relative z-10 mx-auto flex min-h-screen max-w-6xl flex-col gap-8 px-6 py-8 lg:px-8">
+              <div class="flex flex-1 flex-col justify-center gap-6">
                 <Card class="overflow-hidden border-emerald-200/30 bg-black/50 backdrop-blur">
-                  <CardHeader class="pb-3">
-                    <Badge class="w-fit border-emerald-300/40 bg-emerald-500/15 text-emerald-100">Telegram-first control plane</Badge>
-                    <CardTitle class="font-headline text-4xl leading-tight tracking-tight text-balance text-white sm:text-5xl">
-                      Remote controller for Claude Code &amp; Codex
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent class="space-y-6">
-                    <p class="max-w-xl text-lg text-emerald-100/90">
-                      Launch sessions, route chat input, and keep long-running workflows alive from anywhere.
-                      Move your cursor across this hero to literally touch grass.
-                    </p>
-                    <div class="flex flex-wrap gap-3">
-                      <Button href="https://github.com/tomtev/touchgrass" target="_blank" rel="noreferrer">
-                        View on GitHub
-                      </Button>
-                      <Button variant="outline" href="#quickstart" class="border-emerald-200/50 bg-white/5 text-emerald-50 hover:bg-white/15">
-                        Quickstart
-                      </Button>
+                  <CardHeader class="gap-4 pb-3">
+                    <div class="flex items-center gap-3">
+                      <span class="text-2xl" aria-hidden="true">⛳️</span>
+                      <p class="font-headline text-sm tracking-wide text-emerald-100/95">touchgrass.sh</p>
                     </div>
-                  </CardContent>
+                    <CardTitle class="font-headline text-4xl leading-tight tracking-tight text-balance text-white sm:text-5xl">
+                      Telegram remote controller for Claude Code &amp; Codex
+                    </CardTitle>
+                    <p class="max-w-6xl text-lg text-emerald-100/90">
+                      Launch sessions, route chat input, and keep long-running workflows alive from anywhere.
+                    </p>
+                  </CardHeader>
                 </Card>
+
+                <div class="pb-2">
+                  <div class="flex w-full flex-wrap items-center gap-2 rounded-lg border border-emerald-200/30 bg-black/55 p-2 sm:flex-nowrap">
+                    <span class="shrink-0 px-2 text-sm font-semibold tracking-wide text-emerald-100/90">
+                      INSTALL:
+                    </span>
+                    <code class="flex-1 rounded-md border border-emerald-200/30 bg-black/55 px-3 py-2 text-sm text-emerald-100">
+                      {installCommand}
+                    </code>
+                    <button
+                      id="copy-install-command"
+                      data-command={installCommand}
+                      type="button"
+                      class="inline-flex h-10 items-center justify-center rounded-md border border-emerald-200/50 bg-white/5 px-4 py-2 text-sm font-medium text-emerald-50 transition-colors hover:bg-white/15"
+                    >
+                      Copy
+                    </button>
+                    <a
+                      href="https://github.com/tomtev/touchgrass"
+                      target="_blank"
+                      rel="noreferrer"
+                      aria-label="Open touchgrass on GitHub"
+                      class="inline-flex h-10 w-10 items-center justify-center rounded-md border border-emerald-200/50 bg-white/5 text-emerald-50 transition-colors hover:bg-white/15"
+                    >
+                      <svg class="h-5 w-5" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                        <path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38v-1.5c-2.23.48-2.7-1.07-2.7-1.07-.36-.92-.89-1.17-.89-1.17-.73-.5.06-.49.06-.49.8.06 1.23.82 1.23.82.72 1.21 1.87.86 2.33.66.07-.52.28-.86.51-1.06-1.78-.2-3.65-.89-3.65-3.97 0-.88.31-1.6.82-2.17-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.64 7.64 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.57.82 1.29.82 2.17 0 3.09-1.88 3.76-3.67 3.96.29.25.54.74.54 1.49v2.2c0 .21.14.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8z" />
+                      </svg>
+                    </a>
+                  </div>
+                </div>
 
                 <Card class="overflow-hidden border-emerald-200/30 bg-black/45 backdrop-blur">
-                  <CardHeader class="pb-3">
-                    <CardTitle class="font-headline text-emerald-50">Product Demo</CardTitle>
-                    <CardDescription class="text-emerald-100/75">16:9 placeholder for your intro movie</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div class="aspect-video w-full rounded-lg border border-dashed border-emerald-200/40 bg-black/40 p-4">
-                      <div class="flex h-full w-full items-center justify-center rounded-md bg-black/70 text-white">
-                        <div class="text-center">
-                          <div class="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-white/20 text-xl">
-                            ▶
-                          </div>
-                          <p class="text-sm font-medium">Movie placeholder (16:9)</p>
-                          <p class="mt-1 text-xs text-white/70">Replace with an embedded video or preview later.</p>
-                        </div>
-                      </div>
+                  <CardContent class="p-2 sm:p-4">
+                    <div class="w-full overflow-hidden border border-emerald-200/30 bg-black/60">
+                      <video
+                        class="block h-auto min-h-[20rem] w-full object-cover sm:min-h-[28rem]"
+                        src="/mov.mov"
+                        autoplay
+                        muted
+                        loop
+                        playsinline
+                        preload="metadata"
+                      >
+                        Your browser does not support HTML5 video.
+                      </video>
                     </div>
                   </CardContent>
                 </Card>
+
+                <a
+                  href="https://github.com/tomtev/touchgrass"
+                  target="_blank"
+                  rel="noreferrer"
+                  class="inline-flex h-12 w-full items-center justify-center gap-2 rounded-lg border border-emerald-200/50 bg-black/80 px-4 text-base font-semibold text-emerald-50 transition-colors hover:bg-black"
+                >
+                  Documentation
+                  <span aria-hidden="true">→</span>
+                </a>
               </div>
-            </section>
-
-            <section id="quickstart" class="mt-14 grid gap-4 sm:grid-cols-3">
-              <Card>
-                <CardHeader>
-                  <CardTitle class="font-headline text-base">1. Install</CardTitle>
-                  <CardDescription>Install touchgrass CLI.</CardDescription>
-                </CardHeader>
-                <CardContent class="text-sm text-muted-foreground">
-                  <code class="rounded bg-muted px-2 py-1">
-                    curl -fsSL https://raw.githubusercontent.com/tomtev/touchgrass/main/install.sh | bash
-                  </code>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle class="font-headline text-base">2. Connect</CardTitle>
-                  <CardDescription>Configure Telegram and pair your user.</CardDescription>
-                </CardHeader>
-                <CardContent class="text-sm text-muted-foreground">
-                  <code class="rounded bg-muted px-2 py-1">tg setup</code>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle class="font-headline text-base">3. Launch</CardTitle>
-                  <CardDescription>Start a remote-controlled session.</CardDescription>
-                </CardHeader>
-                <CardContent class="text-sm text-muted-foreground">
-                  <code class="rounded bg-muted px-2 py-1">tg claude</code>
-                </CardContent>
-              </Card>
-            </section>
-          </div>
+            </div>
+          </section>
         </main>
         <script>{raw(grassScript)}</script>
+        <script>{raw(installCopyScript)}</script>
       </body>
     </html>
   );

@@ -10,10 +10,10 @@
 }
 
 @font-face {
-  font-family: "Geist Pixel";
-  src: url("https://cdn.jsdelivr.net/npm/geist@1.7.0/dist/fonts/geist-pixel/GeistPixel-Square.woff2")
+  font-family: "Geist Sans";
+  src: url("https://cdn.jsdelivr.net/npm/geist@1.7.0/dist/fonts/geist-sans/Geist-Variable.woff2")
     format("woff2");
-  font-weight: 500;
+  font-weight: 100 900;
   font-style: normal;
   font-display: swap;
 }
@@ -64,14 +64,14 @@
 
   body {
     @apply bg-background text-foreground antialiased;
-    font-family: "Geist Mono", "SFMono-Regular", Menlo, Monaco, Consolas, monospace;
+    font-family: "Geist Sans", Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   }
 
   h1,
   h2,
   h3,
   .font-headline {
-    font-family: "Geist Pixel", "Geist Mono", "SFMono-Regular", Menlo, Monaco, Consolas, monospace;
+    font-family: "Geist Mono", "SFMono-Regular", Menlo, Monaco, Consolas, monospace;
   }
 }
 
@@ -80,8 +80,11 @@
 }
 
 .hero-ascii-layer {
-  position: absolute;
-  inset: 0;
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 100vh;
   margin: 0;
   pointer-events: none;
   user-select: none;
@@ -91,14 +94,17 @@
 
 .hero-ascii-sky {
   color: rgba(104, 182, 255, 0.58);
+  z-index: 0;
 }
 
 .hero-ascii-clouds {
   color: rgba(255, 210, 156, 0.62);
+  z-index: 1;
 }
 
 .hero-ascii-sun {
   color: rgba(255, 225, 122, 0.9);
+  z-index: 2;
   text-shadow:
     0 0 12px rgba(255, 213, 106, 0.45),
     0 0 26px rgba(255, 193, 97, 0.25);
@@ -106,7 +112,16 @@
 
 .hero-grass-layer {
   color: rgba(14, 209, 149, 0.78);
+  z-index: 3;
   text-shadow:
     0 0 10px rgba(16, 185, 129, 0.34),
     0 0 24px rgba(16, 185, 129, 0.18);
+}
+
+.hero-grass-fixed {
+  top: auto;
+  bottom: 0;
+  height: 42vh;
+  min-height: 220px;
+  max-height: 420px;
 }
