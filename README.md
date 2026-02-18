@@ -26,11 +26,10 @@ irm https://raw.githubusercontent.com/tomtev/touchgrass/main/install.ps1 | iex
 - Run `/newbot` and complete bot creation
 - Copy the bot token
 
-2. Configure channel credentials:
+2. In your terminal:
 
 ```bash
 tg setup
-# (or: tg init)
 ```
 
 3. Generate a pairing code:
@@ -39,11 +38,11 @@ tg setup
 tg pair
 ```
 
-4. Pair from your chat:
+4. Pair from your chat (DM bot):
 - Telegram: `/pair <code>`
 
 5. Optional group/channel/thread linking:
-- Use `/link` or `tg link` inside the group/thread you want as a destination
+- Use `/link` inside the group/thread you want want to use for bridging.
 
 6. Start a bridged terminal session:
 
