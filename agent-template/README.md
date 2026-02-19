@@ -1,4 +1,4 @@
-# Touchgrass Agent
+# Touchgrass Agent Template
 
 A personal agent template for CLI tools like Claude Code, Codex, Pi etc,
 controlled from Telegram via [touchgrass.sh](https://touchgrass.sh).
@@ -27,7 +27,6 @@ tg claude
 2. **`workflows/`** holds reusable workflows as standalone markdown files
 3. **`skills/`** holds reusable skills that extend what the agent can do
 
-That's it. No build step, no sync scripts, no nested agent folders. Just markdown files.
 
 ## Structure
 
