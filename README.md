@@ -198,36 +198,6 @@ tg send --file <id> ./notes.md
 - `tg send <id> "text"`: inject text input into a running session.
 - `tg send --file <id> <path>`: send a local file to the linked channel for that session.
 
-## Build Personal Agents with Hivemind
-
-[Hivemind](https://github.com/tomtev/hivemind) is a companion template for building personal agents on top of Claude Code and Codex. Clone it, define your agents in markdown, and control them remotely with touchgrass.
-
-Use it to create agents for things like:
-- Monitoring inboxes and sending summaries
-- Paying bills via browser automation
-- Running scheduled research tasks
-- Managing support tickets
-- Anything you'd want a personal assistant to handle
-
-```bash
-# Clone the template
-gh repo create my-agents --template tomtev/hivemind --clone
-cd my-agents
-
-# Create an agent, edit its workflow, sync, and run
-cp -r agents/example agents/my-agent
-# Edit agents/my-agent/WORKFLOW.md with your instructions
-bash agents/sync.sh
-
-# Run locally
-claude --dangerously-skip-permissions
-
-# Or run remotely via touchgrass
-tg claude --dangerously-skip-permissions
-```
-
-Hivemind adds no magic — it's just markdown files and a shell script that wire up the native subagent capabilities in Claude Code and Codex.
-
 ## FAQ
 
 **Does touchgrass change how Claude/Codex/PI/Kimi run?**
