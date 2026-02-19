@@ -12,14 +12,18 @@ export async function runAgent(): Promise<void> {
 
   switch (sub) {
     case "create": {
-      // Parse args: tg agent create [folder] --name "My Agent"
+      // Parse args: tg agent create [folder] --name "X" --owner "Y" --description "Z"
       const args = process.argv.slice(4);
       let targetDir: string | null = null;
-      let agentName: string | null = null;
+      const vars: Record<string, string> = {};
 
       for (let i = 0; i < args.length; i++) {
         if (args[i] === "--name" && i + 1 < args.length) {
-          agentName = args[++i];
+          vars["AGENT_NAME"] = args[++i];
+        } else if (args[i] === "--owner" && i + 1 < args.length) {
+          vars["OWNER_NAME"] = args[++i];
+        } else if (args[i] === "--description" && i + 1 < args.length) {
+          vars["AGENT_DESCRIPTION"] = args[++i];
         } else if (!args[i].startsWith("--") && !targetDir) {
           targetDir = args[i];
         }
@@ -30,7 +34,7 @@ export async function runAgent(): Promise<void> {
         await Bun.spawn(["mkdir", "-p", dest]).exited;
       }
 
-      await createAgent(dest, agentName);
+      await createAgent(dest, vars);
       break;
     }
     case "update": {
@@ -41,8 +45,13 @@ export async function runAgent(): Promise<void> {
       console.log(`Usage: tg agent <command>
 
 Commands:
-  create [folder] --name "My Agent"   Scaffold a new agent
-  update                               Update agent-core and skills to latest`);
+  create [folder]   Scaffold a new agent
+  update            Update agent-core to latest
+
+Create options:
+  --name <name>              Agent name
+  --owner <name>             Owner name
+  --description <text>       Agent description`);
       if (sub) process.exit(1);
       break;
     }
@@ -113,25 +122,29 @@ function extractBlock(content: string, tag: string): { full: string; version: st
 
 // --- create ---
 
-async function createAgent(dest: string, agentName: string | null): Promise<void> {
+const TEMPLATE_DEFAULTS: Record<string, string> = {
+  AGENT_NAME: "My Agent",
+  AGENT_DESCRIPTION: "A personal agent that helps with tasks using workflows and skills.",
+  OWNER_NAME: "Owner",
+};
+
+async function createAgent(dest: string, vars: Record<string, string>): Promise<void> {
   console.log("Downloading agent template...");
   const tmpDir = await downloadTemplate();
   const extractDir = join(tmpDir, "out");
 
   try {
-    // Replace agent name in AGENTS.md if --name was provided
-    if (agentName) {
-      const agentsPath = join(extractDir, "AGENTS.md");
-      try {
-        const content = await readFile(agentsPath, "utf-8");
-        const updated = content.replace(
-          /(<agent-soul>\s*\nName:\s*).+/,
-          `$1${agentName}`
-        );
-        await writeFile(agentsPath, updated);
-      } catch {
-        // AGENTS.md missing or unreadable — skip name replacement
+    // Replace {{VAR}} placeholders in AGENTS.md
+    const agentsPath = join(extractDir, "AGENTS.md");
+    try {
+      let content = await readFile(agentsPath, "utf-8");
+      for (const [key, defaultVal] of Object.entries(TEMPLATE_DEFAULTS)) {
+        const value = vars[key] || defaultVal;
+        content = content.split(`{{${key}}}`).join(value);
       }
+      await writeFile(agentsPath, content);
+    } catch {
+      // AGENTS.md missing or unreadable — skip replacements
     }
 
     // Copy to destination preserving symlinks
@@ -144,7 +157,7 @@ async function createAgent(dest: string, agentName: string | null): Promise<void
       throw new Error(`Failed to copy template files: ${rsyncErr.trim()}`);
     }
 
-    const label = agentName ? `"${agentName}"` : "Agent";
+    const label = vars["AGENT_NAME"] ? `"${vars["AGENT_NAME"]}"` : "Agent";
     console.log(`${label} created in ${dest}`);
   } finally {
     await rm(tmpDir, { recursive: true, force: true });

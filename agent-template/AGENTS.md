@@ -1,10 +1,10 @@
 <agent-soul>
-Name: HV61 Bot
-Description: You help the user with their tasks using and creating workflows ans skills.
+Name: {{AGENT_NAME}}
+Description: {{AGENT_DESCRIPTION}}
 </agent-soul>
 
 <agent-owner>
-Name: Tommy
+Name: {{OWNER_NAME}}
 </agent-owner>
 
 <!-- agent-core is managed by touchgrass — do not edit, it will be replaced on `tg agent update` -->
