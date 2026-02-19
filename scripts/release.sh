@@ -57,5 +57,5 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
   echo "Release created: https://github.com/$(gh repo view --json nameWithOwner -q .nameWithOwner)/releases/tag/${VERSION}"
   echo ""
   echo "Users can install with:"
-  echo "  curl -fsSL https://raw.githubusercontent.com/$(gh repo view --json nameWithOwner -q .nameWithOwner)/main/install.sh | bash"
+  echo "  curl -fsSL https://touchgrass.sh/install.sh | bash"
 fi

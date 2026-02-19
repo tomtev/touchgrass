@@ -10,13 +10,13 @@
 macOS / Linux:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tomtev/touchgrass/main/install.sh | bash
+curl -fsSL https://touchgrass.sh/install.sh | bash
 ```
 
 Windows (PowerShell):
 
 ```powershell
-irm https://raw.githubusercontent.com/tomtev/touchgrass/main/install.ps1 | iex
+irm https://touchgrass.sh/install.ps1 | iex
 ```
 
 ## Setup
@@ -62,6 +62,40 @@ tg codex
 tg codex --dangerously-bypass-approvals-and-sandbox
 tg pi
 tg kimi
+```
+
+### Safer execution examples (recommended)
+
+Prefer these over dangerous bypass flags when possible.
+
+Claude (permission modes + tool/path controls):
+
+```bash
+# Default permission flow
+tg claude --permission-mode default
+
+# Auto-accept file edits, still keep permission model
+tg claude --permission-mode acceptEdits
+
+# Allow access to an extra directory in addition to current project
+tg claude --add-dir ../shared-lib
+
+# Restrict tool usage
+tg claude --allowed-tools "Read,Edit,Bash(git:*)"
+tg claude --disallowed-tools "Bash(rm:*)"
+```
+
+Codex (sandbox + approval policy):
+
+```bash
+# Recommended balanced mode
+tg codex --sandbox workspace-write --ask-for-approval on-request
+
+# Tighter mode: only trusted commands without approval
+tg codex --sandbox workspace-write --ask-for-approval untrusted
+
+# Auto-run in workspace sandbox, escalate only when needed
+tg codex --sandbox workspace-write --ask-for-approval on-failure
 ```
 
 ## How it works

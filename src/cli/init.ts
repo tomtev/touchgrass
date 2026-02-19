@@ -139,6 +139,35 @@ async function validateTelegramToken(token: string): Promise<{ username?: string
   return { username: me.username, firstName: me.first_name };
 }
 
+function getStoredBotIdentity(channel: ChannelConfig): { username?: string; firstName?: string } {
+  const credentials = channel.credentials as Record<string, unknown>;
+  const username = typeof credentials.botUsername === "string" ? credentials.botUsername.trim() : "";
+  const firstName = typeof credentials.botFirstName === "string" ? credentials.botFirstName.trim() : "";
+  return {
+    username: username || undefined,
+    firstName: firstName || undefined,
+  };
+}
+
+function storeBotIdentity(
+  channel: ChannelConfig,
+  identity: { username?: string; firstName?: string }
+): boolean {
+  const credentials = channel.credentials as Record<string, unknown>;
+  const prevUsername = typeof credentials.botUsername === "string" ? credentials.botUsername : "";
+  const prevFirstName = typeof credentials.botFirstName === "string" ? credentials.botFirstName : "";
+  const nextUsername = identity.username?.trim() || "";
+  const nextFirstName = identity.firstName?.trim() || "";
+  const changed = prevUsername !== nextUsername || prevFirstName !== nextFirstName;
+  if (!changed) return false;
+
+  if (nextUsername) credentials.botUsername = nextUsername;
+  else delete credentials.botUsername;
+  if (nextFirstName) credentials.botFirstName = nextFirstName;
+  else delete credentials.botFirstName;
+  return true;
+}
+
 function countActiveDaemonSessions(status: Record<string, unknown>): number {
   const sessions = status.sessions;
   if (!Array.isArray(sessions)) return 0;
@@ -212,7 +241,7 @@ function sortChannels(entries: Array<[string, ChannelConfig]>): Array<[string, C
   });
 }
 
-function printChannelList(config: TgConfig): void {
+async function printChannelList(config: TgConfig): Promise<void> {
   const entries = sortChannels(getTelegramChannelEntries(config));
   if (entries.length === 0) {
     console.log("No Telegram channels configured yet.");
@@ -220,13 +249,34 @@ function printChannelList(config: TgConfig): void {
     return;
   }
 
+  let changed = false;
+  for (const [, channel] of entries) {
+    const token = (channel.credentials.botToken as string) || "";
+    if (!token) continue;
+    const existingIdentity = getStoredBotIdentity(channel);
+    if (existingIdentity.username) continue;
+    try {
+      const fetchedIdentity = await validateTelegramToken(token);
+      changed = storeBotIdentity(channel, fetchedIdentity) || changed;
+    } catch {
+      // Ignore token validation failures in list view; still print what we have.
+    }
+  }
+  if (changed) {
+    await saveConfig(config);
+  }
+
   console.log("Configured Telegram channels:\n");
   for (const [name, channel] of entries) {
     const token = (channel.credentials.botToken as string) || "";
     const tokenStatus = token ? `token ${maskToken(token)}` : "token missing";
+    const botIdentity = getStoredBotIdentity(channel);
+    const botLabel = botIdentity.username
+      ? `bot @${botIdentity.username}${botIdentity.firstName ? ` (${botIdentity.firstName})` : ""}`
+      : "bot unknown";
     const pairedCount = channel.pairedUsers?.length || 0;
     const linkedCount = channel.linkedGroups?.length || 0;
-    console.log(`- ${name}: ${tokenStatus}, paired users ${pairedCount}, linked chats ${linkedCount}`);
+    console.log(`- ${name}: ${botLabel}, ${tokenStatus}, paired users ${pairedCount}, linked chats ${linkedCount}`);
   }
 
   console.log("\nInspect one:");
@@ -244,10 +294,15 @@ function printChannelDetails(config: TgConfig, channelName: string): void {
   }
 
   const token = (channel.credentials.botToken as string) || "";
+  const botIdentity = getStoredBotIdentity(channel);
   const paired = channel.pairedUsers || [];
   const linked = channel.linkedGroups || [];
 
   console.log(`Telegram channel: ${channelName}\n`);
+  console.log(`- bot: ${botIdentity.username ? `@${botIdentity.username}` : "(unknown)"}`);
+  if (botIdentity.firstName) {
+    console.log(`- bot first name: ${botIdentity.firstName}`);
+  }
   console.log(`- token: ${token ? maskToken(token) : "(missing)"}`);
   console.log(`- paired users: ${paired.length}`);
   console.log(`- linked chats: ${linked.length}`);
@@ -292,7 +347,7 @@ export async function runInit(): Promise<void> {
   }
 
   if (options.listChannels) {
-    printChannelList(config);
+    await printChannelList(config);
     return;
   }
   if (options.showChannel) {
@@ -361,8 +416,10 @@ export async function runInit(): Promise<void> {
     }
 
     console.log("\nValidating token...");
+    let botIdentity: { username?: string; firstName?: string } | null = null;
     try {
       const me = await validateTelegramToken(token);
+      botIdentity = me;
       if (me.username) {
         console.log(`Bot: @${me.username} (${me.firstName || "unknown"})`);
       } else {
@@ -375,6 +432,9 @@ export async function runInit(): Promise<void> {
 
     if (tokenUpdated || !config.channels[selectedChannelName].credentials.botToken) {
       config.channels[selectedChannelName].credentials.botToken = token;
+    }
+    if (botIdentity) {
+      storeBotIdentity(config.channels[selectedChannelName], botIdentity);
     }
 
     await saveConfig(config);

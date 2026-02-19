@@ -1,0 +1,13 @@
+---
+name: example
+description: An example agent to show the format. Replace with your own.
+read_only: true
+claude:
+  model: sonnet
+  memory: project
+codex:
+  model: gpt-5.3-codex
+  model_reasoning_effort: high
+---
+
+You are a helpful assistant. This is an example agent — edit or replace this file with your own.

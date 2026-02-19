@@ -92,4 +92,34 @@ describe("TelegramChannel status board", () => {
     expect(result?.pinned).toBe(false);
     expect(result?.pinError).toContain("not enough rights");
   });
+
+  it("does not send a duplicate board when Telegram reports message is not modified", async () => {
+    const calls: string[] = [];
+    const channel = new TelegramChannel("bot-token");
+    const anyChannel = channel as unknown as {
+      api: {
+        sendMessage: (chatId: number, text: string, parseMode: "HTML" | "MarkdownV2" | "", threadId?: number) => Promise<{ message_id: number }>;
+        editMessageText: (chatId: number, messageId: number, text: string, parseMode: "HTML" | "MarkdownV2" | "", threadId?: number) => Promise<true>;
+      };
+    };
+
+    anyChannel.api = {
+      sendMessage: async () => {
+        calls.push("sendMessage");
+        return { message_id: 555 };
+      },
+      editMessageText: async () => {
+        calls.push("editMessageText");
+        throw new Error("Telegram API editMessageText failed (400): {\"ok\":false,\"description\":\"Bad Request: message is not modified\"}");
+      },
+    };
+
+    await channel.upsertStatusBoard?.("telegram:123", "background:r-loop", "<b>same</b>", {
+      pin: false,
+      messageId: "555",
+      pinned: false,
+    });
+
+    expect(calls).toEqual(["editMessageText"]);
+  });
 });

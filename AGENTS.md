@@ -72,6 +72,7 @@ Telegram chat shorthands:
 
 - Telegram is the only supported channel.
 - This repo workflow is local-dev only.
+- Installer sync rule: whenever `install.sh` or `install.ps1` changes, update/redeploy the website so `https://touchgrass.sh/install.sh` and `https://touchgrass.sh/install.ps1` serve the latest versions.
 - Restart the daemon before testing runtime changes:
 ```bash
 old_pid=$(cat ~/.touchgrass/daemon.pid 2>/dev/null || true)

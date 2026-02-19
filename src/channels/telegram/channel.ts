@@ -99,8 +99,8 @@ function buildCommandMenu(
   const commands: TelegramBotCommand[] = [];
   if (ctx.hasActiveSession) {
     commands.push(
-      TELEGRAM_COMMANDS.files,
       TELEGRAM_COMMANDS.session,
+      TELEGRAM_COMMANDS.files,
       TELEGRAM_COMMANDS.resume,
       TELEGRAM_COMMANDS.outputMode,
       TELEGRAM_COMMANDS.thinking,
@@ -132,7 +132,7 @@ export class TelegramChannel implements Channel {
   private topicNames: Map<string, string> = new Map();
   private actionPollById: Map<string, { chatId: ChannelChatId; messageId: number }> = new Map();
   private actionPollByMessage: Map<string, string> = new Map();
-  private statusBoards: Map<string, { messageId: number; pinned: boolean }> = new Map();
+  private statusBoards: Map<string, { messageId: number; pinned: boolean; html?: string }> = new Map();
   private commandMenuCache: Map<string, string> = new Map();
   private readonly tokenFingerprint: string;
   private pollerLock: { handle: FileHandle; path: string } | null = null;
@@ -322,6 +322,11 @@ export class TelegramChannel implements Channel {
     return `${chatId}::${boardKey}`;
   }
 
+  private isMessageNotModifiedError(error: unknown): boolean {
+    const text = (error as Error | undefined)?.message?.toLowerCase?.() || "";
+    return text.includes("message is not modified");
+  }
+
   async upsertStatusBoard(
     chatId: ChannelChatId,
     boardKey: string,
@@ -338,12 +343,23 @@ export class TelegramChannel implements Channel {
 
     let messageId = existing?.messageId ?? null;
     let pinned = existing?.pinned ?? options?.pinned ?? false;
+    let lastHtml = existing?.html;
     let pinError: string | undefined;
 
     if (messageId) {
+      if (lastHtml === html) {
+        this.statusBoards.set(key, { messageId, pinned, html });
+        return { messageId: String(messageId), pinned };
+      }
       try {
         await this.api.editMessageText(numChatId, messageId, html, "HTML", threadId);
-      } catch {
+        lastHtml = html;
+      } catch (e) {
+        if (this.isMessageNotModifiedError(e)) {
+          lastHtml = html;
+          this.statusBoards.set(key, { messageId, pinned, html: lastHtml });
+          return { messageId: String(messageId), pinned };
+        }
         // Older Telegram messages can become non-editable; send a fresh status board.
         try {
           const sent = await this.api.sendMessage(numChatId, html, "HTML", threadId);
@@ -352,6 +368,7 @@ export class TelegramChannel implements Channel {
             pinned = false;
           }
           messageId = sent.message_id;
+          lastHtml = html;
         } catch (e) {
           const err = e as Error;
           await logger.error("Failed to upsert status board", { chatId, boardKey, error: err.message });
@@ -363,6 +380,7 @@ export class TelegramChannel implements Channel {
       try {
         const sent = await this.api.sendMessage(numChatId, html, "HTML", threadId);
         messageId = sent.message_id;
+        lastHtml = html;
       } catch (e) {
         const err = e as Error;
         await logger.error("Failed to send status board", { chatId, boardKey, error: err.message });
@@ -382,7 +400,7 @@ export class TelegramChannel implements Channel {
     }
 
     if (messageId) {
-      this.statusBoards.set(key, { messageId, pinned });
+      this.statusBoards.set(key, { messageId, pinned, html: lastHtml });
       return { messageId: String(messageId), pinned, pinError };
     }
   }
