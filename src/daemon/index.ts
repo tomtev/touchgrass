@@ -2008,7 +2008,7 @@ export async function startDaemon(): Promise<void> {
         const outputMode = getOutputModeForChat(cid);
         const fmt = getFormatterForChat(cid);
         const detailMode = outputMode === "verbose" ? "verbose" : "simple";
-        const html = formatToolCall(fmt, name, input, detailMode);
+        const html = formatToolCall(fmt, name, input, detailMode, remote.cwd);
         if (!html) continue;
         sendToChat(cid, html);
         // Re-assert typing for channels that support typing state.

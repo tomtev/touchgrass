@@ -18,6 +18,12 @@ const SIMPLE_SUPPRESSED_TOOL_CALLS = new Set([
   "read_stdin",
 ]);
 
+function relativePath(fp: string, cwd?: string): string {
+  if (!cwd) return fp;
+  const prefix = cwd.endsWith("/") ? cwd : `${cwd}/`;
+  return fp.startsWith(prefix) ? fp.slice(prefix.length) : fp;
+}
+
 function truncateText(value: string, max = 180): string {
   return value.length > max ? `${value.slice(0, max)}...` : value;
 }
@@ -205,7 +211,8 @@ export function formatToolCall(
   fmt: Formatter,
   name: string,
   input: Record<string, unknown>,
-  mode: ToolDisplayMode
+  mode: ToolDisplayMode,
+  cwd?: string
 ): string | null {
   if (mode === "simple" && SIMPLE_SUPPRESSED_TOOL_CALLS.has(name)) return null;
 
@@ -213,7 +220,7 @@ export function formatToolCall(
     case "Edit": {
       const fp = input.file_path as string | undefined;
       if (!fp) return null;
-      let msg = `${fmt.escape("✏️")} ${fmt.code(fmt.escape(fp))}`;
+      let msg = `${fmt.escape("✏️")} ${fmt.code(fmt.escape(relativePath(fp, cwd)))}`;
       if (mode === "simple") return msg;
       const oldStr = input.old_string as string | undefined;
       const newStr = input.new_string as string | undefined;
@@ -240,7 +247,7 @@ export function formatToolCall(
     case "Write": {
       const fp = input.file_path as string | undefined;
       if (!fp) return null;
-      let msg = `${fmt.escape("📄")} ${fmt.code(fmt.escape(fp))}`;
+      let msg = `${fmt.escape("📄")} ${fmt.code(fmt.escape(relativePath(fp, cwd)))}`;
       if (mode === "simple") return msg;
       const content = input.content as string | undefined;
       if (content) {
@@ -271,10 +278,11 @@ export function formatToolCall(
       if (!patch) return `${fmt.escape("✏️")} ${fmt.code("apply_patch")}`;
       const fileMatch = patch.match(/\*\*\* (?:Update|Add) File: (.+)/);
       const fp = fileMatch?.[1] || "file";
-      if (mode === "simple") return `${fmt.escape("✏️")} ${fmt.code(fmt.escape(fp))}`;
+      const displayFp = relativePath(fp, cwd);
+      if (mode === "simple") return `${fmt.escape("✏️")} ${fmt.code(fmt.escape(displayFp))}`;
       const preview = patch.split("\n").slice(0, 8).join("\n");
       const suffix = patch.split("\n").length > 8 ? "\n..." : "";
-      return `${fmt.escape("✏️")} ${fmt.code(fmt.escape(fp))}\n${fmt.pre(fmt.escape(preview + suffix))}`;
+      return `${fmt.escape("✏️")} ${fmt.code(fmt.escape(displayFp))}\n${fmt.pre(fmt.escape(preview + suffix))}`;
     }
     case "write_stdin":
       if (mode === "simple") return null;
@@ -282,13 +290,13 @@ export function formatToolCall(
     case "Read": {
       const fp = input.file_path as string | undefined;
       if (!fp) return null;
-      return `${fmt.escape("📖")} ${fmt.code(fmt.escape(fp))}`;
+      return `${fmt.escape("📖")} ${fmt.code(fmt.escape(relativePath(fp, cwd)))}`;
     }
     case "Glob": {
       const pattern = input.pattern as string | undefined;
       if (!pattern) return null;
       const path = input.path as string | undefined;
-      const inPart = path ? ` in ${fmt.code(fmt.escape(path))}` : "";
+      const inPart = path ? ` in ${fmt.code(fmt.escape(relativePath(path, cwd)))}` : "";
       return `${fmt.escape("🔍")} ${fmt.code(fmt.escape(pattern))}${inPart}`;
     }
     case "Grep": {
@@ -298,7 +306,7 @@ export function formatToolCall(
       const path = input.path as string | undefined;
       const parts: string[] = [`${fmt.escape("🔍")} ${fmt.code(fmt.escape(pattern))}`];
       if (glob) parts.push(`in ${fmt.code(fmt.escape(glob))}`);
-      else if (path) parts.push(`in ${fmt.code(fmt.escape(path))}`);
+      else if (path) parts.push(`in ${fmt.code(fmt.escape(relativePath(path, cwd)))}`);
       return parts.join(" ");
     }
     case "Task": {
@@ -358,7 +366,7 @@ export function formatToolCall(
       const op = input.operation as string | undefined;
       const fp = input.filePath as string | undefined;
       if (!op || !fp) return null;
-      return `${fmt.escape("🔗")} ${fmt.escape(op)} ${fmt.code(fmt.escape(fp))}`;
+      return `${fmt.escape("🔗")} ${fmt.escape(op)} ${fmt.code(fmt.escape(relativePath(fp, cwd)))}`;
     }
     case "WebSearch":
     case "web_search": {

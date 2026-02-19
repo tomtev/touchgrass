@@ -36,15 +36,23 @@ export class TelegramFormatter implements Formatter {
       return `\x00CB${idx}\x00`;
     });
     // Markdown tables: contiguous lines starting with |
+    // Render as vertical cards (header: value) for readability on mobile
     result = result.replace(/(?:^|\n)((?:\|[^\n]+\|\n?){2,})/g, (_match: string, table: string) => {
       const idx = codeBlocks.length;
-      const lines = table.trimEnd().split("\n");
-      // Drop separator rows (e.g. |---|---|)
-      const content = lines
-        .filter((l) => !/^\|[\s\-:|]+\|$/.test(l))
-        .map((l) => escapeHtml(l))
-        .join("\n");
-      codeBlocks.push(`<pre>${content}</pre>`);
+      const lines = table.trimEnd().split("\n")
+        .filter((l) => !/^\|[\s\-:|]+\|$/.test(l));
+      const parseCells = (line: string) =>
+        line.replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => c.trim());
+      if (lines.length < 2) {
+        codeBlocks.push(`<pre>${lines.map((l) => escapeHtml(l)).join("\n")}</pre>`);
+        return `\n\x00CB${idx}\x00`;
+      }
+      const headers = parseCells(lines[0]);
+      const rows = lines.slice(1).map(parseCells);
+      const cards = rows.map((cells) =>
+        headers.map((h, i) => `<b>${escapeHtml(h)}:</b> ${escapeHtml(cells[i] ?? "")}`).join("\n")
+      );
+      codeBlocks.push(cards.join("\n\n"));
       return `\n\x00CB${idx}\x00`;
     });
     // Inline code: `...`
