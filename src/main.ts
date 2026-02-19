@@ -71,6 +71,11 @@ async function main() {
       await runResume();
       break;
     }
+    case "agent": {
+      const { runAgent } = await import("./cli/agent");
+      await runAgent();
+      break;
+    }
     case "claude":
     case "codex":
     case "pi":
@@ -123,6 +128,7 @@ Options (for claude/codex/pi/kimi/resume):
   kill     Kill a session (SIGKILL / remote kill request)
   restart  Restart a tg session wrapper on its current tool session (tg restart [tg_session_id])
   links    List and manage linked groups/topics
+  agent    Create or update agents (tg agent create | tg agent update)
   setup    Set up Telegram credentials (supports --telegram <token>, --channel <name>, --list-channels, --show)
   init     Alias for setup
   pair     Generate a pairing code
