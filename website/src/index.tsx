@@ -393,7 +393,7 @@ app.get("/", (c) => {
                       Remote control Claude Code, Codex, Pi and more with Telegram.
                     </CardTitle>
                     <p class="mx-auto max-w-2xl text-center text-lg text-emerald-100/90">
-                      Build personal agents and manage long-running sessions from your phone.
+                      Manage your code projects, build personal agents and manage long-running sessions from your phone.
                     </p>
                   </CardHeader>
                 </Card>
