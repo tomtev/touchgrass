@@ -18,9 +18,9 @@ const emojiFavicon =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ctext y='50' font-size='50'%3E%E2%9B%B3%EF%B8%8F%3C/text%3E%3C/svg%3E";
 const installCommand = "curl -fsSL https://touchgrass.sh/install.sh | bash";
 const siteUrl = "https://touchgrass.sh";
-const pageTitle = "touchgrass.sh | Telegram remote controller for Claude Code, Codex, Kimi, and PI";
+const pageTitle = "touchgrass.sh | Run AI coding agents from your phone";
 const pageDescription =
-  "Use Telegram as a remote controller for Claude Code, Codex, Kimi, and PI. Start local CLI sessions, bridge input/output to chat, and manage them on the go.";
+  "Bridge Claude Code, Codex, Kimi, and Pi to Telegram. Send prompts, approve tools, attach files, and build personal agents — all from your phone.";
 const ogImageUrl = `${siteUrl}/og.png`;
 const seoSchema = {
   "@context": "https://schema.org",
@@ -377,10 +377,10 @@ app.get("/", (c) => {
                       <p class="font-headline text-sm tracking-wide text-emerald-100/95">touchgrass.sh</p>
                     </div>
                     <CardTitle class="font-headline text-4xl leading-tight tracking-tight text-balance text-white sm:text-5xl">
-                      Telegram remote controller for Claude Code &amp; Codex
+                      Run your AI coding agents from your phone
                     </CardTitle>
                     <p class="max-w-6xl text-lg text-emerald-100/90">
-                      Launch sessions, route chat input, and keep long-running workflows alive from anywhere.
+                      Bridge Claude Code, Codex, Kimi, and Pi to Telegram. Send prompts, approve tools, attach files, and manage long-running sessions — all from chat.
                     </p>
                   </CardHeader>
                 </Card>
@@ -415,6 +415,27 @@ app.get("/", (c) => {
                   </div>
                 </div>
 
+                <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  <Card class="overflow-hidden border-emerald-200/30 bg-black/50 backdrop-blur">
+                    <CardContent class="p-4">
+                      <p class="font-headline text-sm text-emerald-300">Zero config</p>
+                      <p class="mt-1 text-sm text-emerald-100/80">Wraps your existing CLI. Just prefix with <code class="text-emerald-200">tg</code> and you're live.</p>
+                    </CardContent>
+                  </Card>
+                  <Card class="overflow-hidden border-emerald-200/30 bg-black/50 backdrop-blur">
+                    <CardContent class="p-4">
+                      <p class="font-headline text-sm text-emerald-300">Multi-tool</p>
+                      <p class="mt-1 text-sm text-emerald-100/80">Claude Code, Codex, Pi, and Kimi supported out of the box.</p>
+                    </CardContent>
+                  </Card>
+                  <Card class="overflow-hidden border-emerald-200/30 bg-black/50 backdrop-blur">
+                    <CardContent class="p-4">
+                      <p class="font-headline text-sm text-emerald-300">Build agents</p>
+                      <p class="mt-1 text-sm text-emerald-100/80">Scaffold personal agents with workflows, skills, and updatable core.</p>
+                    </CardContent>
+                  </Card>
+                </div>
+
                 <Card class="overflow-hidden border-emerald-200/30 bg-black/45 backdrop-blur">
                   <CardContent class="p-2 sm:p-4">
                     <div class="w-full overflow-hidden border border-emerald-200/30 bg-black/60">
@@ -430,6 +451,43 @@ app.get("/", (c) => {
                         Your browser does not support HTML5 video.
                       </video>
                     </div>
+                  </CardContent>
+                </Card>
+
+                <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <Card class="overflow-hidden border-emerald-200/30 bg-black/50 backdrop-blur">
+                    <CardContent class="p-4">
+                      <p class="font-headline text-sm text-emerald-300">Works from anywhere</p>
+                      <p class="mt-1 text-sm text-emerald-100/80">Send prompts, approve tool calls, share files, and reply with context — all from Telegram on your phone.</p>
+                    </CardContent>
+                  </Card>
+                  <Card class="overflow-hidden border-emerald-200/30 bg-black/50 backdrop-blur">
+                    <CardContent class="p-4">
+                      <p class="font-headline text-sm text-emerald-300">Lightweight</p>
+                      <p class="mt-1 text-sm text-emerald-100/80">Just a PTY bridge and daemon. Auto-starts when you run a session, auto-stops when idle. No background services.</p>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                <Card class="overflow-hidden border-emerald-200/30 bg-black/50 backdrop-blur">
+                  <CardContent class="p-5">
+                    <p class="font-headline text-base text-emerald-300">Get started in 60 seconds</p>
+                    <pre class="mt-3 overflow-x-auto rounded-md border border-emerald-200/20 bg-black/60 p-4 text-sm leading-relaxed text-emerald-100/90"><code>{`curl -fsSL https://touchgrass.sh/install.sh | bash
+tg setup          # connect your Telegram bot
+tg pair           # pair from chat
+tg claude         # start a bridged session`}</code></pre>
+                  </CardContent>
+                </Card>
+
+                <Card class="overflow-hidden border-emerald-200/30 bg-black/50 backdrop-blur">
+                  <CardContent class="p-5">
+                    <p class="font-headline text-base text-emerald-300">Build a personal agent</p>
+                    <p class="mt-1 text-sm text-emerald-100/80">
+                      Scaffold an agent with workflows and skills. The managed core updates automatically — your customizations stay untouched.
+                    </p>
+                    <pre class="mt-3 overflow-x-auto rounded-md border border-emerald-200/20 bg-black/60 p-4 text-sm leading-relaxed text-emerald-100/90"><code>{`tg agent create my-agent --name "My Agent"
+cd my-agent
+tg claude`}</code></pre>
                   </CardContent>
                 </Card>
 
