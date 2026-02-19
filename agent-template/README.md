@@ -1,7 +1,25 @@
-# Touchgrass Agent Template
+# Touchgrass Agent
 
-A super simple personal agent template built for CLI tools like Claude Code, Codex, Pi etc,
-that can be controlled via [touchgrass.sh](https://touchgrass.sh) from Telegram etc.
+A personal agent template for CLI tools like Claude Code, Codex, Pi etc,
+controlled from Telegram via [touchgrass.sh](https://touchgrass.sh).
+
+## Quick Start
+
+```bash
+# Install touchgrass
+curl -fsSL https://touchgrass.sh/install.sh | bash
+
+# Create your agent
+tg agent create my-agent --name "My Agent"
+cd my-agent
+
+# Setup Telegram bot and pair
+tg setup
+tg pair
+
+# Run it
+tg claude
+```
 
 ## How It Works
 
