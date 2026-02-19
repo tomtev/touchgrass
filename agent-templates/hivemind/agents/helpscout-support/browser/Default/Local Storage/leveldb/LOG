@@ -1,8 +1,0 @@
-2026/02/19-10:44:35.009 7910bcd Creating DB /Users/tommyvedvik/Dev/touchgrass/agent-templates/[wip]/agents/helpscout-support/browser/Default/Local Storage/leveldb since it was missing.
-2026/02/19-10:44:35.016 7910bcd Reusing MANIFEST /Users/tommyvedvik/Dev/touchgrass/agent-templates/[wip]/agents/helpscout-support/browser/Default/Local Storage/leveldb/MANIFEST-000001
-2026/02/19-11:03:53.151 7910bd2 Level-0 table #5: started
-2026/02/19-11:03:53.155 7910bd2 Level-0 table #5: 17190 bytes OK
-2026/02/19-11:03:53.160 7910bd2 Delete type=0 #3
-2026/02/19-11:14:36.250 7910bd2 Level-0 table #7: started
-2026/02/19-11:14:36.256 7910bd2 Level-0 table #7: 19437 bytes OK
-2026/02/19-11:14:36.259 7910bd2 Delete type=0 #4

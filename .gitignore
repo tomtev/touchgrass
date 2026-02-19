@@ -8,4 +8,6 @@ tg
 /proplan.md
 /touchgrass-platform/
 /.touchgrass-test/
-/agent-templates/wip/agents/helpscout-support
+/agent-templates/wip/agents/helpscout-support/
+/agent-templates/hivemind/agents/helpscout-support/
+/agent-templates/hivemind/agents/reddit-flatsome/
