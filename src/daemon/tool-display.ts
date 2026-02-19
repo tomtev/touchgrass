@@ -32,6 +32,16 @@ function summarizeToolOutput(content: string, max = 180): string {
   return truncateText(clean, max);
 }
 
+function parseJsonObject(content: string): Record<string, unknown> | null {
+  const trimmed = content.trim();
+  if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return null;
+  try {
+    return asRecord(JSON.parse(trimmed));
+  } catch {
+    return null;
+  }
+}
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   return value as Record<string, unknown>;
@@ -109,6 +119,87 @@ function labelForToolResult(toolName: string, isError: boolean): string {
   if (isError) return `${toolName || "Tool"} error`;
   if (toolName === "Bash" || toolName === "bash" || toolName === "exec_command") return "Output";
   return `${toolName || "Tool"} result`;
+}
+
+function formatTaskResultSimple(fmt: Formatter, content: string): string | null {
+  const clean = compactWhitespace(stripAnsi(content));
+  if (!clean) return null;
+  const agentId = clean.match(/agentId:\s*([A-Za-z0-9-]+)/i)?.[1];
+
+  if (/Async agent launched successfully/i.test(clean)) {
+    const parts = [`${fmt.escape("↳")} ${fmt.bold(fmt.escape("Task result"))}`, fmt.escape("sub-agent launched")];
+    if (agentId) parts.push(fmt.code(fmt.escape(agentId)));
+    return parts.join(` ${fmt.escape("•")} `);
+  }
+
+  const hasUsageTail = /<usage>|total_tokens:|duration_ms:/i.test(clean);
+  if (agentId && hasUsageTail) {
+    const firstLine = content
+      .split("\n")
+      .map((line) => line.trim())
+      .find((line) => line && !/^agentId:/i.test(line) && !/^<usage>/i.test(line) && !/^tool_uses:/i.test(line))
+      || "sub-agent completed";
+    return [
+      `${fmt.escape("↳")} ${fmt.bold(fmt.escape("Task result"))} ${fmt.escape("•")} ${fmt.escape("sub-agent completed")} ${fmt.escape("•")} ${fmt.code(fmt.escape(agentId))}`,
+      `${fmt.escape("↳")} ${fmt.code(fmt.escape(truncateText(compactWhitespace(stripAnsi(firstLine)), 160)))}`,
+    ].join("\n");
+  }
+
+  return null;
+}
+
+function formatCodexSubagentResultSimple(
+  fmt: Formatter,
+  toolName: string,
+  content: string
+): string | null {
+  const parsed = parseJsonObject(content);
+  if (!parsed) return null;
+
+  if (toolName === "spawn_agent") {
+    const agentId = getFirstString(parsed, ["agent_id", "agentId", "id"]);
+    if (!agentId) return null;
+    return `${fmt.escape("↳")} ${fmt.bold(fmt.escape("spawn_agent result"))} ${fmt.escape("•")} ${fmt.code(fmt.escape(agentId))}`;
+  }
+
+  if (toolName === "send_input") {
+    const submissionId = getFirstString(parsed, ["submission_id", "submissionId", "id"]);
+    if (!submissionId) return null;
+    return `${fmt.escape("↳")} ${fmt.bold(fmt.escape("send_input result"))} ${fmt.escape("•")} ${fmt.code(fmt.escape(submissionId))}`;
+  }
+
+  if (toolName === "wait") {
+    const timedOut = parsed.timed_out === true;
+    const status = asRecord(parsed.status);
+    const statusEntries = status ? Object.entries(status) : [];
+    if (timedOut) {
+      return `${fmt.escape("↳")} ${fmt.bold(fmt.escape("wait result"))} ${fmt.escape("•")} ${fmt.escape("timed out")}`;
+    }
+    if (statusEntries.length > 0) {
+      const [agentId, statusValue] = statusEntries[0];
+      let detail = "";
+      if (typeof statusValue === "string") detail = statusValue;
+      else {
+        const valueRecord = asRecord(statusValue);
+        if (valueRecord) {
+          detail = getFirstString(valueRecord, ["completed", "failed", "status", "message"]) || "";
+        }
+      }
+      const updates = `${statusEntries.length} agent update${statusEntries.length === 1 ? "" : "s"}`;
+      if (!detail) {
+        return `${fmt.escape("↳")} ${fmt.bold(fmt.escape("wait result"))} ${fmt.escape("•")} ${fmt.escape(updates)}`;
+      }
+      return [
+        `${fmt.escape("↳")} ${fmt.bold(fmt.escape("wait result"))} ${fmt.escape("•")} ${fmt.escape(updates)} ${fmt.escape("•")} ${fmt.code(fmt.escape(agentId))}`,
+        `${fmt.escape("↳")} ${fmt.code(fmt.escape(truncateText(compactWhitespace(stripAnsi(detail)), 160)))}`,
+      ].join("\n");
+    }
+    if (parsed.timed_out === false) {
+      return `${fmt.escape("↳")} ${fmt.bold(fmt.escape("wait result"))} ${fmt.escape("•")} ${fmt.escape("no pending updates")}`;
+    }
+  }
+
+  return null;
 }
 
 export function formatToolCall(
@@ -219,6 +310,42 @@ export function formatToolCall(
       }
       return `${fmt.escape("🤖")} ${fmt.italic(fmt.escape(desc))}`;
     }
+    case "spawn_agent": {
+      const agentType = getFirstString(input, ["agent_type", "type"]);
+      const message = getFirstString(input, ["message", "prompt", "description"]);
+      const parts = [`${fmt.escape("🤖")} ${fmt.code(fmt.escape("spawn_agent"))}`];
+      if (agentType) parts.push(`${fmt.escape("•")} ${fmt.escape(agentType)}`);
+      let line = parts.join(" ");
+      if (message) {
+        line += `\n${fmt.escape("↳")} ${fmt.italic(fmt.escape(truncateText(message, mode === "simple" ? 140 : 220)))}`;
+      }
+      return line;
+    }
+    case "send_input": {
+      const receiver = getFirstString(input, ["id", "receiver", "agent_id"]);
+      const message = getFirstString(input, ["message", "prompt", "input"]);
+      const parts = [`${fmt.escape("📨")} ${fmt.code(fmt.escape("send_input"))}`];
+      if (receiver) parts.push(`${fmt.escape("•")} ${fmt.code(fmt.escape(receiver))}`);
+      if (input.interrupt === true) parts.push(`${fmt.escape("•")} ${fmt.escape("interrupt")}`);
+      let line = parts.join(" ");
+      if (message) {
+        line += `\n${fmt.escape("↳")} ${fmt.escape(truncateText(message, mode === "simple" ? 140 : 220))}`;
+      }
+      return line;
+    }
+    case "wait": {
+      const ids = Array.isArray(input.ids)
+        ? input.ids.filter((id): id is string => typeof id === "string" && id.trim().length > 0)
+        : [];
+      const timeoutValue = input.timeout_ms ?? input.timeout;
+      const timeoutLabel = typeof timeoutValue === "number"
+        ? `${timeoutValue}ms`
+        : (typeof timeoutValue === "string" && timeoutValue.trim() ? timeoutValue.trim() : undefined);
+      const parts = [`${fmt.escape("⏳")} ${fmt.code(fmt.escape("wait"))}`];
+      if (ids.length > 0) parts.push(`${fmt.escape("•")} ${fmt.escape(`${ids.length} agent${ids.length === 1 ? "" : "s"}`)}`);
+      if (timeoutLabel) parts.push(`${fmt.escape("•")} ${fmt.code(fmt.escape(timeoutLabel))}`);
+      return parts.join(" ");
+    }
     case "TaskCreate":
     case "TaskUpdate":
       return formatTaskToolCall(fmt, name, input, mode);
@@ -255,6 +382,16 @@ export function formatSimpleToolResult(
   content: string,
   isError = false
 ): string | null {
+  if (!isError) {
+    if (toolName === "Task") {
+      const taskSummary = formatTaskResultSimple(fmt, content);
+      if (taskSummary) return taskSummary;
+    }
+    if (toolName === "spawn_agent" || toolName === "send_input" || toolName === "wait") {
+      const codexSummary = formatCodexSubagentResultSimple(fmt, toolName, content);
+      if (codexSummary) return codexSummary;
+    }
+  }
   if (!isError && !SIMPLE_TOOL_RESULT_NAMES.has(toolName)) return null;
   const summary = summarizeToolOutput(content, isError ? 220 : 180);
   const label = labelForToolResult(toolName, isError);

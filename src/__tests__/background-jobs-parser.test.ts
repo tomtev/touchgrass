@@ -364,4 +364,81 @@ describe("background job parser", () => {
       },
     ]);
   });
+
+  it("forwards Claude Task tool results for simple-mode summarization", () => {
+    __cliRunTestUtils.resetParserState();
+
+    __cliRunTestUtils.parseJsonlMessage({
+      type: "assistant",
+      message: {
+        content: [
+          {
+            type: "tool_use",
+            id: "toolu_task_1",
+            name: "Task",
+            input: {
+              description: "Check latest HelpScout tickets",
+            },
+          },
+        ],
+      },
+    });
+
+    const parsed = __cliRunTestUtils.parseJsonlMessage({
+      type: "user",
+      message: {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "toolu_task_1",
+            is_error: false,
+            content: "Async agent launched successfully.\nagentId: af65706",
+          },
+        ],
+      },
+    });
+
+    expect(parsed.toolResults).toEqual([
+      {
+        toolName: "Task",
+        content: "Async agent launched successfully.\nagentId: af65706",
+        isError: false,
+      },
+    ]);
+  });
+
+  it("forwards Codex sub-agent function outputs for simple-mode summarization", () => {
+    __cliRunTestUtils.resetParserState();
+
+    __cliRunTestUtils.parseJsonlMessage({
+      type: "response_item",
+      payload: {
+        type: "function_call",
+        name: "spawn_agent",
+        call_id: "call_spawn_1",
+        arguments: JSON.stringify({
+          agent_type: "default",
+          message: "You are the HelpScout agent.",
+        }),
+      },
+    });
+
+    const parsed = __cliRunTestUtils.parseJsonlMessage({
+      type: "response_item",
+      payload: {
+        type: "function_call_output",
+        call_id: "call_spawn_1",
+        output: "{\"agent_id\":\"019c7568-cd07-7200-bb7c-8b1b6033b215\"}",
+      },
+    });
+
+    expect(parsed.toolResults).toEqual([
+      {
+        toolName: "spawn_agent",
+        content: "{\"agent_id\":\"019c7568-cd07-7200-bb7c-8b1b6033b215\"}",
+        isError: false,
+      },
+    ]);
+  });
 });

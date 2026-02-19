@@ -396,6 +396,8 @@ const FORWARD_RESULT_TOOLS = new Set([
   "WebFetch", "WebSearch", "Bash", // Claude
   "web_fetch", "web_search", "bash", // PI / Kimi
   "exec_command", // Codex
+  "Task", // Claude sub-agent lifecycle / output
+  "spawn_agent", "send_input", "wait", // Codex sub-agent lifecycle
 ]);
 
 // Tool rejections the user already sees in their terminal — don't echo to Telegram

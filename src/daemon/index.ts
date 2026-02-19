@@ -323,8 +323,35 @@ export async function startDaemon(): Promise<void> {
     return Array.from(merged).slice(0, 5);
   };
 
+  type ResumableTool = "claude" | "codex" | "pi" | "kimi";
+
+  const cleanResumeRef = (token: string | undefined): string | null => {
+    if (!token) return null;
+    const trimmed = token.trim().replace(/^['"`]+|['"`]+$/g, "");
+    return trimmed || null;
+  };
+
   const getSessionTool = (command: string): string => {
     return command.trim().split(/\s+/)[0] || "";
+  };
+
+  const detectResumableTool = (command: string): ResumableTool | null => {
+    const tool = getSessionTool(command).toLowerCase();
+    if (tool === "claude" || tool === "codex" || tool === "pi" || tool === "kimi") return tool;
+    return null;
+  };
+
+  const extractResumeRefFromCommand = (tool: ResumableTool, command: string): string | null => {
+    if (tool === "pi") {
+      return cleanResumeRef(command.match(/(?:^|\s)--session(?:=|\s+)([^\s]+)/i)?.[1]);
+    }
+    if (tool === "kimi") {
+      return cleanResumeRef(command.match(/(?:^|\s)(?:--session|-S)(?:=|\s+)([^\s]+)/i)?.[1]);
+    }
+    return cleanResumeRef(
+      command.match(/\bresume\s+([^\s]+)/i)?.[1] ||
+      command.match(/\b--resume(?:=|\s+)([^\s]+)/i)?.[1]
+    );
   };
 
   const supportsBackgroundTracking = (command: string): boolean => {
@@ -1941,6 +1968,29 @@ export async function startDaemon(): Promise<void> {
         return { ok: true };
       }
       return { ok: false, error: "Session not found or already exited" };
+    },
+    restartSessionById(sessionId: string, sessionRef?: string): { ok: boolean; error?: string; sessionRef?: string } {
+      const remote = sessionManager.getRemote(sessionId);
+      if (!remote) {
+        return { ok: false, error: "Session not found or already exited" };
+      }
+
+      let resolvedSessionRef = cleanResumeRef(sessionRef);
+      if (!resolvedSessionRef) {
+        const tool = detectResumableTool(remote.command);
+        if (!tool) {
+          return { ok: false, error: "Current session command does not support resume restart" };
+        }
+        resolvedSessionRef = extractResumeRefFromCommand(tool, remote.command);
+        if (!resolvedSessionRef) {
+          return { ok: false, error: "Could not infer resume session ID; pass --session <tool_session_id>" };
+        }
+      }
+
+      if (!sessionManager.requestRemoteResume(sessionId, resolvedSessionRef)) {
+        return { ok: false, error: "Session not found or already exited" };
+      }
+      return { ok: true, sessionRef: resolvedSessionRef };
     },
     handleToolCall(sessionId: string, name: string, input: Record<string, unknown>): void {
       const remote = sessionManager.getRemote(sessionId);

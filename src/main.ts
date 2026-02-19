@@ -61,6 +61,11 @@ async function main() {
       await runStopOrKill();
       break;
     }
+    case "restart": {
+      const { runRestart } = await import("./cli/restart");
+      await runRestart();
+      break;
+    }
     case "resume": {
       const { runResume } = await import("./cli/resume");
       await runResume();
@@ -86,7 +91,7 @@ async function main() {
       break;
     default: {
       console.error(`Unknown command: ${command}`);
-      console.error("Supported commands: tg setup, tg claude, tg codex, tg pi, tg kimi, tg stop, tg kill");
+      console.error("Supported commands: tg setup, tg claude, tg codex, tg pi, tg kimi, tg stop, tg kill, tg restart");
       console.error(`Run "tg help" for more information.`);
       process.exit(1);
     }
@@ -116,6 +121,7 @@ Options (for claude/codex/pi/kimi/resume):
   peek     Peek at last messages from session(s) (tg peek <id>|--all [count])
   stop     Stop a session (SIGTERM / remote stop request)
   kill     Kill a session (SIGKILL / remote kill request)
+  restart  Restart a tg session wrapper on its current tool session (tg restart [tg_session_id])
   links    List and manage linked groups/topics
   setup    Set up Telegram credentials (supports --telegram <token>, --channel <name>, --list-channels, --show)
   init     Alias for setup

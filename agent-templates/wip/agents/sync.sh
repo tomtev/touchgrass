@@ -28,11 +28,9 @@ description = "General-purpose helper."
 description = "Fast codebase explorer for read-heavy tasks."
 TOML
 
-# Parse each agent markdown file
-for file in "$DIR"/*.md; do
+# Parse each agent folder (agents/<name>/agent.md)
+for file in "$DIR"/*/agent.md; do
   [ -f "$file" ] || continue
-  # Skip README
-  [[ "$(basename "$file")" == "README.md" ]] && continue
 
   # --- Parse frontmatter ---
   name="" description="" read_only="" skills=""

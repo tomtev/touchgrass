@@ -60,15 +60,15 @@ export async function handleSessionCommand(
   if (!remote) {
     await ctx.channel.send(
       msg.chatId,
-      `No connected session for this chat. Start with ${fmt.code("tg claude")} (or ${fmt.code("tg codex")}, ${fmt.code("tg pi")}, ${fmt.code("tg kimi")}) and connect this channel first.`
+      `No connected touchgrass session for this chat. Start with ${fmt.code("tg claude")} (or ${fmt.code("tg codex")}, ${fmt.code("tg pi")}, ${fmt.code("tg kimi")}) and connect this channel first.`
     );
     return;
   }
 
   const tool = detectTool(remote.command);
   const lines: string[] = [
-    `${fmt.escape("⛳️")} ${fmt.bold(fmt.escape("Current session"))}`,
-    `${fmt.escape("ID:")} ${fmt.code(fmt.escape(remote.id))}`,
+    `${fmt.escape("⛳️")} ${fmt.bold(fmt.escape("Current touchgrass session"))}`,
+    `${fmt.escape("tg session ID:")} ${fmt.code(fmt.escape(remote.id))}`,
   ];
 
   if (tool) {
@@ -78,14 +78,19 @@ export async function handleSessionCommand(
     lines.push(`${fmt.escape("Project:")} ${fmt.code(fmt.escape(remote.cwd))}`);
   }
 
-  lines.push(`${fmt.escape("Picker:")} ${fmt.code("/resume")} ${fmt.escape("or")} ${fmt.code("tg resume")}`);
+  lines.push(`${fmt.escape("Resume picker:")} ${fmt.code("/resume")} ${fmt.escape("or")} ${fmt.code("tg resume")}`);
 
   if (tool) {
     const ref = extractResumeRef(tool, remote.command);
     if (ref) {
-      lines.push(`${fmt.escape("Resume this session:")} ${fmt.code(fmt.escape(resumeCommand(tool, ref)))}`);
+      lines.push(`${fmt.escape("Tool session ID:")} ${fmt.code(fmt.escape(ref))}`);
+      lines.push(`${fmt.escape("Direct tool resume:")} ${fmt.code(fmt.escape(resumeCommand(tool, ref)))}`);
+      lines.push(`${fmt.escape("Restart wrapper on same tool session:")} ${fmt.code(fmt.escape(`tg restart ${remote.id}`))}`);
     } else {
-      lines.push(`${fmt.escape("Resume command:")} ${fmt.code(fmt.escape(resumeTemplate(tool)))}`);
+      lines.push(`${fmt.escape("Tool session ID:")} ${fmt.escape("not detected from current command")}`);
+      lines.push(`${fmt.escape("Tool resume command:")} ${fmt.code(fmt.escape(resumeTemplate(tool)))}`);
+      lines.push(`${fmt.escape("Restart wrapper command:")} ${fmt.code(fmt.escape(`tg restart ${remote.id}`))}`);
+      lines.push(`${fmt.escape("If restart cannot infer a tool session, use")} ${fmt.code("/resume")} ${fmt.escape("first.")}`);
     }
   }
 

@@ -52,10 +52,12 @@ export interface DaemonContext {
   sendFileToSession: (sessionId: string, filePath: string, caption?: string) => Promise<{ ok: boolean; error?: string }>;
   stopSessionById: (sessionId: string) => { ok: boolean; error?: string };
   killSessionById: (sessionId: string) => { ok: boolean; error?: string };
+  restartSessionById: (sessionId: string, sessionRef?: string) => { ok: boolean; error?: string; sessionRef?: string };
 }
 
 async function readJsonBody(req: Request): Promise<Record<string, unknown>> {
   const text = await req.text();
+  if (!text.trim()) return {};
   return JSON.parse(text) as Record<string, unknown>;
 }
 
@@ -115,14 +117,25 @@ export async function startControlServer(ctx: DaemonContext): Promise<void> {
         return Response.json({ ok: true, channels });
       }
 
-      const sessionMatch = path.match(/^\/session\/([^/]+)\/(stop|kill)$/);
+      const sessionMatch = path.match(/^\/session\/([^/]+)\/(stop|kill|restart)$/);
       if (sessionMatch && req.method === "POST") {
         const [, sessionId, action] = sessionMatch;
-        const result = action === "stop"
-          ? ctx.stopSessionById(sessionId)
-          : ctx.killSessionById(sessionId);
+        let result: { ok: boolean; error?: string; sessionRef?: string };
+        if (action === "stop") {
+          result = ctx.stopSessionById(sessionId);
+        } else if (action === "kill") {
+          result = ctx.killSessionById(sessionId);
+        } else {
+          const body = await readJsonBody(req);
+          const sessionRef = typeof body.sessionRef === "string" ? body.sessionRef : undefined;
+          result = ctx.restartSessionById(sessionId, sessionRef);
+        }
         if (!result.ok) {
-          return Response.json({ ok: false, error: result.error || "Session not found" }, { status: 404 });
+          const status = (result.error || "").toLowerCase().includes("not found") ? 404 : 400;
+          return Response.json({ ok: false, error: result.error || "Session not found" }, { status });
+        }
+        if (action === "restart") {
+          return Response.json({ ok: true, sessionRef: result.sessionRef });
         }
         return Response.json({ ok: true });
       }
