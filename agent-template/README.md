@@ -1,4 +1,4 @@
-# Touchgrass Agent
+# Touchgrass Agent Template
 
 A super simple personal agent template built for CLI tools like Claude Code, Codex, Pi etc,
 that can be controlled via [touchgrass.sh](https://touchgrass.sh) from Telegram etc.
