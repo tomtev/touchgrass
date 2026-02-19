@@ -198,23 +198,6 @@ tg send --file <id> ./notes.md
 - `tg send <id> "text"`: inject text input into a running session.
 - `tg send --file <id> <path>`: send a local file to the linked channel for that session.
 
-## Multiple bots on one server
-
-You can run multiple bot configs on the same host safely.
-
-- Use a separate `TOUCHGRASS_HOME` per bot instance.
-- Use a separate shell environment (or Linux user/container) per instance so CLI auth and files stay isolated.
-
-Example:
-
-```bash
-TOUCHGRASS_HOME=/srv/tg/bot-a/.touchgrass tg setup --telegram <token-a> --channel bot_a
-TOUCHGRASS_HOME=/srv/tg/bot-a/.touchgrass tg claude --channel dm
-
-TOUCHGRASS_HOME=/srv/tg/bot-b/.touchgrass tg setup --telegram <token-b> --channel bot_b
-TOUCHGRASS_HOME=/srv/tg/bot-b/.touchgrass tg codex --channel dm
-```
-
 ## Build Personal Agents with Hivemind
 
 [Hivemind](https://github.com/tomtev/hivemind) is a companion template for building personal agents on top of Claude Code and Codex. Clone it, define your agents in markdown, and control them remotely with touchgrass.
