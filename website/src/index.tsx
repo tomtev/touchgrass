@@ -390,10 +390,10 @@ app.get("/", (c) => {
                       <p class="font-headline text-sm tracking-wide text-emerald-100/95">touchgrass.sh</p>
                     </div>
                     <CardTitle class="font-headline text-center text-4xl leading-tight tracking-tight text-balance text-white sm:text-5xl">
-                      The worlds most powerful AI agents in your pocket
+                      Remote control Claude Code, Codex, Pi and more with Telegram.
                     </CardTitle>
                     <p class="mx-auto max-w-2xl text-center text-lg text-emerald-100/90">
-                      Control Claude Code, Codex, and more from Telegram and build personal agents.
+                      Build personal agents and manage long-running sessions from your phone.
                     </p>
                   </CardHeader>
                 </Card>
