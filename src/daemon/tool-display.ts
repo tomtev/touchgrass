@@ -8,7 +8,6 @@ const SIMPLE_TOOL_RESULT_NAMES = new Set([
   "WebFetch",
   "web_search",
   "web_fetch",
-  "Task",
 ]);
 
 const SIMPLE_SUPPRESSED_TOOL_CALLS = new Set([
@@ -389,10 +388,6 @@ export function formatSimpleToolResult(
   isError = false
 ): string | null {
   if (!isError) {
-    if (toolName === "Task") {
-      const taskSummary = formatTaskResultSimple(fmt, content);
-      if (taskSummary) return taskSummary;
-    }
     if (toolName === "spawn_agent" || toolName === "send_input" || toolName === "wait") {
       const codexSummary = formatCodexSubagentResultSimple(fmt, toolName, content);
       if (codexSummary) return codexSummary;
