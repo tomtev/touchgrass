@@ -185,15 +185,28 @@ const grassScript = String.raw`(() => {
     renderTo(cloudEl, clouds);
   }
 
+  let stars = [];
+
   function twinkleSky() {
-    const swaps = Math.max(3, Math.floor(cols * 0.015));
-    const maxRow = Math.max(1, Math.floor(rows * 0.35));
-    for (let i = 0; i < swaps; i += 1) {
+    const maxRow = Math.max(1, Math.floor(rows * 0.45));
+
+    // Fade previous bright stars back
+    for (const s of stars) {
+      skyCells[s.idx] = s.fade;
+    }
+    stars = [];
+
+    // Spawn a few new bright blinks
+    const count = Math.max(2, Math.floor(cols * 0.008));
+    for (let i = 0; i < count; i += 1) {
       const r = Math.floor(Math.random() * maxRow);
       const c = Math.floor(Math.random() * cols);
       const idx = indexOf(r, c);
-      skyCells[idx] = skyCells[idx] === " " ? rand([".", "'", ":"]) : " ";
+      const prev = skyCells[idx];
+      skyCells[idx] = rand(["*", "+", "*"]);
+      stars.push({ idx, fade: Math.random() < 0.5 ? rand([".", "'"]) : prev });
     }
+
     renderTo(skyEl, skyCells);
   }
 
@@ -275,7 +288,7 @@ const grassScript = String.raw`(() => {
     }
     if (grassChanged) renderTo(grassEl, grassCells);
 
-    if (tick % 10 === 0) twinkleSky();
+    if (tick % 3 === 0) twinkleSky();
   }, 90);
 
   stage.addEventListener("pointermove", queuePointer, { passive: true });
@@ -376,10 +389,10 @@ app.get("/", (c) => {
                       <span class="text-2xl" aria-hidden="true">⛳️</span>
                       <p class="font-headline text-sm tracking-wide text-emerald-100/95">touchgrass.sh</p>
                     </div>
-                    <CardTitle class="font-headline text-4xl leading-tight tracking-tight text-balance text-white sm:text-5xl">
+                    <CardTitle class="font-headline text-center text-4xl leading-tight tracking-tight text-balance text-white sm:text-5xl">
                       The worlds most powerful AI agents in your pocket
                     </CardTitle>
-                    <p class="mx-auto max-w-2xl text-lg text-emerald-100/90">
+                    <p class="mx-auto max-w-2xl text-center text-lg text-emerald-100/90">
                       Control Claude Code, Codex, and more from Telegram and build personal agents.
                     </p>
                   </CardHeader>
