@@ -13,6 +13,35 @@ interface Props {
 }
 
 export default function OGImage({ title, subtitle, badge }: Props) {
+  // Generate ASCII sky characters (sparse dots and apostrophes)
+  const skyChars: { x: number; y: number; ch: string }[] = [];
+  const rng = (seed: number) => {
+    let s = seed;
+    return () => {
+      s = (s * 1103515245 + 12345) & 0x7fffffff;
+      return s / 0x7fffffff;
+    };
+  };
+  const r = rng(42);
+  for (let i = 0; i < 120; i++) {
+    skyChars.push({
+      x: Math.floor(r() * 1200),
+      y: Math.floor(r() * 320),
+      ch: [".", "'", ":", ".", "*", "+", "."][Math.floor(r() * 7)],
+    });
+  }
+
+  // Generate ASCII grass characters along the bottom
+  const grassChars: { x: number; y: number; ch: string }[] = [];
+  const grassSet = ["'", ",", ";", ":", ".", "^", "'", ","];
+  for (let i = 0; i < 200; i++) {
+    grassChars.push({
+      x: Math.floor(r() * 1200),
+      y: 530 + Math.floor(r() * 100),
+      ch: grassSet[Math.floor(r() * grassSet.length)],
+    });
+  }
+
   return (
     <div
       style={{
@@ -22,43 +51,66 @@ export default function OGImage({ title, subtitle, badge }: Props) {
         flexDirection: "column",
         justifyContent: "center",
         alignItems: "center",
-        background: "linear-gradient(145deg, #04090a 0%, #0a1f1a 40%, #0d2818 70%, #04090a 100%)",
-        fontFamily: "monospace",
+        background: "#04090a",
+        fontFamily: "Geist Mono, monospace",
         position: "relative",
         overflow: "hidden",
       }}
     >
-      {/* Subtle grid pattern */}
-      <div
-        style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          display: "flex",
-          opacity: 0.06,
-          backgroundImage:
-            "linear-gradient(rgba(16,185,129,1) 1px, transparent 1px), linear-gradient(90deg, rgba(16,185,129,1) 1px, transparent 1px)",
-          backgroundSize: "40px 40px",
-        }}
-      />
+      {/* ASCII sky dots */}
+      {skyChars.map((s, i) => (
+        <span
+          key={i}
+          style={{
+            position: "absolute",
+            left: `${s.x}px`,
+            top: `${s.y}px`,
+            fontSize: "14px",
+            color:
+              s.ch === "*" || s.ch === "+"
+                ? "rgba(104,182,255,0.7)"
+                : "rgba(104,182,255,0.35)",
+            display: "flex",
+          }}
+        >
+          {s.ch}
+        </span>
+      ))}
 
-      {/* Glow effect */}
+      {/* ASCII grass along bottom */}
+      {grassChars.map((g, i) => (
+        <span
+          key={i}
+          style={{
+            position: "absolute",
+            left: `${g.x}px`,
+            top: `${g.y}px`,
+            fontSize: "14px",
+            color: "rgba(14,209,149,0.6)",
+            display: "flex",
+          }}
+        >
+          {g.ch}
+        </span>
+      ))}
+
+      {/* Subtle emerald glow behind content */}
       <div
         style={{
           position: "absolute",
           top: "50%",
           left: "50%",
-          width: "600px",
-          height: "600px",
+          width: "500px",
+          height: "400px",
           display: "flex",
           borderRadius: "50%",
-          background: "radial-gradient(circle, rgba(16,185,129,0.12) 0%, transparent 70%)",
+          background:
+            "radial-gradient(circle, rgba(16,185,129,0.08) 0%, transparent 70%)",
           transform: "translate(-50%, -50%)",
         }}
       />
 
+      {/* Main content card */}
       <div
         style={{
           display: "flex",
@@ -66,7 +118,10 @@ export default function OGImage({ title, subtitle, badge }: Props) {
           alignItems: "center",
           gap: "20px",
           zIndex: 1,
-          padding: "0 80px",
+          padding: "40px 60px",
+          borderRadius: "12px",
+          border: "1px solid rgba(167,243,208,0.2)",
+          background: "rgba(0,0,0,0.5)",
         }}
       >
         {/* Badge */}
@@ -75,18 +130,15 @@ export default function OGImage({ title, subtitle, badge }: Props) {
             display: "flex",
             alignItems: "center",
             gap: "10px",
-            padding: "8px 20px",
-            borderRadius: "999px",
-            border: "1px solid rgba(16,185,129,0.3)",
-            background: "rgba(16,185,129,0.08)",
           }}
         >
-          <span style={{ fontSize: "22px" }}>⛳️</span>
+          <span style={{ fontSize: "24px" }}>⛳️</span>
           <span
             style={{
-              fontSize: "16px",
-              color: "rgba(167,243,208,0.9)",
-              letterSpacing: "0.05em",
+              fontSize: "18px",
+              fontFamily: "Geist Mono, monospace",
+              color: "rgba(167,243,208,0.95)",
+              letterSpacing: "0.08em",
             }}
           >
             {badge}
@@ -96,12 +148,14 @@ export default function OGImage({ title, subtitle, badge }: Props) {
         {/* Title */}
         <h1
           style={{
-            fontSize: "52px",
+            fontSize: "48px",
+            fontFamily: "Geist Mono, monospace",
             fontWeight: 700,
             color: "#ffffff",
             textAlign: "center",
-            lineHeight: 1.15,
+            lineHeight: 1.2,
             margin: 0,
+            maxWidth: "900px",
           }}
         >
           {title}
@@ -110,7 +164,8 @@ export default function OGImage({ title, subtitle, badge }: Props) {
         {/* Subtitle */}
         <p
           style={{
-            fontSize: "22px",
+            fontSize: "20px",
+            fontFamily: "Geist, sans-serif",
             color: "rgba(167,243,208,0.75)",
             textAlign: "center",
             lineHeight: 1.5,
@@ -126,16 +181,16 @@ export default function OGImage({ title, subtitle, badge }: Props) {
           style={{
             display: "flex",
             alignItems: "center",
-            marginTop: "12px",
-            padding: "14px 28px",
-            borderRadius: "10px",
-            border: "1px solid rgba(16,185,129,0.25)",
-            background: "rgba(0,0,0,0.5)",
+            marginTop: "8px",
+            padding: "12px 24px",
+            borderRadius: "8px",
+            border: "1px solid rgba(167,243,208,0.2)",
+            background: "rgba(0,0,0,0.6)",
           }}
         >
           <code
             style={{
-              fontSize: "17px",
+              fontSize: "16px",
               color: "rgba(167,243,208,0.85)",
               letterSpacing: "0.01em",
             }}

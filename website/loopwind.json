@@ -1,0 +1,17 @@
+{
+  "fonts": {
+    "mono": {
+      "family": ["Geist Mono", "monospace"],
+      "files": [
+        { "path": "./fonts/GeistMono-Regular.ttf", "weight": 400 },
+        { "path": "./fonts/GeistMono-Bold.ttf", "weight": 700 }
+      ]
+    },
+    "sans": {
+      "family": ["Geist", "sans-serif"],
+      "files": [
+        { "path": "./fonts/Geist-Regular.ttf", "weight": 400 }
+      ]
+    }
+  }
+}
