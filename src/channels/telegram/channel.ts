@@ -108,7 +108,10 @@ function buildCommandMenu(
     );
   }
   if (ctx.isGroup) {
-    commands.push(ctx.isLinkedGroup ? TELEGRAM_COMMANDS.unlink : TELEGRAM_COMMANDS.link);
+    // Always show both link and unlink for groups — Telegram command menus are
+    // scoped at the group level, not per-topic, so different topics may have
+    // different linked states and users need access to both commands.
+    commands.push(TELEGRAM_COMMANDS.link, TELEGRAM_COMMANDS.unlink);
   }
   return commands;
 }

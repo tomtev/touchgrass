@@ -1,0 +1,23 @@
+[features]
+multi_agent = true
+
+[agents]
+max_threads = 4
+
+[agents.default]
+description = "General-purpose helper."
+
+[agents.explorer]
+description = "Fast codebase explorer for read-heavy tasks."
+
+[agents.example]
+description = "An example agent to show the format. Replace with your own."
+config_file = ".codex/agents/example.toml"
+
+[agents.helpscout-support]
+description = "A support agent that handles HelpScout conversations via browser."
+config_file = ".codex/agents/helpscout-support.toml"
+
+[agents.reddit-flatsome]
+description = "Monitors Reddit for Flatsome WordPress theme posts and discussions."
+config_file = ".codex/agents/reddit-flatsome.toml"

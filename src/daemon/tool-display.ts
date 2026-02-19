@@ -206,6 +206,19 @@ export function formatToolCall(
   fmt: Formatter,
   name: string,
   input: Record<string, unknown>,
+  mode: ToolDisplayMode,
+  command?: string
+): string | null {
+  const result = formatToolCallInner(fmt, name, input, mode);
+  if (!result) return null;
+  if (!command) return result;
+  return `${fmt.code(fmt.escape(command))} ${result}`;
+}
+
+function formatToolCallInner(
+  fmt: Formatter,
+  name: string,
+  input: Record<string, unknown>,
   mode: ToolDisplayMode
 ): string | null {
   if (mode === "simple" && SIMPLE_SUPPRESSED_TOOL_CALLS.has(name)) return null;
@@ -305,10 +318,14 @@ export function formatToolCall(
     case "Task": {
       const desc = input.description as string | undefined;
       if (!desc) return null;
+      const prompt = input.prompt as string | undefined;
+      const promptLine = prompt
+        ? `\n${fmt.escape("↳")} ${fmt.escape(truncateText(prompt, mode === "simple" ? 200 : 400))}`
+        : "";
       if (mode === "simple") {
-        return `${fmt.escape("🤖")} ${fmt.italic(fmt.escape(truncateText(desc, 140)))}`;
+        return `${fmt.escape("🤖")} ${fmt.italic(fmt.escape(truncateText(desc, 140)))}${promptLine}`;
       }
-      return `${fmt.escape("🤖")} ${fmt.italic(fmt.escape(desc))}`;
+      return `${fmt.escape("🤖")} ${fmt.italic(fmt.escape(desc))}${promptLine}`;
     }
     case "spawn_agent": {
       const agentType = getFirstString(input, ["agent_type", "type"]);

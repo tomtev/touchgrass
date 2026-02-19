@@ -35,6 +35,18 @@ export class TelegramFormatter implements Formatter {
       codeBlocks.push(`<pre>${escapeHtml(code.trimEnd())}</pre>`);
       return `\x00CB${idx}\x00`;
     });
+    // Markdown tables: contiguous lines starting with |
+    result = result.replace(/(?:^|\n)((?:\|[^\n]+\|\n?){2,})/g, (_match: string, table: string) => {
+      const idx = codeBlocks.length;
+      const lines = table.trimEnd().split("\n");
+      // Drop separator rows (e.g. |---|---|)
+      const content = lines
+        .filter((l) => !/^\|[\s\-:|]+\|$/.test(l))
+        .map((l) => escapeHtml(l))
+        .join("\n");
+      codeBlocks.push(`<pre>${content}</pre>`);
+      return `\n\x00CB${idx}\x00`;
+    });
     // Inline code: `...`
     result = result.replace(/`([^`]+)`/g, (_match: string, code: string) => {
       const idx = codeBlocks.length;
