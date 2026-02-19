@@ -122,13 +122,23 @@ function extractBlock(content: string, tag: string): { full: string; version: st
 
 // --- create ---
 
-const TEMPLATE_DEFAULTS: Record<string, string> = {
-  AGENT_NAME: "My Agent",
-  AGENT_DESCRIPTION: "A personal agent that helps with tasks using workflows and skills.",
-  OWNER_NAME: "Owner",
-};
+async function detectOwnerName(): Promise<string> {
+  try {
+    const proc = Bun.spawn(["git", "config", "user.name"], { stdout: "pipe", stderr: "pipe" });
+    await proc.exited;
+    const name = (await new Response(proc.stdout).text()).trim();
+    if (name) return name;
+  } catch {}
+  return require("os").userInfo().username || "Owner";
+}
 
 async function createAgent(dest: string, vars: Record<string, string>): Promise<void> {
+  const resolved: Record<string, string> = {
+    AGENT_NAME: vars["AGENT_NAME"] || "My Agent",
+    AGENT_DESCRIPTION: vars["AGENT_DESCRIPTION"] || "A personal agent that helps with tasks using workflows and skills.",
+    OWNER_NAME: vars["OWNER_NAME"] || await detectOwnerName(),
+  };
+
   console.log("Downloading agent template...");
   const tmpDir = await downloadTemplate();
   const extractDir = join(tmpDir, "out");
@@ -138,8 +148,7 @@ async function createAgent(dest: string, vars: Record<string, string>): Promise<
     const agentsPath = join(extractDir, "AGENTS.md");
     try {
       let content = await readFile(agentsPath, "utf-8");
-      for (const [key, defaultVal] of Object.entries(TEMPLATE_DEFAULTS)) {
-        const value = vars[key] || defaultVal;
+      for (const [key, value] of Object.entries(resolved)) {
         content = content.split(`{{${key}}}`).join(value);
       }
       await writeFile(agentsPath, content);

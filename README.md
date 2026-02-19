@@ -98,6 +98,47 @@ tg codex --sandbox workspace-write --ask-for-approval untrusted
 tg codex --sandbox workspace-write --ask-for-approval on-failure
 ```
 
+## Agents
+
+Create a personal agent powered by Claude Code, Codex, or any supported CLI tool. Agents are just folders with an `AGENTS.md` file that defines behavior, workflows, and skills.
+
+### Create an agent
+
+```bash
+tg agent create my-agent --name "My Agent" --owner "Your Name" --description "What it does"
+cd my-agent
+tg claude
+```
+
+All flags are optional — defaults are used when omitted:
+
+```bash
+tg agent create my-agent
+```
+
+### What you get
+
+```
+my-agent/
+  AGENTS.md          # Agent definition (soul, owner, core behavior)
+  CLAUDE.md          # Points to AGENTS.md
+  workflows/         # Reusable workflows (standalone .md files with frontmatter)
+  skills/            # Reusable skills (SKILL.md files)
+```
+
+The `<agent-core>` block in `AGENTS.md` contains the managed agent behavior — resolution logic, workflow/skill patterns, and built-in capabilities. Everything outside that block (name, description, owner) is yours to customize.
+
+### Update agent core
+
+When a new version of the agent core is released, update in place:
+
+```bash
+cd my-agent
+tg agent update
+```
+
+This replaces the `<agent-core>` block with the latest version while keeping your name, description, owner, workflows, and skills untouched.
+
 ## How it works
 
 Two processes cooperate:
@@ -147,6 +188,16 @@ tg kimi [args]
 - `tg codex [args]`: run Codex with chat bridge on the selected/linked channel.
 - `tg pi [args]`: run PI with chat bridge on the selected/linked channel.
 - `tg kimi [args]`: run Kimi with chat bridge on the selected/linked channel.
+
+### Agents
+
+```bash
+tg agent create [folder] --name "Name" --owner "Owner" --description "Desc"
+tg agent update
+```
+
+- `tg agent create [folder]`: scaffold a new agent from the template into the given folder (or current directory).
+- `tg agent update`: update the `<agent-core>` block in `AGENTS.md` to the latest version.
 
 ### Setup and health
 
