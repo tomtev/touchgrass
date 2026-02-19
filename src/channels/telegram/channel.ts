@@ -709,6 +709,60 @@ export class TelegramChannel implements Channel {
                   }
                 }
 
+                // Extract reply/quote context from replied-to message
+                const reply = msg.reply_to_message;
+                if (reply && !reply.forum_topic_created) {
+                  const quoteLines: string[] = [];
+
+                  // Download photo/document from the quoted message
+                  let replyFileId: string | null = null;
+                  let replyFileExt = "jpg";
+                  if (reply.photo && reply.photo.length > 0) {
+                    replyFileId = reply.photo[reply.photo.length - 1].file_id;
+                  } else if (reply.document) {
+                    replyFileId = reply.document.file_id;
+                    const name = reply.document.file_name || "";
+                    const dotIdx = name.lastIndexOf(".");
+                    if (dotIdx > 0) replyFileExt = name.slice(dotIdx + 1);
+                  }
+
+                  if (replyFileId) {
+                    try {
+                      const file = await this.api.getFile(replyFileId);
+                      if (file.file_path) {
+                        const url = this.api.getFileUrl(file.file_path);
+                        const ext = file.file_path.split(".").pop() || replyFileExt;
+                        const fileName = `${Date.now()}-${file.file_unique_id}.${ext}`;
+                        await ensureDirs();
+                        const localPath = join(paths.uploadsDir, fileName);
+                        const res = await fetch(url);
+                        if (res.ok) {
+                          const buffer = await res.arrayBuffer();
+                          await Bun.write(localPath, buffer);
+                          await chmod(localPath, 0o600).catch(() => {});
+                          fileUrls.push(localPath);
+                          quoteLines.push(`> [image: ${localPath}]`);
+                        }
+                      }
+                    } catch (e) {
+                      await logger.error("Failed to download reply file", { error: (e as Error).message });
+                    }
+                  }
+
+                  // Extract text/caption from the quoted message
+                  const replyText = (reply.text || reply.caption || "").trim();
+                  if (replyText) {
+                    for (const line of replyText.split("\n")) {
+                      quoteLines.push(`> ${line}`);
+                    }
+                  }
+
+                  if (quoteLines.length > 0) {
+                    const quoteBlock = quoteLines.join("\n");
+                    text = text ? `${quoteBlock}\n\n${text}` : quoteBlock;
+                  }
+                }
+
                 if (!text || !msg.from) continue;
 
                 // Strip @BotUsername mentions (common in groups)
