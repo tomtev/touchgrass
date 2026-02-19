@@ -18,9 +18,9 @@ const emojiFavicon =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ctext y='50' font-size='50'%3E%E2%9B%B3%EF%B8%8F%3C/text%3E%3C/svg%3E";
 const installCommand = "curl -fsSL https://touchgrass.sh/install.sh | bash";
 const siteUrl = "https://touchgrass.sh";
-const pageTitle = "touchgrass.sh | Run AI coding agents from your phone";
+const pageTitle = "touchgrass.sh | The worlds most powerful AI agents in your pocket";
 const pageDescription =
-  "Bridge Claude Code, Codex, Kimi, and Pi to Telegram. Send prompts, approve tools, attach files, and build personal agents — all from your phone.";
+  "Control Claude Code, Codex, and more from Telegram and build personal agents. Send prompts, approve tools, and manage sessions from your phone.";
 const ogImageUrl = `${siteUrl}/og.png`;
 const seoSchema = {
   "@context": "https://schema.org",
@@ -377,10 +377,10 @@ app.get("/", (c) => {
                       <p class="font-headline text-sm tracking-wide text-emerald-100/95">touchgrass.sh</p>
                     </div>
                     <CardTitle class="font-headline text-4xl leading-tight tracking-tight text-balance text-white sm:text-5xl">
-                      Run your AI coding agents from your phone
+                      The worlds most powerful AI agents in your pocket
                     </CardTitle>
                     <p class="max-w-6xl text-lg text-emerald-100/90">
-                      Bridge Claude Code, Codex, Kimi, and Pi to Telegram. Send prompts, approve tools, attach files, and manage long-running sessions — all from chat.
+                      Control Claude Code, Codex, and more from Telegram and build personal agents.
                     </p>
                   </CardHeader>
                 </Card>
