@@ -371,15 +371,15 @@ app.get("/", (c) => {
             <div class="relative z-10 mx-auto flex min-h-screen max-w-6xl flex-col gap-8 px-6 py-8 lg:px-8">
               <div class="flex flex-1 flex-col justify-center gap-6">
                 <Card class="overflow-hidden border-emerald-200/30 bg-black/50 backdrop-blur">
-                  <CardHeader class="gap-4 pb-3">
-                    <div class="flex items-center gap-3">
+                  <CardHeader class="gap-4 pb-3 text-center">
+                    <div class="flex items-center justify-center gap-3">
                       <span class="text-2xl" aria-hidden="true">⛳️</span>
                       <p class="font-headline text-sm tracking-wide text-emerald-100/95">touchgrass.sh</p>
                     </div>
                     <CardTitle class="font-headline text-4xl leading-tight tracking-tight text-balance text-white sm:text-5xl">
                       The worlds most powerful AI agents in your pocket
                     </CardTitle>
-                    <p class="max-w-6xl text-lg text-emerald-100/90">
+                    <p class="mx-auto max-w-2xl text-lg text-emerald-100/90">
                       Control Claude Code, Codex, and more from Telegram and build personal agents.
                     </p>
                   </CardHeader>
