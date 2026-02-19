@@ -1,9 +1,22 @@
 # ⛳ touchgrass.sh
 
-⛳️ Use Telegram as a remote controller for Claude Code, Codex, Kimi and Pi and more. Manage your code CLIs on the go.
+Use Telegram as a remote controller for Claude Code, Codex, Kimi, Pi and more.
 
-- Runs on top of normal code CLI commands (`claude`, `codex`, `pi`, `kimi`).
-- Prefix it with `tg` (for example `tg claude`) to wrap that session with Touchgrass and bridge it to chat.
+- **Zero config** — wraps your existing CLI tools, no new runtime to learn
+- **Works from your phone** — send prompts, approve tools, attach files from Telegram
+- **Build agents** — scaffold personal agents with workflows, skills, and managed core updates
+- **Multi-tool** — supports Claude Code, Codex, Pi, Kimi out of the box
+- **Lightweight** — just a PTY bridge + daemon, auto-starts and auto-stops
+
+## Table of Contents
+
+- [Install](#install)
+- [Setup](#setup)
+- [Agents](#agents)
+- [How it works](#how-it-works)
+- [CLI reference](#touchgrass-cli-reference)
+- [FAQ](#faq)
+- [Requirements](#requirements)
 
 ## Install
 
