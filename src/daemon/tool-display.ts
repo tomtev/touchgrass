@@ -388,6 +388,10 @@ export function formatSimpleToolResult(
   isError = false
 ): string | null {
   if (!isError) {
+    if (toolName === "Task") {
+      const taskSummary = formatTaskResultSimple(fmt, content);
+      if (taskSummary) return taskSummary;
+    }
     if (toolName === "spawn_agent" || toolName === "send_input" || toolName === "wait") {
       const codexSummary = formatCodexSubagentResultSimple(fmt, toolName, content);
       if (codexSummary) return codexSummary;
