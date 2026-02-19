@@ -206,21 +206,6 @@ export function formatToolCall(
   fmt: Formatter,
   name: string,
   input: Record<string, unknown>,
-  mode: ToolDisplayMode,
-  command?: string
-): string | null {
-  const result = formatToolCallInner(fmt, name, input, mode);
-  if (!result) return null;
-  if (!command) return result;
-  // Extract just the CLI name (e.g. "claude") from the full spawn command
-  const shortName = command.split(/\s/)[0].split("/").pop() || command;
-  return `${fmt.code(fmt.escape(shortName))} ${result}`;
-}
-
-function formatToolCallInner(
-  fmt: Formatter,
-  name: string,
-  input: Record<string, unknown>,
   mode: ToolDisplayMode
 ): string | null {
   if (mode === "simple" && SIMPLE_SUPPRESSED_TOOL_CALLS.has(name)) return null;
