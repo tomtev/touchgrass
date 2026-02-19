@@ -212,7 +212,9 @@ export function formatToolCall(
   const result = formatToolCallInner(fmt, name, input, mode);
   if (!result) return null;
   if (!command) return result;
-  return `${fmt.code(fmt.escape(command))} ${result}`;
+  // Extract just the CLI name (e.g. "claude") from the full spawn command
+  const shortName = command.split(/\s/)[0].split("/").pop() || command;
+  return `${fmt.code(fmt.escape(shortName))} ${result}`;
 }
 
 function formatToolCallInner(
@@ -319,8 +321,10 @@ function formatToolCallInner(
       const desc = input.description as string | undefined;
       if (!desc) return null;
       const prompt = input.prompt as string | undefined;
-      const promptLine = prompt
-        ? `\n${fmt.escape("↳")} ${fmt.escape(truncateText(prompt, mode === "simple" ? 200 : 400))}`
+      // Show first line of prompt only, truncated
+      const firstPromptLine = prompt?.split("\n")[0];
+      const promptLine = firstPromptLine
+        ? `\n${fmt.escape("↳")} ${fmt.escape(truncateText(firstPromptLine, mode === "simple" ? 100 : 200))}`
         : "";
       if (mode === "simple") {
         return `${fmt.escape("🤖")} ${fmt.italic(fmt.escape(truncateText(desc, 140)))}${promptLine}`;
