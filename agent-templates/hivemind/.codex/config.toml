@@ -14,10 +14,6 @@ description = "Fast codebase explorer for read-heavy tasks."
 description = "An example agent to show the format. Replace with your own."
 config_file = ".codex/agents/example.toml"
 
-[agents.helpscout-support]
-description = "A support agent that handles HelpScout conversations via browser."
-config_file = ".codex/agents/helpscout-support.toml"
-
-[agents.reddit-flatsome]
-description = "Monitors Reddit for Flatsome WordPress theme posts and discussions."
-config_file = ".codex/agents/reddit-flatsome.toml"
+[agents.storebrand-bills]
+description = "Pays bills via Storebrand personal account using the openclaw browser."
+config_file = ".codex/agents/storebrand-bills.toml"
