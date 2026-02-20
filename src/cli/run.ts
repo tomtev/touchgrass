@@ -128,6 +128,44 @@ function validateRunSetupPreflight(config: TgConfig): RunSetupPreflight {
   return { ok: true };
 }
 
+// Y/n confirmation prompt
+function confirmPrompt(message: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const YELLOW = "\x1b[33m";
+    const RESET = "\x1b[0m";
+    const DIM = "\x1b[2m";
+    process.stdout.write(`${YELLOW}⚠ ${message}${RESET} ${DIM}(Y/n)${RESET} `);
+
+    if (!process.stdin.isTTY) {
+      process.stdout.write("\n");
+      resolve(true);
+      return;
+    }
+
+    const wasRaw = process.stdin.isRaw;
+    process.stdin.setRawMode(true);
+
+    function onData(data: Buffer) {
+      const key = data.toString().toLowerCase();
+      process.stdin.removeListener("data", onData);
+      process.stdin.setRawMode(wasRaw ?? false);
+
+      if (key === "y" || key === "\r" || key === "\n") {
+        process.stdout.write("yes\n");
+        resolve(true);
+      } else if (key === "\x03") {
+        process.stdout.write("\n");
+        process.exit(130);
+      } else {
+        process.stdout.write("no\n");
+        resolve(false);
+      }
+    }
+
+    process.stdin.on("data", onData);
+  });
+}
+
 // Arrow-key picker for terminal selection
 export function terminalPicker(title: string, options: string[], hint?: string, disabled?: Set<number>): Promise<number> {
   return new Promise((resolve) => {
@@ -1192,6 +1230,7 @@ interface ChannelPickerOption {
   label: string;
   chatId: string;
   busy: boolean;
+  busyLabel?: string | null;
   title: string;
   type: string;
 }
@@ -1200,7 +1239,7 @@ function buildChannelPickerOptions(
   channels: Array<{ chatId: string; title: string; type: string; busy: boolean; busyLabel?: string | null }>
 ): ChannelPickerOption[] {
   const options: ChannelPickerOption[] = [];
-  options.push({ label: "No channel", chatId: "", busy: false, title: "No channel", type: "none" });
+  options.push({ label: "No channel", chatId: "", busy: false, busyLabel: null, title: "No channel", type: "none" });
 
   const dms = channels.filter((c) => c.type === "dm");
   const groups = channels.filter((c) => c.type === "group");
@@ -1212,6 +1251,7 @@ function buildChannelPickerOptions(
       label: `${dm.title} ${suffix}`,
       chatId: dm.chatId,
       busy: dm.busy,
+      busyLabel: dm.busyLabel,
       title: dm.title,
       type: "dm",
     });
@@ -1224,6 +1264,7 @@ function buildChannelPickerOptions(
       label: `${group.title} ${suffix}`,
       chatId: group.chatId,
       busy: group.busy,
+      busyLabel: group.busyLabel,
       title: group.title,
       type: "group",
     });
@@ -1238,6 +1279,7 @@ function buildChannelPickerOptions(
         label: `  ${topic.title} ${topicSuffix}`,
         chatId: topic.chatId,
         busy: topic.busy,
+        busyLabel: topic.busyLabel,
         title: topic.title,
         type: "topic",
       });
@@ -1254,6 +1296,7 @@ function buildChannelPickerOptions(
       label: `  ${topic.title} ${suffix}`,
       chatId: topic.chatId,
       busy: topic.busy,
+      busyLabel: topic.busyLabel,
       title: topic.title,
       type: "topic",
     });
@@ -1537,6 +1580,12 @@ export async function runRun(): Promise<void> {
 
   cmdArgs = applyTouchgrassAutoContextArgs(currentTool, cmdArgs);
 
+  // Install Claude Code hooks for structured lifecycle events (replaces PTY scanning)
+  if (currentTool === "claude") {
+    const { installClaudeHooks } = await import("../hooks/installer");
+    await installClaudeHooks().catch(() => {}); // non-fatal
+  }
+
   let fullCommand = [SUPPORTED_COMMANDS[currentTool][0], ...cmdArgs].join(" ");
   const displayName = process.cwd().split("/").pop() || "";
 
@@ -1591,24 +1640,33 @@ export async function runRun(): Promise<void> {
         selectedFromFlag = true;
       } else {
         const labels = pickerOptions.map((o) => o.label);
-        const disabled = new Set<number>();
-        pickerOptions.forEach((o, idx) => {
-          if (o.busy && o.chatId) disabled.add(idx);
-        });
         const choice = await terminalPicker(
           "⛳ Select a channel:",
           labels,
-          "Use `tg links` to manage linked channels (busy channels are disabled)",
-          disabled
+          "Use `tg links` to manage linked channels",
         );
         if (choice >= 0 && choice < pickerOptions.length) {
           const chosen = pickerOptions[choice];
           if (chosen.chatId) {
-            selectedChatForBind = chosen.chatId as ChannelChatId;
-            preferredOwnerType = getChannelType(chosen.chatId);
-            preferredOwnerName = getChannelName(chosen.chatId);
-            const typeLabel = chosen.type === "dm" ? "DM" : chosen.type === "group" ? "Group" : chosen.type === "topic" ? "Topic" : "";
-            selectedLabelForPrint = `${chosen.title} (${typeLabel})`;
+            // If channel is busy, confirm replacement
+            if (chosen.busy && chosen.busyLabel) {
+              const confirmed = await confirmPrompt(`Channel in use by ${chosen.busyLabel}. Replace?`);
+              if (!confirmed) {
+                selectedLabelForPrint = "No channel";
+              } else {
+                selectedChatForBind = chosen.chatId as ChannelChatId;
+                preferredOwnerType = getChannelType(chosen.chatId);
+                preferredOwnerName = getChannelName(chosen.chatId);
+                const typeLabel = chosen.type === "dm" ? "DM" : chosen.type === "group" ? "Group" : chosen.type === "topic" ? "Topic" : "";
+                selectedLabelForPrint = `${chosen.title} (${typeLabel})`;
+              }
+            } else {
+              selectedChatForBind = chosen.chatId as ChannelChatId;
+              preferredOwnerType = getChannelType(chosen.chatId);
+              preferredOwnerName = getChannelName(chosen.chatId);
+              const typeLabel = chosen.type === "dm" ? "DM" : chosen.type === "group" ? "Group" : chosen.type === "topic" ? "Topic" : "";
+              selectedLabelForPrint = `${chosen.title} (${typeLabel})`;
+            }
           } else {
             selectedLabelForPrint = "No channel";
           }
@@ -1683,11 +1741,7 @@ export async function runRun(): Promise<void> {
           }
         } catch (bindErr) {
           const errText = `\x1b[33m⚠ ${(bindErr as Error).message}\x1b[0m`;
-          if (selectedFromFlag) {
-            console.error(errText);
-            process.exit(1);
-          }
-          console.error(`${errText}. Keeping current channel binding.`);
+          console.error(`${errText}. Continuing without channel binding.`);
         }
       }
     } catch (e) {
@@ -1870,7 +1924,8 @@ export async function runRun(): Promise<void> {
     }
 
     // PTY output buffer for detecting approval prompts (per-CLI patterns)
-    const approvalPattern = APPROVAL_PATTERNS[cmdName];
+    // Claude uses hooks for structured lifecycle events — skip PTY scanning
+    const approvalPattern = cmdName !== "claude" ? APPROVAL_PATTERNS[cmdName] : undefined;
     let ptyBuffer = "";
     let lastNotifiedPrompt = "";
     // Track the last tool call so we can report it when the approval prompt appears

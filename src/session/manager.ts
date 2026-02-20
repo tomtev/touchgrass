@@ -433,6 +433,34 @@ export class SessionManager {
     return undefined;
   }
 
+  /** Returns all sessions that currently need user input (approval poll or question). */
+  getInputNeeded(): Array<{ sessionId: string; command: string; type: 'approval' | 'question' }> {
+    const result: Array<{ sessionId: string; command: string; type: 'approval' | 'question' }> = [];
+    const seen = new Set<string>();
+
+    // Check for pending questions
+    for (const [sessionId, _qs] of this.pendingQuestions) {
+      const remote = this.remotes.get(sessionId);
+      if (remote) {
+        result.push({ sessionId, command: remote.command, type: 'question' });
+        seen.add(sessionId);
+      }
+    }
+
+    // Check for pending approval polls
+    for (const [_pollId, poll] of this.pendingPolls) {
+      if (!seen.has(poll.sessionId)) {
+        const remote = this.remotes.get(poll.sessionId);
+        if (remote) {
+          result.push({ sessionId: poll.sessionId, command: remote.command, type: 'approval' });
+          seen.add(poll.sessionId);
+        }
+      }
+    }
+
+    return result;
+  }
+
   reapStaleRemotes(maxAgeMs: number): Array<RemoteSession & { boundChatId: ChannelChatId | null }> {
     const now = Date.now();
     const reaped: Array<RemoteSession & { boundChatId: ChannelChatId | null }> = [];

@@ -35,6 +35,7 @@ export interface DaemonContext {
   authToken: string;
   startedAt: number;
   getStatus: () => Record<string, unknown>;
+  getInputNeeded: () => Array<{ sessionId: string; command: string; type: 'approval' | 'question' }>;
   shutdown: () => Promise<void>;
   generatePairingCode: () => string;
   getChannels: () => Promise<ChannelInfo[]>;
@@ -142,6 +143,10 @@ export async function startControlServer(ctx: DaemonContext): Promise<void> {
         return Response.json({ ok: true, channels });
       }
 
+      if (path === "/input-needed") {
+        return Response.json({ ok: true, sessions: ctx.getInputNeeded() });
+      }
+
       const sessionMatch = path.match(/^\/session\/([^/]+)\/(stop|kill|restart)$/);
       if (sessionMatch && req.method === "POST") {
         const [, sessionId, action] = sessionMatch;
@@ -193,6 +198,66 @@ export async function startControlServer(ctx: DaemonContext): Promise<void> {
         }
         const result = await ctx.bindChat(sessionId, targetChatId);
         return Response.json({ ok: result.ok, ...(result.error ? { error: result.error } : {}) });
+      }
+
+      // Claude Code hook endpoint — receives structured lifecycle events from the hook script
+      const hookMatch = path.match(/^\/hook\/(r-[a-f0-9]+)$/);
+      if (hookMatch && req.method === "POST") {
+        const [, sessionId] = hookMatch;
+        if (!ctx.hasRemote(sessionId)) {
+          return Response.json({ ok: false, error: "Session not found" }, { status: 404 });
+        }
+        const body = await readJsonBody(req);
+        const eventName = body.hook_event_name as string;
+        if (!eventName) {
+          return Response.json({ ok: false, error: "Missing hook_event_name" }, { status: 400 });
+        }
+
+        if (eventName === "PermissionRequest") {
+          const toolName = (body.tool_name as string) || "unknown";
+          const toolInput = (body.tool_input as Record<string, unknown>) || {};
+          // Only show approval polls for tools that modify things
+          const APPROVABLE_TOOLS = new Set(["Bash", "Edit", "Write", "NotebookEdit"]);
+          if (!APPROVABLE_TOOLS.has(toolName)) {
+            return Response.json({ ok: true }); // Silently skip non-dangerous tools
+          }
+          // Build human-readable prompt text from tool name and input
+          let promptText = `Allow ${toolName}`;
+          if (toolName === "Bash" && typeof toolInput.command === "string") {
+            const cmd = toolInput.command.length > 80
+              ? toolInput.command.slice(0, 80) + "..."
+              : toolInput.command;
+            promptText = `Allow Bash: ${cmd}?`;
+          } else if ((toolName === "Edit" || toolName === "Write") && typeof toolInput.file_path === "string") {
+            promptText = `Allow ${toolName}: ${toolInput.file_path}?`;
+          } else {
+            promptText = `Allow ${toolName}?`;
+          }
+          // Extract poll options from permission_suggestions
+          const suggestions = Array.isArray(body.permission_suggestions) ? body.permission_suggestions as Array<{ type?: string; tool?: string }> : [];
+          const pollOptions = ["Yes", "Yes, always for this session", "No"];
+          if (suggestions.length > 0) {
+            // Check if there's an "always allow" suggestion to make the options more specific
+            const hasAlwaysAllow = suggestions.some((s) => s.type === "toolAlwaysAllow");
+            if (hasAlwaysAllow) {
+              pollOptions[1] = `Yes, always allow ${toolName}`;
+            }
+          }
+          ctx.handleApprovalNeeded(sessionId, toolName, toolInput, promptText, pollOptions);
+          return Response.json({ ok: true });
+        }
+
+        if (eventName === "UserPromptSubmit") {
+          ctx.handleTyping(sessionId, true);
+          return Response.json({ ok: true });
+        }
+
+        if (eventName === "Stop") {
+          ctx.handleTyping(sessionId, false);
+          return Response.json({ ok: true });
+        }
+
+        return Response.json({ ok: true }); // Unknown event — ignore silently
       }
 
       // Match /remote/:id/* actions

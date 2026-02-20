@@ -23,6 +23,7 @@ export const paths = {
   logFile: join(TG_DIR, "logs", "daemon.log"),
   sessionsDir: join(TG_DIR, "sessions"),
   uploadsDir: join(TG_DIR, "uploads"),
+  hooksDir: join(TG_DIR, "hooks"),
   statusBoardsFile: join(TG_DIR, "status-boards.json"),
 };
 
@@ -32,7 +33,7 @@ export function useTcpControlServer(): boolean {
 
 export async function ensureDirs(): Promise<void> {
   const { mkdir, chmod } = await import("fs/promises");
-  const secureDirs = [paths.dir, paths.logsDir, paths.sessionsDir, paths.uploadsDir];
+  const secureDirs = [paths.dir, paths.logsDir, paths.sessionsDir, paths.uploadsDir, paths.hooksDir];
 
   for (const dir of secureDirs) {
     await mkdir(dir, { recursive: true, mode: 0o700 });

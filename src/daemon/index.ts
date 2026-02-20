@@ -1711,6 +1711,9 @@ export async function startDaemon(): Promise<void> {
         })),
       };
     },
+    getInputNeeded() {
+      return sessionManager.getInputNeeded();
+    },
     async shutdown() {
       cancelAutoStop();
       clearInterval(backgroundBoardRefreshTimer);
