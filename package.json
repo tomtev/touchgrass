@@ -10,7 +10,6 @@
     "test": "rm -rf .touchgrass-test && TOUCHGRASS_HOME=.touchgrass-test bun test"
   },
   "dependencies": {
-    "@resvg/resvg-wasm": "^2.6.2",
     "playwright": "^1.58.2"
   },
   "devDependencies": {
