@@ -2310,7 +2310,8 @@ export async function startDaemon(): Promise<void> {
     },
     async removeChannel(name: string): Promise<{ ok: boolean; error?: string; needsRestart?: boolean }> {
       await refreshConfig();
-      if (!config.channels[name]) {
+      const ch = config.channels[name];
+      if (!ch) {
         return { ok: false, error: "Channel not found" };
       }
       // Check if any active sessions are using this channel
@@ -2319,7 +2320,12 @@ export async function startDaemon(): Promise<void> {
         const remote = sessionManager.getRemote(s.id);
         if (remote) {
           const parsed = parseChannelAddress(remote.chatId);
-          if (parsed.channelName === name) {
+          // Match scoped addresses (telegram:botname:123) or unscoped (telegram:123)
+          // where the channel is the default for that type
+          const usesThisChannel =
+            parsed.channelName === name ||
+            (!parsed.channelName && parsed.type === ch.type);
+          if (usesThisChannel) {
             return { ok: false, error: `Cannot remove channel: active session ${s.id} is using it` };
           }
         }
