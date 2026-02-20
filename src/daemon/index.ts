@@ -1,15 +1,18 @@
 import { loadConfig, invalidateCache, saveConfig } from "../config/store";
 import {
+  addLinkedGroup,
   getAllLinkedGroups,
   getAllPairedUsers,
   getChatMuted,
   getChatOutputMode,
   getChatThinkingEnabled,
+  getTelegramBotToken,
   isLinkedGroup,
   removeLinkedGroup,
   setChatOutputMode,
   type OutputMode,
 } from "../config/schema";
+import { TelegramApi } from "../channels/telegram/api";
 import { logger } from "./logger";
 import {
   acquireDaemonLock,
@@ -22,7 +25,7 @@ import {
   removeSocket,
   writePidFile,
 } from "./lifecycle";
-import { startControlServer, type ChannelInfo } from "./control-server";
+import { startControlServer, type ChannelInfo, type ConfigChannelSummary, type ConfigChannelDetails } from "./control-server";
 import { routeMessage } from "../bot/command-router";
 import { buildResumePickerPage } from "../bot/handlers/resume";
 import type { BackgroundJobSessionSummary } from "../bot/handlers/background-jobs";
@@ -2221,6 +2224,137 @@ export async function startDaemon(): Promise<void> {
       const targetChat = sessionManager.getBoundChat(sessionId) || remote.chatId;
       sessionManager.setPendingQuestions(sessionId, parsed, targetChat);
       sendNextPoll(sessionId);
+    },
+    // --- Config channel management ---
+    async getConfigChannels(): Promise<ConfigChannelSummary[]> {
+      await refreshConfig();
+      const results: ConfigChannelSummary[] = [];
+      for (const [name, ch] of Object.entries(config.channels)) {
+        let botUsername: string | undefined;
+        let botFirstName: string | undefined;
+        if (ch.type === "telegram") {
+          const token = getTelegramBotToken(config, name);
+          if (token) {
+            try {
+              const me = await new TelegramApi(token).getMe();
+              botUsername = me.username;
+              botFirstName = me.first_name;
+            } catch {}
+          }
+        }
+        results.push({
+          name,
+          type: ch.type,
+          botUsername,
+          botFirstName,
+          pairedUserCount: ch.pairedUsers.length,
+          linkedGroupCount: (ch.linkedGroups || []).length,
+        });
+      }
+      return results;
+    },
+    async getChannelDetails(name: string): Promise<{ ok: boolean; error?: string; channel?: ConfigChannelDetails }> {
+      await refreshConfig();
+      const ch = config.channels[name];
+      if (!ch) return { ok: false, error: "Channel not found" };
+      let botUsername: string | undefined;
+      if (ch.type === "telegram") {
+        const token = getTelegramBotToken(config, name);
+        if (token) {
+          try {
+            const me = await new TelegramApi(token).getMe();
+            botUsername = me.username;
+          } catch {}
+        }
+      }
+      return {
+        ok: true,
+        channel: {
+          name,
+          type: ch.type,
+          botUsername,
+          pairedUsers: ch.pairedUsers.map((u) => ({ userId: u.userId, username: u.username, pairedAt: u.pairedAt })),
+          linkedGroups: (ch.linkedGroups || []).map((g) => ({ chatId: g.chatId, title: g.title, linkedAt: g.linkedAt })),
+        },
+      };
+    },
+    async addChannel(name: string, type: string, botToken: string): Promise<{ ok: boolean; error?: string; botUsername?: string; botFirstName?: string; needsRestart?: boolean }> {
+      if (!/^[a-z][a-z0-9_-]{0,63}$/.test(name)) {
+        return { ok: false, error: "Invalid channel name. Must be lowercase alphanumeric, starting with a letter (max 64 chars)" };
+      }
+      if (type !== "telegram") {
+        return { ok: false, error: `Unsupported channel type: ${type}` };
+      }
+      await refreshConfig();
+      if (config.channels[name]) {
+        return { ok: false, error: `Channel "${name}" already exists` };
+      }
+      // Validate bot token
+      let botUsername: string | undefined;
+      let botFirstName: string | undefined;
+      try {
+        const me = await new TelegramApi(botToken).getMe();
+        botUsername = me.username;
+        botFirstName = me.first_name;
+      } catch (e) {
+        return { ok: false, error: `Invalid bot token: ${(e as Error).message}` };
+      }
+      config.channels[name] = {
+        type,
+        credentials: { botToken },
+        pairedUsers: [],
+        linkedGroups: [],
+      };
+      await saveConfig(config);
+      return { ok: true, botUsername, botFirstName, needsRestart: true };
+    },
+    async removeChannel(name: string): Promise<{ ok: boolean; error?: string; needsRestart?: boolean }> {
+      await refreshConfig();
+      if (!config.channels[name]) {
+        return { ok: false, error: "Channel not found" };
+      }
+      // Check if any active sessions are using this channel
+      const sessions = sessionManager.list();
+      for (const s of sessions) {
+        const remote = sessionManager.getRemote(s.id);
+        if (remote) {
+          const parsed = parseChannelAddress(remote.chatId);
+          if (parsed.channelName === name) {
+            return { ok: false, error: `Cannot remove channel: active session ${s.id} is using it` };
+          }
+        }
+      }
+      delete config.channels[name];
+      await saveConfig(config);
+      return { ok: true, needsRestart: true };
+    },
+    async removePairedUser(channelName: string, userId: string): Promise<{ ok: boolean; error?: string }> {
+      await refreshConfig();
+      const ch = config.channels[channelName];
+      if (!ch) return { ok: false, error: "Channel not found" };
+      const idx = ch.pairedUsers.findIndex((u) => u.userId === userId);
+      if (idx < 0) return { ok: false, error: "Paired user not found" };
+      ch.pairedUsers.splice(idx, 1);
+      await saveConfig(config);
+      return { ok: true };
+    },
+    async addLinkedGroupApi(channelName: string, chatId: string, title?: string): Promise<{ ok: boolean; error?: string }> {
+      await refreshConfig();
+      const ch = config.channels[channelName];
+      if (!ch) return { ok: false, error: "Channel not found" };
+      const added = addLinkedGroup(config, chatId, title, channelName);
+      if (!added) return { ok: false, error: "Group already linked or channel type mismatch" };
+      await saveConfig(config);
+      return { ok: true };
+    },
+    async removeLinkedGroupApi(channelName: string, chatId: string): Promise<{ ok: boolean; error?: string }> {
+      await refreshConfig();
+      const ch = config.channels[channelName];
+      if (!ch) return { ok: false, error: "Channel not found" };
+      const removed = removeLinkedGroup(config, chatId, channelName);
+      if (!removed) return { ok: false, error: "Linked group not found" };
+      await saveConfig(config);
+      return { ok: true };
     },
   });
 

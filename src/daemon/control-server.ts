@@ -14,6 +14,23 @@ export interface ChannelInfo {
   busyLabel: string | null;
 }
 
+export interface ConfigChannelSummary {
+  name: string;
+  type: string;
+  botUsername?: string;
+  botFirstName?: string;
+  pairedUserCount: number;
+  linkedGroupCount: number;
+}
+
+export interface ConfigChannelDetails {
+  name: string;
+  type: string;
+  botUsername?: string;
+  pairedUsers: Array<{ userId: string; username?: string; pairedAt: string }>;
+  linkedGroups: Array<{ chatId: string; title?: string; linkedAt: string }>;
+}
+
 export interface DaemonContext {
   authToken: string;
   startedAt: number;
@@ -53,6 +70,14 @@ export interface DaemonContext {
   stopSessionById: (sessionId: string) => { ok: boolean; error?: string };
   killSessionById: (sessionId: string) => { ok: boolean; error?: string };
   restartSessionById: (sessionId: string, sessionRef?: string) => { ok: boolean; error?: string; sessionRef?: string };
+  // Config channel management
+  getConfigChannels: () => Promise<ConfigChannelSummary[]>;
+  getChannelDetails: (name: string) => Promise<{ ok: boolean; error?: string; channel?: ConfigChannelDetails }>;
+  addChannel: (name: string, type: string, botToken: string) => Promise<{ ok: boolean; error?: string; botUsername?: string; botFirstName?: string; needsRestart?: boolean }>;
+  removeChannel: (name: string) => Promise<{ ok: boolean; error?: string; needsRestart?: boolean }>;
+  removePairedUser: (channelName: string, userId: string) => Promise<{ ok: boolean; error?: string }>;
+  addLinkedGroupApi: (channelName: string, chatId: string, title?: string) => Promise<{ ok: boolean; error?: string }>;
+  removeLinkedGroupApi: (channelName: string, chatId: string) => Promise<{ ok: boolean; error?: string }>;
 }
 
 async function readJsonBody(req: Request): Promise<Record<string, unknown>> {
@@ -298,6 +323,89 @@ export async function startControlServer(ctx: DaemonContext): Promise<void> {
           const result = await ctx.sendFileToSession(sessionId, filePath, caption);
           if (!result.ok) {
             return Response.json({ ok: false, error: result.error || "Failed to send file" }, { status: 400 });
+          }
+          return Response.json({ ok: true });
+        }
+      }
+
+      // --- Config channel management routes ---
+      const configChannelMatch = path.match(/^\/config\/channels(?:\/([a-z][a-z0-9_-]*))?(?:\/(users|groups)(?:\/(.+))?)?$/);
+      if (configChannelMatch) {
+        const [, channelName, subResource, subId] = configChannelMatch;
+
+        // GET /config/channels — list all channels
+        if (!channelName && req.method === "GET") {
+          const channels = await ctx.getConfigChannels();
+          return Response.json({ ok: true, channels });
+        }
+
+        // POST /config/channels — add a new channel
+        if (!channelName && req.method === "POST") {
+          const body = await readJsonBody(req);
+          const name = body.name as string;
+          const type = body.type as string;
+          const botToken = body.botToken as string;
+          if (!name || !type || !botToken) {
+            return Response.json({ ok: false, error: "Missing name, type, or botToken" }, { status: 400 });
+          }
+          const result = await ctx.addChannel(name, type, botToken);
+          if (!result.ok) {
+            return Response.json({ ok: false, error: result.error }, { status: 400 });
+          }
+          return Response.json({ ok: true, botUsername: result.botUsername, botFirstName: result.botFirstName, needsRestart: result.needsRestart });
+        }
+
+        // GET /config/channels/:name — get channel details
+        if (channelName && !subResource && req.method === "GET") {
+          const result = await ctx.getChannelDetails(channelName);
+          if (!result.ok) {
+            return Response.json({ ok: false, error: result.error }, { status: 404 });
+          }
+          return Response.json({ ok: true, channel: result.channel });
+        }
+
+        // DELETE /config/channels/:name — remove a channel
+        if (channelName && !subResource && req.method === "DELETE") {
+          const result = await ctx.removeChannel(channelName);
+          if (!result.ok) {
+            const status = (result.error || "").toLowerCase().includes("not found") ? 404 : 400;
+            return Response.json({ ok: false, error: result.error }, { status });
+          }
+          return Response.json({ ok: true, needsRestart: result.needsRestart });
+        }
+
+        // DELETE /config/channels/:name/users/:userId — remove a paired user
+        if (channelName && subResource === "users" && subId && req.method === "DELETE") {
+          const result = await ctx.removePairedUser(channelName, decodeURIComponent(subId));
+          if (!result.ok) {
+            const status = (result.error || "").toLowerCase().includes("not found") ? 404 : 400;
+            return Response.json({ ok: false, error: result.error }, { status });
+          }
+          return Response.json({ ok: true });
+        }
+
+        // POST /config/channels/:name/groups — add a linked group
+        if (channelName && subResource === "groups" && !subId && req.method === "POST") {
+          const body = await readJsonBody(req);
+          const chatId = body.chatId as string;
+          const title = body.title as string | undefined;
+          if (!chatId) {
+            return Response.json({ ok: false, error: "Missing chatId" }, { status: 400 });
+          }
+          const result = await ctx.addLinkedGroupApi(channelName, chatId, title);
+          if (!result.ok) {
+            const status = (result.error || "").toLowerCase().includes("not found") ? 404 : 400;
+            return Response.json({ ok: false, error: result.error }, { status });
+          }
+          return Response.json({ ok: true });
+        }
+
+        // DELETE /config/channels/:name/groups/:chatId — remove a linked group
+        if (channelName && subResource === "groups" && subId && req.method === "DELETE") {
+          const result = await ctx.removeLinkedGroupApi(channelName, decodeURIComponent(subId));
+          if (!result.ok) {
+            const status = (result.error || "").toLowerCase().includes("not found") ? 404 : 400;
+            return Response.json({ ok: false, error: result.error }, { status });
           }
           return Response.json({ ok: true });
         }
