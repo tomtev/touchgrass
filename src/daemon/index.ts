@@ -1861,10 +1861,10 @@ export async function startDaemon(): Promise<void> {
       // Disconnect old session from this channel if taken
       const oldRemote = sessionManager.getAttachedRemote(chatId);
       if (oldRemote && oldRemote.id !== sessionId) {
-        return {
-          ok: false,
-          error: `Channel is busy with ${sessionLabel(oldRemote.command, oldRemote.cwd)}`,
-        };
+        sessionManager.detach(chatId);
+        syncCommandMenuForChat(chatId, oldRemote.ownerUserId);
+        const fmt = getFormatterForChat(chatId);
+        sendToChat(chatId, `${fmt.escape("🔄")} ${fmt.bold(fmt.escape(sessionLabel(oldRemote.command, oldRemote.cwd)))} disconnected`);
       }
 
       // Remove auto-attached DM if binding to a different chat
