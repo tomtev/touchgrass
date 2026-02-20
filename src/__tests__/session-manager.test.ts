@@ -11,7 +11,7 @@ describe("registerRemote", () => {
   it("creates a remote session with r- prefix", () => {
     const mgr = createManager();
     const remote = mgr.registerRemote("claude", "telegram:100" as ChannelChatId, "telegram:100" as ChannelUserId, "/tmp");
-    expect(remote.id).toMatch(/^r-[a-f0-9]{6}$/);
+    expect(remote.id).toMatch(/^r-[a-f0-9]{16}$/);
     expect(remote.command).toBe("claude");
     expect(remote.cwd).toBe("/tmp");
     expect(remote.chatId).toBe("telegram:100");

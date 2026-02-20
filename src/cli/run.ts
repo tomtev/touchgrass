@@ -1056,7 +1056,10 @@ async function writePollKeypresses(
 }
 
 function encodeBracketedPaste(text: string): Buffer {
-  return Buffer.from(`\x1b[200~${text}\x1b[201~`);
+  // Strip the bracketed paste terminator and other control sequences from input
+  // to prevent escaping the paste context (terminal escape injection)
+  const sanitized = text.replace(/\x1b\[[0-9;]*[a-zA-Z~]/g, "");
+  return Buffer.from(`\x1b[200~${sanitized}\x1b[201~`);
 }
 
 // Watch a JSONL file for new assistant messages using incremental reads.
@@ -1519,11 +1522,18 @@ function stripFlagWithOptionalValue(args: string[], longFlag: string, shortFlag?
   return out;
 }
 
+// Reject shell metacharacters in session refs — allow alphanumeric, paths, UUIDs
+const UNSAFE_SESSION_REF = /[;&|`$(){}!#<>\\'"]/;
+
 function buildResumeCommandArgs(
   command: "claude" | "codex" | "pi" | "kimi",
   currentArgs: string[],
   sessionRef: string
 ): string[] {
+  // Validate sessionRef to prevent shell injection (command is passed to sh -c in some contexts)
+  if (!sessionRef || UNSAFE_SESSION_REF.test(sessionRef)) {
+    throw new Error(`Invalid session reference: ${sessionRef}`);
+  }
   if (command === "claude") {
     const cleaned = stripFlagWithOptionalValue(
       stripFlagWithOptionalValue(currentArgs, "--continue", "-c"),

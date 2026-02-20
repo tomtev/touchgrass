@@ -40,8 +40,8 @@ import type { Formatter } from "../channel/formatter";
 import type { Channel, ChannelChatId, ChannelUserId } from "../channel/types";
 import { getChannelName, getChannelType, getRootChatIdNumber, parseChannelAddress } from "../channel/id";
 import type { AskQuestion, PendingFilePickerOption } from "../session/manager";
-import { chmod, open, readFile, stat, writeFile } from "fs/promises";
-import { basename, join } from "path";
+import { chmod, open, readFile, realpath, stat, writeFile } from "fs/promises";
+import { basename, join, resolve } from "path";
 
 const DAEMON_STARTED_AT = Date.now();
 
@@ -1896,6 +1896,8 @@ export async function startDaemon(): Promise<void> {
     pushRemoteInput(sessionId: string, text: string): boolean {
       const remote = sessionManager.getRemote(sessionId);
       if (!remote) return false;
+      if (remote.inputQueue.length >= 1000) return false; // prevent memory exhaustion
+      if (text.length > 65536) text = text.slice(0, 65536); // cap per-message size at 64KB
       remote.inputQueue.push(text);
       return true;
     },
@@ -1934,6 +1936,20 @@ export async function startDaemon(): Promise<void> {
     async sendFileToSession(sessionId: string, filePath: string, caption?: string): Promise<{ ok: boolean; error?: string }> {
       const remote = sessionManager.getRemote(sessionId);
       if (!remote) return { ok: false, error: "Session not found" };
+
+      // Restrict file access to session's working directory
+      if (remote.cwd) {
+        try {
+          const resolvedFile = await realpath(resolve(remote.cwd, filePath)).catch(() => resolve(remote.cwd, filePath));
+          const resolvedCwd = await realpath(remote.cwd).catch(() => remote.cwd);
+          if (!resolvedFile.startsWith(resolvedCwd + "/") && resolvedFile !== resolvedCwd) {
+            return { ok: false, error: "File must be within the session working directory" };
+          }
+          filePath = resolvedFile;
+        } catch {
+          return { ok: false, error: "Invalid file path" };
+        }
+      }
 
       let fileStats;
       try {

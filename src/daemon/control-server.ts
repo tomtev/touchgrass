@@ -81,11 +81,23 @@ export interface DaemonContext {
   removeLinkedGroupApi: (channelName: string, chatId: string) => Promise<{ ok: boolean; error?: string }>;
 }
 
+const MAX_BODY_SIZE = 1_048_576; // 1 MB
+
 async function readJsonBody(req: Request): Promise<Record<string, unknown>> {
   const text = await req.text();
+  if (text.length > MAX_BODY_SIZE) {
+    throw new BodyTooLargeError();
+  }
   if (!text.trim()) return {};
-  return JSON.parse(text) as Record<string, unknown>;
+  try {
+    return JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    throw new InvalidJsonError();
+  }
 }
+
+class BodyTooLargeError extends Error { constructor() { super("Payload too large"); } }
+class InvalidJsonError extends Error { constructor() { super("Invalid JSON body"); } }
 
 function constantTimeEqual(a: string, b: string): boolean {
   const aa = Buffer.from(a);
@@ -147,7 +159,20 @@ export async function startControlServer(ctx: DaemonContext): Promise<void> {
         return Response.json({ ok: true, sessions: ctx.getInputNeeded() });
       }
 
-      const sessionMatch = path.match(/^\/session\/([^/]+)\/(stop|kill|restart)$/);
+      // GET /sessions/recent?tool=claude&cwd=/path — list resumable sessions
+      if (path === "/sessions/recent") {
+        const url = new URL(req.url, "http://localhost");
+        const tool = url.searchParams.get("tool") as "claude" | "codex" | "pi" | "kimi" | null;
+        const cwd = url.searchParams.get("cwd");
+        if (!tool || !cwd) {
+          return Response.json({ ok: false, error: "tool and cwd required" }, { status: 400 });
+        }
+        const { listRecentSessions } = await import("../bot/handlers/resume");
+        const sessions = listRecentSessions(tool, cwd);
+        return Response.json({ ok: true, sessions });
+      }
+
+      const sessionMatch = path.match(/^\/session\/(r-[a-f0-9]+)\/(stop|kill|restart)$/);
       if (sessionMatch && req.method === "POST") {
         const [, sessionId, action] = sessionMatch;
         let result: { ok: boolean; error?: string; sessionRef?: string };
@@ -479,6 +504,12 @@ export async function startControlServer(ctx: DaemonContext): Promise<void> {
       return Response.json({ ok: false, error: "Not found" }, { status: 404 });
     },
     error(err: Error) {
+      if (err instanceof BodyTooLargeError) {
+        return Response.json({ ok: false, error: "Payload too large" }, { status: 413 });
+      }
+      if (err instanceof InvalidJsonError) {
+        return Response.json({ ok: false, error: "Invalid JSON body" }, { status: 400 });
+      }
       logger.error("Control server error", err.message);
       return Response.json({ ok: false, error: "Internal error" }, { status: 500 });
     },

@@ -227,7 +227,7 @@ export class SessionManager {
       const existing = this.remotes.get(existingId);
       if (existing) return existing;
     }
-    const id = existingId || "r-" + randomBytes(3).toString("hex");
+    const id = existingId || "r-" + randomBytes(8).toString("hex");
     const remote: RemoteSession = {
       id,
       command,

@@ -257,7 +257,7 @@ export async function routeMessage(
       const added = addLinkedGroup(ctx.config, chatId, msg.chatTitle, channelName);
       if (added) {
         await saveConfig(ctx.config);
-        await ctx.channel.send(chatId, `Group added as a channel. Use ${fmt.code("tg channels")} to see all channels.`);
+        await ctx.channel.send(chatId, `Group added as a channel to ⛳️ Touchgrass.`);
       } else {
         await ctx.channel.send(chatId, `This group is already linked.`);
       }
