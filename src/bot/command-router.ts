@@ -241,7 +241,7 @@ export async function routeMessage(
       const added = addLinkedGroup(ctx.config, chatId, topicTitle, channelName);
       if (added) {
         await saveConfig(ctx.config);
-        await ctx.channel.send(chatId, `Topic ${fmt.bold(fmt.escape(topicTitle))} linked.`);
+        await ctx.channel.send(chatId, `Topic ${fmt.bold(fmt.escape(topicTitle))} linked. You can now connect a ⛳️ Touchgrass session to it.`);
       } else {
         await ctx.channel.send(chatId, `This topic is already linked.`);
       }
@@ -257,7 +257,7 @@ export async function routeMessage(
       const added = addLinkedGroup(ctx.config, chatId, msg.chatTitle, channelName);
       if (added) {
         await saveConfig(ctx.config);
-        await ctx.channel.send(chatId, `Group added as a channel to ⛳️ Touchgrass.`);
+        await ctx.channel.send(chatId, `Group added as a channel to ⛳️ Touchgrass. You can now connect a session to it.`);
       } else {
         await ctx.channel.send(chatId, `This group is already linked.`);
       }

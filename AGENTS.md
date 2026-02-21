@@ -68,6 +68,50 @@ Telegram chat shorthands:
 - `src/channel/factory.ts` - channel instance creation
 - `src/channels/telegram/*` - Telegram implementation
 
+## Storage (`~/.touchgrass/`)
+
+All config, runtime state, and session data lives in `~/.touchgrass/`. This directory is shared between the CLI and the desktop app.
+
+| File / Dir | Purpose |
+|---|---|
+| `config.json` | Main config: channel credentials (bot tokens), paired users, linked groups, output batching settings, chat preferences (per-chat toggles like `thinking`) |
+| `daemon.pid` | PID of the running daemon process |
+| `daemon.sock` | Unix socket for CLI↔daemon IPC |
+| `daemon.auth` | Auth token for daemon HTTP API |
+| `daemon.lock` | Lock file to prevent multiple daemons |
+| `daemon.port` | TCP port (written when daemon starts, used by the desktop app on non-Unix) |
+| `sessions/` | Per-session JSONL files (`r-<id>.json`). Each file contains streamed tool output, tool calls, and assistant messages for one CLI session |
+| `hooks/claude-hooks.sh` | Shell script installed into Claude Code hooks (`~/.claude/settings.json`) for instant permission/state detection |
+| `logs/` | Daemon log files |
+| `uploads/` | Temp storage for files sent via Telegram (photos, documents) |
+| `status-boards.json` | Status board state (version, boards, jobs) |
+| `app-state.json` | Desktop app state (see touchgrass-app AGENTS.md) |
+
+### `config.json` structure
+
+```jsonc
+{
+  "channels": {
+    "telegram": {
+      "type": "telegram",
+      "credentials": { "botToken": "..." },
+      "pairedUsers": [{ "userId": "telegram:<id>", "username": "...", "pairedAt": "..." }],
+      "linkedGroups": [{ "chatId": "telegram:<id>", "title": "...", "linkedAt": "..." }]
+    }
+  },
+  "settings": {
+    "outputBatchMinMs": 300,
+    "outputBatchMaxMs": 800,
+    "outputBufferMaxChars": 4096,
+    "maxSessions": 10,
+    "defaultShell": "/bin/zsh"
+  },
+  "chatPreferences": {
+    "telegram:<chatId>": { "thinking": true }
+  }
+}
+```
+
 ## Operational Notes
 
 - Telegram is the only supported channel.

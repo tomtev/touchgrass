@@ -2059,9 +2059,9 @@ export async function startDaemon(): Promise<void> {
     },
     handleApprovalNeeded(sessionId: string, name: string, input: Record<string, unknown>, promptText?: string, pollOptions?: string[]): void {
       const remote = sessionManager.getRemote(sessionId);
-      if (!remote) return;
+      if (!remote) { logger.info("handleApprovalNeeded: no remote", { sessionId }); return; }
       const targetChat = sessionManager.getBoundChat(sessionId);
-      if (!targetChat) return;
+      if (!targetChat) { logger.info("handleApprovalNeeded: no bound chat", { sessionId, chatId: remote.chatId }); return; }
       // Use the prompt text from Claude Code's terminal if available
       let question: string;
       if (promptText) {

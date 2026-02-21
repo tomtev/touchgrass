@@ -5,6 +5,8 @@ import { paths } from "../config/paths";
 const HOOK_SCRIPT_NAME = "claude-hooks.sh";
 const HOOK_SCRIPT_PATH = join(paths.hooksDir, HOOK_SCRIPT_NAME);
 const CLAUDE_SETTINGS_PATH = join(homedir(), ".claude", "settings.json");
+// Superset wrapper overrides settings via --settings flag; check for its config too
+const SUPERSET_SETTINGS_PATH = join(homedir(), ".superset", "hooks", "claude-settings.json");
 
 const HOOK_EVENTS = ["UserPromptSubmit", "Stop", "PermissionRequest"] as const;
 
@@ -70,6 +72,38 @@ export async function installClaudeHooks(): Promise<{ scriptInstalled: boolean; 
     }
   } catch {
     // Settings update failed — not fatal
+  }
+
+  // Also update Superset's override settings if present (it uses --settings flag which overrides ~/.claude/settings.json)
+  try {
+    const raw = await readFile(SUPERSET_SETTINGS_PATH, "utf-8");
+    const supersetSettings = JSON.parse(raw) as Record<string, unknown>;
+    const supersetHooks = (supersetSettings.hooks || {}) as Record<string, unknown[]>;
+    let needsSupersetWrite = false;
+    for (const event of HOOK_EVENTS) {
+      const existing = supersetHooks[event] as Array<{ hooks?: Array<{ command?: string }> }> | undefined;
+      const alreadyInstalled = existing?.some(
+        (entry) => entry.hooks?.some((h) => h.command === HOOK_SCRIPT_PATH)
+      );
+      if (!alreadyInstalled) {
+        // Superset uses a flat hooks array per event — add our hook to each entry's hooks array
+        if (Array.isArray(supersetHooks[event])) {
+          for (const entry of supersetHooks[event] as Array<{ hooks?: unknown[] }>) {
+            if (Array.isArray(entry.hooks)) {
+              entry.hooks.push({ type: "command", command: HOOK_SCRIPT_PATH, async: true, timeout: 5 });
+              needsSupersetWrite = true;
+            }
+          }
+        }
+      }
+    }
+    if (needsSupersetWrite) {
+      supersetSettings.hooks = supersetHooks;
+      await writeFile(SUPERSET_SETTINGS_PATH, JSON.stringify(supersetSettings) + "\n", "utf-8");
+      settingsUpdated = true;
+    }
+  } catch {
+    // Superset not installed or settings not found — skip
   }
 
   return { scriptInstalled, settingsUpdated };

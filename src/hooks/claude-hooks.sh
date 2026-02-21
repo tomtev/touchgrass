@@ -9,9 +9,19 @@ if [ -n "$TG_SESSION_ID" ]; then
   SOCK="$HOME/.touchgrass/daemon.sock"
   AUTH=$(cat "$HOME/.touchgrass/daemon.auth" 2>/dev/null || true)
   if [ -z "$AUTH" ] || [ ! -S "$SOCK" ]; then exit 0; fi
-  printf '%s' "$INPUT" | curl -sS --max-time 2 --unix-socket "$SOCK" \
-    -X POST -H "x-touchgrass-auth: $AUTH" -H "Content-Type: application/json" \
-    -d @- "http://localhost/hook/$TG_SESSION_ID" >/dev/null 2>&1 &
+  # Post with retry — after daemon restart the session may not be re-registered yet
+  (
+    CODE=$(printf '%s' "$INPUT" | curl -sS --max-time 2 --unix-socket "$SOCK" \
+      -X POST -H "x-touchgrass-auth: $AUTH" -H "Content-Type: application/json" \
+      -d @- -o /dev/null -w "%{http_code}" "http://localhost/hook/$TG_SESSION_ID" 2>/dev/null)
+    if [ "$CODE" = "404" ]; then
+      sleep 2
+      printf '%s' "$INPUT" | curl -sS --max-time 2 --unix-socket "$SOCK" \
+        -X POST -H "x-touchgrass-auth: $(cat "$HOME/.touchgrass/daemon.auth" 2>/dev/null)" \
+        -H "Content-Type: application/json" \
+        -d @- "http://localhost/hook/$TG_SESSION_ID" >/dev/null 2>&1
+    fi
+  ) &
 fi
 
 # App mode: forward to local HTTP server

@@ -21,7 +21,7 @@ import touchgrassAutoContext from "../prompts/touchgrass-context.md" with { type
 // Add entries here when adding support for new CLIs.
 // Tools that can actually require user approval in Claude Code.
 // Only these tools update `lastToolCall` for approval prompt attribution.
-const APPROVABLE_TOOLS = new Set(["Bash", "Edit", "Write", "NotebookEdit"]);
+const APPROVABLE_TOOLS = new Set(["Bash", "Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch"]);
 
 const APPROVAL_PATTERNS: Record<string, { promptText: string; optionText: string }> = {
   claude: { promptText: "Do you want to", optionText: "1. Yes" },
@@ -2011,6 +2011,9 @@ export async function runRun(): Promise<void> {
         ...process.env,
         TERM: process.env.TERM || "xterm-256color",
         ...(remoteId ? { TG_SESSION_ID: remoteId } : {}),
+        // Prevent "cannot be launched inside another Claude Code session" when
+        // the tg wrapper itself runs inside a Claude Code PTY (e.g. touchgrass-app).
+        CLAUDECODE: undefined,
       },
     });
 
@@ -2395,7 +2398,12 @@ export async function runRun(): Promise<void> {
               terminal.write(encodeBracketedPaste(line));
               // File paths need extra time for the tool to load/process the attachment
               const hasFilePath = line.includes("/.touchgrass/uploads/");
-              await delay(hasFilePath ? 1500 : 100);
+              await delay(hasFilePath ? 1500 : 150);
+              // Some CLI tools use multiline editors where Enter after a paste
+              // adds a newline instead of submitting. A second Enter on the
+              // resulting empty line triggers submit.
+              terminal.write(Buffer.from("\r"));
+              await delay(80);
               terminal.write(Buffer.from("\r"));
               await delay(100);
             }

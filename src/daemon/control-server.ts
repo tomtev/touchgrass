@@ -242,7 +242,7 @@ export async function startControlServer(ctx: DaemonContext): Promise<void> {
           const toolName = (body.tool_name as string) || "unknown";
           const toolInput = (body.tool_input as Record<string, unknown>) || {};
           // Only show approval polls for tools that modify things
-          const APPROVABLE_TOOLS = new Set(["Bash", "Edit", "Write", "NotebookEdit"]);
+          const APPROVABLE_TOOLS = new Set(["Bash", "Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch"]);
           if (!APPROVABLE_TOOLS.has(toolName)) {
             return Response.json({ ok: true }); // Silently skip non-dangerous tools
           }
@@ -255,6 +255,11 @@ export async function startControlServer(ctx: DaemonContext): Promise<void> {
             promptText = `Allow Bash: ${cmd}?`;
           } else if ((toolName === "Edit" || toolName === "Write") && typeof toolInput.file_path === "string") {
             promptText = `Allow ${toolName}: ${toolInput.file_path}?`;
+          } else if (toolName === "WebFetch" && typeof toolInput.url === "string") {
+            const url = toolInput.url.length > 60 ? toolInput.url.slice(0, 60) + "..." : toolInput.url;
+            promptText = `Allow Fetch: ${url}?`;
+          } else if (toolName === "WebSearch" && typeof toolInput.query === "string") {
+            promptText = `Allow Search: ${toolInput.query}?`;
           } else {
             promptText = `Allow ${toolName}?`;
           }
