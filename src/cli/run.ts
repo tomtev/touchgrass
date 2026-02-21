@@ -2390,9 +2390,11 @@ export async function runRun(): Promise<void> {
                 if (typingTarget) channel.setTyping(typingTarget, true);
                 for (const gid of subscribedGroups) channel.setTyping(gid, true);
               }
-              // Send remote text as bracketed paste so special chars (like '@')
-              // stay literal and don't trigger interactive pickers/autocomplete.
-              terminal.write(encodeBracketedPaste(line));
+              // Write text directly to PTY (avoid bracketed paste — recent Claude Code
+              // versions treat Enter as newline-in-input after a paste instead of submit).
+              // Writing the full text in one call delivers it as a single chunk, so
+              // trigger chars like '@' don't activate pickers mid-stream.
+              terminal.write(line);
               // File paths need extra time for the tool to load/process the attachment
               const hasFilePath = line.includes("/.touchgrass/uploads/");
               await delay(hasFilePath ? 1500 : 100);
