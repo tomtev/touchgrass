@@ -39,6 +39,7 @@ export const __cliRunTestUtils = {
   applyTouchgrassAutoContextArgs,
   validateRunSetupPreflight,
   parseJsonlMessage,
+  isVersionBelow,
   resetParserState: () => {
     toolUseIdToName.clear();
     toolUseIdToInput.clear();
@@ -295,6 +296,53 @@ const SUPPORTED_COMMANDS: Record<string, string[]> = {
   pi: ["pi"],
   kimi: ["kimi"],
 };
+
+// Minimum supported tool versions. Below these, touchgrass may not work correctly.
+const MIN_TOOL_VERSIONS: Record<string, string> = {
+  claude: "2.1.0",
+  codex: "0.100.0",
+  pi: "0.50.0",
+  kimi: "0.1.0",
+};
+
+function parseVersion(v: string): number[] {
+  return v.split(".").map((n) => parseInt(n, 10) || 0);
+}
+
+function isVersionBelow(current: string, minimum: string): boolean {
+  const cur = parseVersion(current);
+  const min = parseVersion(minimum);
+  for (let i = 0; i < Math.max(cur.length, min.length); i++) {
+    const c = cur[i] ?? 0;
+    const m = min[i] ?? 0;
+    if (c < m) return true;
+    if (c > m) return false;
+  }
+  return false;
+}
+
+async function checkToolVersion(tool: string): Promise<void> {
+  const minVersion = MIN_TOOL_VERSIONS[tool];
+  if (!minVersion) return;
+  try {
+    const proc = Bun.spawn([tool, "--version"], {
+      stdout: "pipe",
+      stderr: "pipe",
+      env: { ...process.env, CLAUDECODE: undefined },
+    });
+    const output = await new Response(proc.stdout).text();
+    await proc.exited;
+    // Extract version number from output (e.g. "2.1.49 (Claude Code)" → "2.1.49")
+    const match = output.trim().match(/(\d+\.\d+\.\d+)/);
+    if (!match) return;
+    const version = match[1];
+    if (isVersionBelow(version, minVersion)) {
+      console.warn(`⚠️  ${tool} ${version} detected — minimum supported is ${minVersion}. Please upgrade.`);
+    }
+  } catch {
+    // Tool not found or version check failed — will fail at spawn anyway
+  }
+}
 
 const TOUCHGRASS_AUTO_CONTEXT = touchgrassAutoContext.trim();
 
@@ -1595,6 +1643,9 @@ export async function runRun(): Promise<void> {
     const { installClaudeHooks } = await import("../hooks/installer");
     await installClaudeHooks().catch(() => {}); // non-fatal
   }
+
+  // Warn if the tool version is too old
+  await checkToolVersion(currentTool);
 
   let fullCommand = [SUPPORTED_COMMANDS[currentTool][0], ...cmdArgs].join(" ");
   const displayName = process.cwd().split("/").pop() || "";
