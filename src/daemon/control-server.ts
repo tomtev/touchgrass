@@ -67,6 +67,8 @@ export interface DaemonContext {
       urls?: string[];
     }
   ) => void;
+  getBackgroundJobs: (sessionId: string) => Array<{ taskId: string; status: string; command?: string; urls?: string[]; updatedAt: number }>;
+  getAllBackgroundJobs: (cwd?: string) => Array<{ sessionId: string; command: string; cwd: string; jobs: Array<{ taskId: string; status: string; command?: string; urls?: string[]; updatedAt: number }> }>;
   sendFileToSession: (sessionId: string, filePath: string, caption?: string) => Promise<{ ok: boolean; error?: string }>;
   stopSessionById: (sessionId: string) => { ok: boolean; error?: string };
   killSessionById: (sessionId: string) => { ok: boolean; error?: string };
@@ -157,6 +159,52 @@ export async function startControlServer(ctx: DaemonContext): Promise<void> {
 
       if (path === "/input-needed") {
         return Response.json({ ok: true, sessions: ctx.getInputNeeded() });
+      }
+
+      // GET /skills?cwd=/path — list available SKILL.md files
+      if (path === "/skills" && req.method === "GET") {
+        const cwd = new URL(req.url, "http://localhost").searchParams.get("cwd");
+        if (!cwd) {
+          return Response.json({ ok: false, error: "cwd required" }, { status: 400 });
+        }
+        const { listSkills } = await import("./skills");
+        const skills = await listSkills(cwd);
+        return Response.json({ ok: true, skills });
+      }
+
+      // GET /agent-soul?cwd=/path — read agent soul from AGENTS.md
+      if (path === "/agent-soul" && req.method === "GET") {
+        const cwd = new URL(req.url, "http://localhost").searchParams.get("cwd");
+        if (!cwd) {
+          return Response.json({ ok: false, error: "cwd required" }, { status: 400 });
+        }
+        const { readAgentSoul } = await import("./agent-soul");
+        const soul = await readAgentSoul(cwd);
+        return Response.json({ ok: true, soul });
+      }
+
+      // POST /agent-soul?cwd=/path — write agent soul to AGENTS.md
+      if (path === "/agent-soul" && req.method === "POST") {
+        const cwd = new URL(req.url, "http://localhost").searchParams.get("cwd");
+        if (!cwd) {
+          return Response.json({ ok: false, error: "cwd required" }, { status: 400 });
+        }
+        const body = await readJsonBody(req);
+        const name = body.name as string;
+        const description = body.description as string;
+        const owner = body.owner as string;
+        const dna = (body.dna as string) || undefined;
+        if (!name) {
+          return Response.json({ ok: false, error: "name required" }, { status: 400 });
+        }
+        const { writeAgentSoul } = await import("./agent-soul");
+        try {
+          await writeAgentSoul(cwd, { name, description: description || "", owner: owner || "", dna });
+          return Response.json({ ok: true });
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : "Failed to write";
+          return Response.json({ ok: false, error: msg }, { status: 400 });
+        }
       }
 
       // GET /sessions/recent?tool=claude&cwd=/path — list resumable sessions
@@ -288,6 +336,20 @@ export async function startControlServer(ctx: DaemonContext): Promise<void> {
         }
 
         return Response.json({ ok: true }); // Unknown event — ignore silently
+      }
+
+      // GET /background-jobs?cwd=<path> — list all background jobs (optionally filtered by cwd)
+      // GET /remote/:id/background-jobs — list background jobs for a specific session
+      if (path === "/background-jobs" && req.method === "GET") {
+        const cwd = new URL(req.url, "http://localhost").searchParams.get("cwd") || undefined;
+        const allJobs = ctx.getAllBackgroundJobs(cwd);
+        return Response.json({ ok: true, sessions: allJobs });
+      }
+      const bgJobsMatch = path.match(/^\/remote\/(r-[a-f0-9]+)\/background-jobs$/);
+      if (bgJobsMatch && req.method === "GET") {
+        const [, sessionId] = bgJobsMatch;
+        const jobs = ctx.getBackgroundJobs(sessionId);
+        return Response.json({ ok: true, jobs });
       }
 
       // Match /remote/:id/* actions

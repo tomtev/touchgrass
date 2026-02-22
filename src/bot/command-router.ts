@@ -18,6 +18,7 @@ import {
   handleBackgroundJobsCommand,
   type BackgroundJobSessionSummary,
 } from "./handlers/background-jobs";
+import { handleSkillsCommand } from "./handlers/skills";
 import { logger } from "../daemon/logger";
 
 export interface RouterContext {
@@ -73,6 +74,7 @@ export async function routeMessage(
   else if (text === "tg thinking" || text.startsWith("tg thinking ")) text = `/thinking${text.slice("tg thinking".length)}`;
   else if (text === "tg background_jobs" || text.startsWith("tg background_jobs ")) text = "/background_jobs";
   else if (text === "tg background-jobs" || text.startsWith("tg background-jobs ")) text = "/background-jobs";
+  else if (text === "tg skills") text = "/skills";
   else if (text === "tg link" || text.startsWith("tg link ")) text = `/link${text.slice("tg link".length)}`;
   else if (text === "tg unlink") text = "/unlink";
   else if (text === "tg pair" || text.startsWith("tg pair ")) text = `/pair${text.slice("tg pair".length)}`;
@@ -195,6 +197,12 @@ export async function routeMessage(
   // /background-jobs — list currently running background jobs
   if (text === "/background-jobs" || text === "/background_jobs") {
     await handleBackgroundJobsCommand({ ...msg, text }, ctx);
+    return;
+  }
+
+  // /skills — list available agent skills
+  if (text === "/skills") {
+    await handleSkillsCommand({ ...msg, text }, ctx);
     return;
   }
 

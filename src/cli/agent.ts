@@ -1,6 +1,7 @@
 import { join, resolve } from "path";
 import { mkdtemp, readdir, readFile, rm, unlink, writeFile } from "fs/promises";
 import { tmpdir } from "os";
+import { generateRandomDNA, renderTerminal } from "../lib/avatar";
 
 const REPO = "tomtev/touchgrass";
 const BRANCH = "main";
@@ -133,10 +134,12 @@ async function detectOwnerName(): Promise<string> {
 }
 
 async function createAgent(dest: string, vars: Record<string, string>): Promise<void> {
+  const dna = generateRandomDNA();
   const resolved: Record<string, string> = {
     AGENT_NAME: vars["AGENT_NAME"] || "My Agent",
     AGENT_DESCRIPTION: vars["AGENT_DESCRIPTION"] || "A personal agent that helps with tasks using workflows and skills.",
     OWNER_NAME: vars["OWNER_NAME"] || await detectOwnerName(),
+    AGENT_DNA: dna,
   };
 
   console.log("Downloading agent template...");
@@ -167,7 +170,10 @@ async function createAgent(dest: string, vars: Record<string, string>): Promise<
     }
 
     const label = vars["AGENT_NAME"] ? `"${vars["AGENT_NAME"]}"` : "Agent";
-    console.log(`${label} created in ${dest}`);
+    console.log("");
+    console.log(renderTerminal(dna));
+    console.log("");
+    console.log(`${label} created in ${dest} (dna: ${dna})`);
   } finally {
     await rm(tmpDir, { recursive: true, force: true });
   }

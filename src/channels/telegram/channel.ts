@@ -78,6 +78,7 @@ const TELEGRAM_COMMANDS = {
   outputMode: { command: "output_mode", description: "Set output mode simple/verbose" },
   thinking: { command: "thinking", description: "Toggle thinking on/off" },
   backgroundJobs: { command: "background_jobs", description: "List running background jobs" },
+  skills: { command: "skills", description: "List available agent skills" },
   link: { command: "link", description: "Add this chat as a channel" },
   unlink: { command: "unlink", description: "Remove this chat as a channel" },
   pair: { command: "pair", description: "Pair with code: /pair <code>" },
@@ -104,7 +105,8 @@ function buildCommandMenu(
       TELEGRAM_COMMANDS.resume,
       TELEGRAM_COMMANDS.outputMode,
       TELEGRAM_COMMANDS.thinking,
-      TELEGRAM_COMMANDS.backgroundJobs
+      TELEGRAM_COMMANDS.backgroundJobs,
+      TELEGRAM_COMMANDS.skills
     );
   }
   if (ctx.isGroup) {

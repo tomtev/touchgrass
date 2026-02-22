@@ -17,6 +17,7 @@ ${fmt.code("@?query - prompt")} ${fmt.escape("—")} Resolve top path and send a
 /output_mode ${fmt.escape("or")} ${fmt.code("tg output_mode simple|verbose")} ${fmt.escape("—")} Set bridge output style for this chat
 /thinking ${fmt.escape("or")} ${fmt.code("tg thinking on|off|toggle")} ${fmt.escape("—")} Toggle thinking previews for this chat
 /background_jobs ${fmt.escape("or")} ${fmt.code("/background-jobs")} ${fmt.escape("or")} ${fmt.code("tg background-jobs")} ${fmt.escape("—")} Show currently running background jobs
+/skills ${fmt.escape("or")} ${fmt.code("tg skills")} ${fmt.escape("—")} List available agent skills
 /link ${fmt.escape("or")} ${fmt.code("tg link")} ${fmt.escape("—")} Add this chat as a channel
 /unlink ${fmt.escape("or")} ${fmt.code("tg unlink")} ${fmt.escape("—")} Remove this chat as a channel
 /pair ${fmt.escape("<code> or")} ${fmt.code("tg pair <code>")} ${fmt.escape("—")} Pair with a pairing code

@@ -1,6 +1,7 @@
 <agent-soul>
 Name: {{AGENT_NAME}}
 Description: {{AGENT_DESCRIPTION}}
+DNA: {{AGENT_DNA}}
 </agent-soul>
 
 <agent-owner>

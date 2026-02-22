@@ -1933,6 +1933,39 @@ export async function startDaemon(): Promise<void> {
     getBoundChat(sessionId: string): string | null {
       return sessionManager.getBoundChat(sessionId);
     },
+    getBackgroundJobs(sessionId: string): Array<{ taskId: string; status: string; command?: string; urls?: string[]; updatedAt: number }> {
+      const jobs = backgroundJobsBySession.get(sessionId);
+      if (!jobs || jobs.size === 0) return [];
+      return Array.from(jobs.values()).map((j) => ({
+        taskId: j.taskId,
+        status: j.status,
+        command: j.command,
+        urls: j.urls,
+        updatedAt: j.updatedAt,
+      }));
+    },
+    getAllBackgroundJobs(cwd?: string): Array<{ sessionId: string; command: string; cwd: string; jobs: Array<{ taskId: string; status: string; command?: string; urls?: string[]; updatedAt: number }> }> {
+      const results: Array<{ sessionId: string; command: string; cwd: string; jobs: Array<{ taskId: string; status: string; command?: string; urls?: string[]; updatedAt: number }> }> = [];
+      for (const [sid, jobMap] of backgroundJobsBySession) {
+        if (jobMap.size === 0) continue;
+        const remote = sessionManager.getRemote(sid);
+        if (!remote) continue;
+        if (cwd && remote.cwd !== cwd) continue;
+        results.push({
+          sessionId: sid,
+          command: remote.command,
+          cwd: remote.cwd,
+          jobs: Array.from(jobMap.values()).map((j) => ({
+            taskId: j.taskId,
+            status: j.status,
+            command: j.command,
+            urls: j.urls,
+            updatedAt: j.updatedAt,
+          })),
+        });
+      }
+      return results;
+    },
     async sendFileToSession(sessionId: string, filePath: string, caption?: string): Promise<{ ok: boolean; error?: string }> {
       const remote = sessionManager.getRemote(sessionId);
       if (!remote) return { ok: false, error: "Session not found" };
