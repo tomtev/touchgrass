@@ -12,7 +12,7 @@
 
   const heroDNA = randomDNA();
   const featureDNAs = [randomDNA(), randomDNA(), randomDNA()];
-  const agentRow = Array.from({ length: 10 }, () => randomDNA());
+  const agentRow = Array.from({ length: 15 }, () => randomDNA());
 </script>
 
 <main class="page">
@@ -128,7 +128,7 @@ tg claude         # start a bridged session</code></pre>
         <article class="card">
           <div class="card-body-lg agent-card-inner">
             <div class="agent-card-hero">
-              <AgentFace dna={heroDNA} size="xl" />
+              <AgentFace dna={heroDNA} size="xl" walking />
             </div>
             <div>
               <p class="code-section-title">Build a personal agent</p>

@@ -218,16 +218,41 @@ export const BODIES: Pixel[][][] = [
   ],
 ];
 
-// --- Leg variants (flat, no animation frames) ---
-export const LEGS: Pixel[][] = [
-  ["_", "_", "f", "_", "_", "f", "_", "_", "_"], // biped
-  ["_", "f", "_", "f", "_", "f", "_", "f", "_"], // quad
-  ["_", "_", "f", "_", "f", "_", "f", "_", "_"], // tentacles
-  ["_", "f", "f", "f", "_", "f", "f", "f", "_"], // hexapod
-  ["_", "_", "f", "f", "_", "f", "f", "_", "_"], // wheels
-  ["_", "f", "_", "_", "f", "_", "_", "f", "_"], // tripod
-  ["_", "f", "_", "_", "_", "_", "_", "f", "_"], // wide stance
-  ["_", "l", "l", "_", "_", "_", "l", "l", "_"], // animal
+// --- Leg variants (multi-frame for walking animation) ---
+// Each variant is an array of frames. Frame 0 = standing pose.
+export const LEGS: Pixel[][][] = [
+  [ // biped
+    ["_", "_", "f", "_", "_", "f", "_", "_", "_"],
+    ["_", "f", "_", "_", "_", "_", "f", "_", "_"],
+  ],
+  [ // quad
+    ["_", "f", "_", "f", "_", "f", "_", "f", "_"],
+    ["_", "f", "f", "_", "_", "_", "f", "f", "_"],
+  ],
+  [ // tentacles
+    ["_", "_", "f", "_", "f", "_", "f", "_", "_"],
+    ["_", "f", "_", "f", "_", "f", "_", "_", "_"],
+  ],
+  [ // hexapod
+    ["_", "f", "f", "f", "_", "f", "f", "f", "_"],
+    ["f", "f", "_", "f", "_", "f", "_", "f", "f"],
+  ],
+  [ // wheels
+    ["_", "_", "f", "f", "_", "f", "f", "_", "_"],
+    ["_", "f", "f", "_", "_", "_", "f", "f", "_"],
+  ],
+  [ // tripod
+    ["_", "f", "_", "_", "f", "_", "_", "f", "_"],
+    ["f", "_", "_", "f", "_", "f", "_", "_", "_"],
+  ],
+  [ // wide stance
+    ["_", "f", "_", "_", "_", "_", "_", "f", "_"],
+    ["_", "_", "f", "_", "_", "_", "f", "_", "_"],
+  ],
+  [ // animal
+    ["_", "l", "l", "_", "_", "_", "l", "l", "_"],
+    ["_", "l", "_", "l", "_", "l", "_", "l", "_"],
+  ],
 ];
 
 // Fixed slot sizes for stable DNA encoding.
@@ -315,15 +340,18 @@ export function generateRandomDNA(): string {
 
 /**
  * Generate the pixel grid from decoded DNA traits.
+ * @param frame Walking animation frame index (0 = standing). Wraps automatically.
  */
-export function generateGrid(traits: DecodedDNA): Pixel[][] {
+export function generateGrid(traits: DecodedDNA, frame = 0): Pixel[][] {
+  const legFrames = LEGS[traits.legs];
+  const legRow = legFrames[frame % legFrames.length];
   return [
     ...HATS[traits.hat],
     F,
     EYES[traits.eyes],
     ...MOUTHS[traits.mouth],
     ...BODIES[traits.body],
-    LEGS[traits.legs],
+    legRow,
   ];
 }
 
@@ -359,9 +387,9 @@ export function hslToRgb(h: number, s: number, l: number): [number, number, numb
  * Render a DNA string as an SVG string with transparent background.
  * Each pixel is rendered as a square rect. 1-cell padding around the grid.
  */
-export function renderSVG(dna: string, pixelSize = 10): string {
+export function renderSVG(dna: string, pixelSize = 10, frame = 0): string {
   const traits = decodeDNA(dna);
-  const grid = generateGrid(traits);
+  const grid = generateGrid(traits, frame);
 
   const faceHueDeg = traits.faceHue * 30;
   const hatHueDeg = traits.hatHue * 30;
@@ -406,9 +434,9 @@ export function renderSVG(dna: string, pixelSize = 10): string {
  * Render a DNA string as ANSI colored pixel art for the terminal.
  * Uses `██` per pixel (2 chars wide for square proportions).
  */
-export function renderTerminal(dna: string): string {
+export function renderTerminal(dna: string, frame = 0): string {
   const traits = decodeDNA(dna);
-  const grid = generateGrid(traits);
+  const grid = generateGrid(traits, frame);
 
   const faceHueDeg = traits.faceHue * 30;
   const hatHueDeg = traits.hatHue * 30;
@@ -450,9 +478,9 @@ export function renderTerminal(dna: string): string {
  * Packs two pixel rows into one terminal line using ▀/▄ with fg/bg colors.
  * Roughly half the height and width of renderTerminal.
  */
-export function renderTerminalSmall(dna: string): string {
+export function renderTerminalSmall(dna: string, frame = 0): string {
   const traits = decodeDNA(dna);
-  const grid = generateGrid(traits);
+  const grid = generateGrid(traits, frame);
 
   const faceHueDeg = traits.faceHue * 30;
   const hatHueDeg = traits.hatHue * 30;
