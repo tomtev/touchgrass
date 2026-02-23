@@ -3,7 +3,7 @@
 
   const EYES_NAMES = [
     'normal', 'wide', 'close', 'normal-alt', 'big', 'big-close',
-    'squint', 'squint-wide', 'narrow', 'narrow-wide'
+    'squint', 'squint-wide', 'narrow', 'narrow-wide', 'narrow-close'
   ];
   const MOUTHS_NAMES = [
     'smile', 'smirk-left', 'smirk-right', 'narrow',

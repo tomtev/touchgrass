@@ -27,6 +27,7 @@ export const EYES: Pixel[][] = [
   ["_", "s", "f", "f", "f", "f", "f", "s", "_"], // squint wide
   ["_", "f", "n", "f", "f", "f", "n", "f", "_"], // narrow
   ["_", "n", "f", "f", "f", "f", "f", "n", "_"], // narrow wide
+  ["_", "f", "f", "n", "f", "n", "f", "f", "_"], // narrow close
 ];
 
 // --- Mouth variants (2 rows: gap + mouth) ---
