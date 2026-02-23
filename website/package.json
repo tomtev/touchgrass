@@ -4,26 +4,20 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "concurrently -k \"npm run dev:css\" \"npm run dev:worker\"",
-    "dev:worker": "wrangler dev src/index.tsx --local",
-    "dev:css": "tailwindcss -i ./src/styles.css -o ./public/styles.css --watch",
-    "build:css": "tailwindcss -i ./src/styles.css -o ./public/styles.css --minify",
-    "build": "npm run build:css && wrangler deploy --dry-run",
-    "deploy": "npm run build:css && wrangler deploy",
-    "typecheck": "tsc --noEmit"
-  },
-  "dependencies": {
-    "class-variance-authority": "^0.7.1",
-    "clsx": "^2.1.1",
-    "hono": "^4.7.0",
-    "tailwind-merge": "^2.6.0"
+    "dev": "vite dev",
+    "build": "vite build",
+    "preview": "vite preview",
+    "deploy": "vite build && wrangler pages deploy .svelte-kit/cloudflare"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20260208.0",
-    "@tailwindcss/cli": "^4.0.15",
-    "concurrently": "^9.1.2",
-    "tailwindcss": "^4.0.15",
-    "typescript": "^5.7.3",
+    "@sveltejs/adapter-cloudflare": "^7.0.0",
+    "@sveltejs/kit": "^2.0.0",
+    "svelte": "^5.0.0",
+    "typescript": "^5.7.0",
+    "vite": "^6.0.0",
     "wrangler": "^4.2.0"
+  },
+  "dependencies": {
+    "@knadh/oat": "^0.3.0"
   }
 }

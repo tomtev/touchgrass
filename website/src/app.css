@@ -1,0 +1,447 @@
+@import '@knadh/oat/oat.min.css';
+
+/* ── Fonts ── */
+@font-face {
+  font-family: "Geist Mono";
+  src: url("https://cdn.jsdelivr.net/npm/geist@1.7.0/dist/fonts/geist-mono/GeistMono-Variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Geist Sans";
+  src: url("https://cdn.jsdelivr.net/npm/geist@1.7.0/dist/fonts/geist-sans/Geist-Variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ── Theme overrides (oat dark + emerald) ── */
+:root {
+  color-scheme: dark;
+  --background: #04090a;
+  --foreground: #ecfdf5;
+  --card: #04090a;
+  --card-foreground: #ecfdf5;
+  --primary: #6ee7b7;
+  --primary-foreground: #04090a;
+  --secondary: #0a1612;
+  --secondary-foreground: #d1fae5;
+  --muted: #0d1f17;
+  --muted-foreground: #a7f3d0;
+  --faint: rgba(0, 0, 0, 0.6);
+  --accent: #0d1f17;
+  --border: rgba(167, 243, 208, 0.3);
+  --ring: #6ee7b7;
+  --font-sans: "Geist Sans", Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "Geist Mono", "SFMono-Regular", Menlo, Monaco, Consolas, monospace;
+}
+
+/* ── Element resets (override oat base styles) ── */
+p, h1, h2, h3, h4, h5, h6 {
+  margin: 0;
+}
+
+a {
+  text-decoration: none;
+  color: inherit;
+}
+
+a:hover {
+  color: inherit;
+}
+
+pre, code {
+  background: none;
+  padding: 0;
+  border-radius: 0;
+  margin: 0;
+}
+
+/* ── Page ── */
+.page {
+  min-height: 100vh;
+  background: var(--background);
+}
+
+/* ── Hero ASCII Stage ── */
+.hero-stage {
+  position: relative;
+  min-height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+  border-top: 1px solid rgba(6, 78, 59, 0.35);
+  border-bottom: 1px solid rgba(6, 78, 59, 0.35);
+  color: rgb(167, 243, 208);
+  background-color: #04090a;
+}
+
+.hero-ascii-layer {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 100vh;
+  margin: 0;
+  pointer-events: none;
+  user-select: none;
+  overflow: hidden;
+  white-space: pre;
+  padding: 1rem 0;
+  font-size: 12px;
+  line-height: 12px;
+}
+
+.hero-ascii-sky {
+  color: rgba(104, 182, 255, 0.58);
+  z-index: 0;
+}
+
+.hero-ascii-clouds {
+  color: rgba(255, 210, 156, 0.62);
+  z-index: 1;
+}
+
+.hero-ascii-sun {
+  color: rgba(255, 225, 122, 0.9);
+  z-index: 2;
+  text-shadow: 0 0 12px rgba(255, 213, 106, 0.45), 0 0 26px rgba(255, 193, 97, 0.25);
+}
+
+.hero-grass-layer {
+  color: rgba(14, 209, 149, 0.78);
+  z-index: 3;
+  text-shadow: 0 0 10px rgba(16, 185, 129, 0.34), 0 0 24px rgba(16, 185, 129, 0.18);
+}
+
+.hero-grass-fixed {
+  top: auto;
+  bottom: 0;
+  height: 42vh;
+  min-height: 220px;
+  max-height: 420px;
+}
+
+/* ── Content Overlay ── */
+.hero-content {
+  position: relative;
+  z-index: 10;
+  max-width: 72rem;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+  padding: 2rem 1.5rem;
+  min-height: 100vh;
+}
+
+@media (min-width: 1024px) {
+  .hero-content {
+    padding-left: 2rem;
+    padding-right: 2rem;
+  }
+}
+
+.hero-inner {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1.5rem;
+}
+
+/* ── Cards ── */
+.card {
+  overflow: hidden;
+  border: 1px solid rgba(167, 243, 208, 0.3);
+  border-radius: 0.75rem;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.card-header {
+  padding: 1.5rem;
+  padding-bottom: 0.75rem;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+}
+
+.brand-icon {
+  font-size: 1.5rem;
+}
+
+.brand-name {
+  font-family: "Geist Mono", monospace;
+  font-size: 0.875rem;
+  letter-spacing: 0.025em;
+  color: rgba(209, 250, 229, 0.95);
+}
+
+.card-title {
+  font-family: "Geist Mono", "SFMono-Regular", Menlo, Monaco, Consolas, monospace;
+  font-size: 2.25rem;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.025em;
+  text-wrap: balance;
+  text-align: center;
+  color: white;
+  margin: 0;
+}
+
+@media (min-width: 640px) {
+  .card-title {
+    font-size: 3rem;
+  }
+}
+
+.card-subtitle {
+  max-width: 42rem;
+  margin: 0 auto;
+  text-align: center;
+  font-size: 1.125rem;
+  color: rgba(209, 250, 229, 0.9);
+}
+
+.card-body {
+  padding: 1rem;
+}
+
+.card-body-lg {
+  padding: 1.25rem;
+}
+
+/* ── Install Bar ── */
+.install-wrap {
+  padding-bottom: 0.5rem;
+}
+
+.install-bar {
+  display: flex;
+  width: 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  border-radius: 0.5rem;
+  border: 1px solid rgba(167, 243, 208, 0.3);
+  background: rgba(0, 0, 0, 0.55);
+  padding: 0.5rem;
+}
+
+@media (min-width: 640px) {
+  .install-bar {
+    flex-wrap: nowrap;
+  }
+}
+
+.install-label {
+  flex-shrink: 0;
+  padding: 0 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  letter-spacing: 0.025em;
+  color: rgba(209, 250, 229, 0.9);
+}
+
+.install-code {
+  flex: 1;
+  border-radius: 0.375rem;
+  border: 1px solid rgba(167, 243, 208, 0.3);
+  background: rgba(0, 0, 0, 0.55);
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+  color: rgb(209, 250, 229);
+  font-family: "Geist Mono", monospace;
+}
+
+.btn-ghost {
+  display: inline-flex;
+  height: 2.5rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.375rem;
+  border: 1px solid rgba(167, 243, 208, 0.5);
+  background: rgba(255, 255, 255, 0.05);
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: rgb(236, 253, 245);
+  transition: background-color 0.15s;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.btn-ghost:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.btn-icon {
+  width: 2.5rem;
+  padding: 0;
+}
+
+/* ── Feature Grids ── */
+.feature-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.75rem;
+}
+
+@media (min-width: 640px) {
+  .feature-grid.cols-3 {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .feature-grid.cols-2 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.feature-title {
+  font-family: "Geist Mono", monospace;
+  font-size: 0.875rem;
+  color: rgb(110, 231, 183);
+}
+
+.feature-desc {
+  margin-top: 0.25rem;
+  font-size: 0.875rem;
+  color: rgba(209, 250, 229, 0.8);
+}
+
+.feature-desc code {
+  color: rgb(167, 243, 208);
+  background: none;
+  padding: 0;
+  border: none;
+}
+
+/* ── Video ── */
+.video-card {
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.video-card .card-body {
+  padding: 0.5rem;
+}
+
+@media (min-width: 640px) {
+  .video-card .card-body {
+    padding: 1rem;
+  }
+}
+
+.video-wrap {
+  width: 100%;
+  overflow: hidden;
+  border: 1px solid rgba(167, 243, 208, 0.3);
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.video-wrap video {
+  display: block;
+  width: 100%;
+  height: auto;
+  min-height: 20rem;
+  object-fit: cover;
+}
+
+@media (min-width: 640px) {
+  .video-wrap video {
+    min-height: 28rem;
+  }
+}
+
+/* ── Code Blocks ── */
+.code-section-title {
+  font-family: "Geist Mono", monospace;
+  font-size: 1rem;
+  color: rgb(110, 231, 183);
+  margin: 0;
+}
+
+.code-section-desc {
+  margin-top: 0.25rem;
+  font-size: 0.875rem;
+  color: rgba(209, 250, 229, 0.8);
+}
+
+.code-block {
+  margin-top: 0.75rem;
+  overflow-x: auto;
+  border-radius: 0.375rem;
+  border: 1px solid rgba(167, 243, 208, 0.2);
+  background: rgba(0, 0, 0, 0.6);
+  padding: 1rem;
+  font-size: 0.875rem;
+  line-height: 1.625;
+  color: rgba(209, 250, 229, 0.9);
+  font-family: "Geist Mono", monospace;
+}
+
+/* ── Docs Link ── */
+.docs-link {
+  display: inline-flex;
+  width: 100%;
+  height: 3rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 0.5rem;
+  border: 1px solid rgba(167, 243, 208, 0.5);
+  background: rgba(0, 0, 0, 0.8);
+  padding: 0 1rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: rgb(236, 253, 245);
+  text-decoration: none;
+  transition: background-color 0.15s;
+}
+
+.docs-link:hover {
+  background: black;
+}
+
+/* ── Feature Card with Agent ── */
+.feature-card-inner {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+/* ── Agent Card ── */
+.agent-card-inner {
+  display: flex;
+  gap: 1.5rem;
+  align-items: flex-start;
+}
+
+.agent-card-hero {
+  flex-shrink: 0;
+}
+
+@media (max-width: 639px) {
+  .agent-card-inner {
+    flex-direction: column;
+    align-items: center;
+  }
+}
+
+/* ── Agent Row ── */
+.agent-row {
+  display: flex;
+  justify-content: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  padding: 0.5rem 0;
+}

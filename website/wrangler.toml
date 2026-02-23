@@ -1,12 +1,3 @@
 name = "touchgrass-website"
-main = "src/index.tsx"
 compatibility_date = "2026-02-16"
-
-routes = [
-  { pattern = "touchgrass.sh/*", zone_name = "touchgrass.sh" },
-  { pattern = "www.touchgrass.sh/*", zone_name = "touchgrass.sh" }
-]
-
-[assets]
-directory = "./public"
-binding = "ASSETS"
+pages_build_output_dir = ".svelte-kit/cloudflare"
