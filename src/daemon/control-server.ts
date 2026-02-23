@@ -290,11 +290,6 @@ export async function startControlServer(ctx: DaemonContext): Promise<void> {
         if (eventName === "PermissionRequest") {
           const toolName = (body.tool_name as string) || "unknown";
           const toolInput = (body.tool_input as Record<string, unknown>) || {};
-          // Only show approval polls for tools that modify things
-          const APPROVABLE_TOOLS = new Set(["Bash", "Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch"]);
-          if (!APPROVABLE_TOOLS.has(toolName)) {
-            return Response.json({ ok: true }); // Silently skip non-dangerous tools
-          }
           // Build human-readable prompt text from tool name and input
           let promptText = `Allow ${toolName}`;
           if (toolName === "Bash" && typeof toolInput.command === "string") {

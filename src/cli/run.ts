@@ -18,9 +18,6 @@ import { parseRemoteControlAction } from "../session/remote-control";
 // Per-CLI patterns for detecting approval prompts in terminal output.
 // Both `promptText` and `optionText` must be present in the PTY buffer to trigger a notification.
 // Add entries here when adding support for new CLIs.
-// Tools that can actually require user approval in Claude Code.
-// Only these tools update `lastToolCall` for approval prompt attribution.
-const APPROVABLE_TOOLS = new Set(["Bash", "Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch"]);
 
 const APPROVAL_PATTERNS: Record<string, { promptText: string; optionText: string }> = {
   claude: { promptText: "Do you want to", optionText: "1. Yes" },
@@ -1767,6 +1764,44 @@ export async function runRun(): Promise<void> {
     process.exit(1);
   }
 
+  // Print agent banner if running inside an agent project
+  try {
+    const { readAgentSoul } = await import("../daemon/agent-soul");
+    const soul = await readAgentSoul(process.cwd());
+    if (soul?.name) {
+      const BOLD = "\x1b[1m";
+      const DIM = "\x1b[2m";
+      const RESET = "\x1b[0m";
+      if (soul.dna) {
+        const { renderTerminal } = await import("../lib/avatar");
+        const avatar = renderTerminal(soul.dna);
+        const avatarLines = avatar.split("\n");
+        const info = [
+          `${BOLD}${soul.name}${RESET}`,
+          soul.purpose ? `${DIM}${soul.purpose}${RESET}` : "",
+        ].filter(Boolean);
+        // Merge avatar lines with info lines side-by-side
+        const avatarWidth = 18; // 9 columns × 2 chars per pixel
+        const visLen = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "").length;
+        // Place info lines vertically centered beside the avatar
+        const infoStart = Math.max(0, Math.floor((avatarLines.length - info.length) / 2));
+        const merged: string[] = [];
+        for (let i = 0; i < avatarLines.length; i++) {
+          const left = avatarLines[i];
+          const pad = " ".repeat(Math.max(0, avatarWidth - visLen(left)));
+          const right = info[i - infoStart] ?? "";
+          merged.push(`${left}${pad}  ${right}`);
+        }
+        console.log(merged.join("\n"));
+      } else {
+        console.log(`${BOLD}${soul.name}${RESET}${soul.purpose ? ` — ${DIM}${soul.purpose}${RESET}` : ""}`);
+      }
+      console.log();
+    }
+  } catch {
+    // Non-fatal — no agent soul
+  }
+
   // Write session manifest if registered with daemon
   const manifest: SessionManifest | null = remoteId
     ? {
@@ -2114,10 +2149,7 @@ export async function runRun(): Promise<void> {
               for (const gid of subscribedGroups) tgChannel.setTyping(gid, true);
 
               for (const call of calls) {
-                // Only track approvable tools for approval prompt attribution
-                if (APPROVABLE_TOOLS.has(call.name)) {
-                  lastToolCall = { name: call.name, input: call.input };
-                }
+                lastToolCall = { name: call.name, input: call.input };
                 // Send tool notification immediately (no poll)
                 daemonRequest(`/remote/${tgRemoteId}/tool-call`, "POST", {
                   name: call.name,
