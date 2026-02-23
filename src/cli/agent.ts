@@ -59,11 +59,13 @@ export async function runAgent(): Promise<void> {
       break;
     }
     case "update": {
-      await updateAgent(process.cwd());
+      const targetDir = process.argv[4];
+      await updateAgent(targetDir ? resolve(targetDir) : process.cwd());
       break;
     }
     case "avatar": {
-      await generateAvatarSVGs(process.cwd());
+      const targetDir = process.argv[4];
+      await generateAvatarSVGs(targetDir ? resolve(targetDir) : process.cwd());
       break;
     }
     default: {
