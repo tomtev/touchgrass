@@ -50,10 +50,9 @@ export async function runAgent(): Promise<void> {
         vars["AGENT_PURPOSE"] = await prompt("Purpose: ") || "A personal agent that helps with tasks using workflows and skills.";
       }
 
-      const dest = targetDir ? resolve(targetDir) : process.cwd();
-      if (targetDir) {
-        await Bun.spawn(["mkdir", "-p", dest]).exited;
-      }
+      const slug = vars["AGENT_NAME"].toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "agent";
+      const dest = targetDir ? resolve(targetDir) : resolve(slug);
+      await Bun.spawn(["mkdir", "-p", dest]).exited;
 
       await createAgent(dest, vars);
       break;

@@ -33,7 +33,7 @@ tg write <session_id> --file <path> # write file path into terminal
 tg send <session_id> "text"         # send message to channel(s)
 tg send <session_id> --file <path>  # send file to channel(s)
 
-tg ls
+tg sessions              # alias: tg ls
 tg channels
 tg links
 tg peek <id>

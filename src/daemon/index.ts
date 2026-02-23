@@ -2006,6 +2006,20 @@ export async function startDaemon(): Promise<void> {
       if (fileStats.size <= 0) return { ok: false, error: "File is empty" };
       if (fileStats.size > 50 * 1024 * 1024) return { ok: false, error: "File exceeds 50MB channel upload limit" };
 
+      // Security: restrict file sends to session cwd and uploads directory
+      // Use realpath to resolve symlinks and prevent traversal
+      try {
+        const realFile = await realpath(filePath);
+        const allowedRoots: string[] = [paths.uploadsDir];
+        if (remote.cwd) allowedRoots.push(await realpath(remote.cwd).catch(() => remote.cwd));
+        const inAllowed = allowedRoots.some((root) => realFile.startsWith(root + "/") || realFile === root);
+        if (!inAllowed) {
+          return { ok: false, error: `File path outside session working directory: ${filePath}` };
+        }
+      } catch {
+        return { ok: false, error: `Cannot resolve file path: ${filePath}` };
+      }
+
       const targets = new Set<ChannelChatId>();
       const targetChat = sessionManager.getBoundChat(sessionId) || remote.chatId;
       if (targetChat) targets.add(targetChat);

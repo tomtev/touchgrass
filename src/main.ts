@@ -30,6 +30,7 @@ async function main() {
       await runPair();
       break;
     }
+    case "sessions":
     case "ls": {
       const { runLs } = await import("./cli/ls");
       await runLs();
@@ -125,7 +126,7 @@ Options (for claude/codex/pi/kimi/resume):
   --channel <value>      Skip channel picker (use "dm", a chatId, or title substring)
   --last                 Skip session picker, resume most recent (resume only)
 
-  ls       List active sessions
+  sessions List active sessions (alias: ls)
   channels List available channels (DM, groups, topics) with busy status
   write    Write text into a session's terminal (tg write <id> "text" | tg write <id> --file <path>)
   send     Send a message or file to a session's channel(s) (tg send <id> "text" | tg send <id> --file <path>)

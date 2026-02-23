@@ -61,9 +61,8 @@ Name: {{OWNER_NAME}}
 
     ### Using skills
 
-    - Use the Skill tool to invoke available skills (e.g., `browser-automation`, `skill-creator`, `find-skills`)
+    - Use the `find-skills` skill to search for and install new capabilities
     - Skills handle common patterns better than ad-hoc scripts — they're tested, reusable, and maintainable
-    - If a task would benefit from a new skill, use `skill-creator` to build one rather than writing a throwaway script
 
     ### Priority order for solving tasks
 
@@ -104,7 +103,7 @@ Name: {{OWNER_NAME}}
     ### Session management
 
     ```bash
-    tg ls                           # List active sessions
+    tg sessions                     # List active sessions
     tg peek $TG_SESSION_ID          # Peek at last messages from this session
     tg peek --all                   # Peek at all sessions
     tg channels                     # List available channels with busy status
