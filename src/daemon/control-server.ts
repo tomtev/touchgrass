@@ -299,11 +299,21 @@ export async function startControlServer(ctx: DaemonContext): Promise<void> {
             promptText = `Allow Bash: ${cmd}?`;
           } else if ((toolName === "Edit" || toolName === "Write") && typeof toolInput.file_path === "string") {
             promptText = `Allow ${toolName}: ${toolInput.file_path}?`;
+          } else if (toolName === "Glob" && typeof toolInput.pattern === "string") {
+            const path = typeof toolInput.path === "string" ? ` in ${toolInput.path}` : "";
+            promptText = `Allow Search: ${toolInput.pattern}${path}?`;
+          } else if (toolName === "Grep" && typeof toolInput.pattern === "string") {
+            const path = typeof toolInput.path === "string" ? ` in ${toolInput.path}` : "";
+            promptText = `Allow Grep: ${toolInput.pattern}${path}?`;
+          } else if (toolName === "Read" && typeof toolInput.file_path === "string") {
+            promptText = `Allow Read: ${toolInput.file_path}?`;
           } else if (toolName === "WebFetch" && typeof toolInput.url === "string") {
             const url = toolInput.url.length > 60 ? toolInput.url.slice(0, 60) + "..." : toolInput.url;
             promptText = `Allow Fetch: ${url}?`;
           } else if (toolName === "WebSearch" && typeof toolInput.query === "string") {
             promptText = `Allow Search: ${toolInput.query}?`;
+          } else if (toolName === "NotebookEdit" && typeof toolInput.notebook_path === "string") {
+            promptText = `Allow NotebookEdit: ${toolInput.notebook_path}?`;
           } else {
             promptText = `Allow ${toolName}?`;
           }

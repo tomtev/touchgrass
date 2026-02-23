@@ -15,28 +15,30 @@ Supported channels:
 - Language: TypeScript (strict)
 - Transport: daemon + PTY + channel adapters
 
-## Core Commands
+## CLI
+
+For local development, use the `tg` shell alias (defined in `~/.zshrc`) which maps to `bun run /Users/tommyvedvik/Dev/touchgrass/src/main.ts`. This avoids needing an installed binary and prevents double-daemon conflicts.
 
 ```bash
-bun run src/main.ts setup      # configure channel credentials (init alias exists)
-bun run src/main.ts pair       # generate pairing code
+tg setup      # configure channel credentials (init alias exists)
+tg pair       # generate pairing code
 
-bun run src/main.ts claude
-bun run src/main.ts codex
-bun run src/main.ts pi
-bun run src/main.ts kimi
+tg claude
+tg codex
+tg pi
+tg kimi
 
-bun run src/main.ts write <session_id> "text"       # write into terminal (PTY stdin)
-bun run src/main.ts write <session_id> --file <path> # write file path into terminal
-bun run src/main.ts send <session_id> "text"         # send message to channel(s)
-bun run src/main.ts send <session_id> --file <path>  # send file to channel(s)
+tg write <session_id> "text"       # write into terminal (PTY stdin)
+tg write <session_id> --file <path> # write file path into terminal
+tg send <session_id> "text"         # send message to channel(s)
+tg send <session_id> --file <path>  # send file to channel(s)
 
-bun run src/main.ts ls
-bun run src/main.ts channels
-bun run src/main.ts links
-bun run src/main.ts peek <id>
-bun run src/main.ts stop <id>
-bun run src/main.ts kill <id>
+tg ls
+tg channels
+tg links
+tg peek <id>
+tg stop <id>
+tg kill <id>
 ```
 
 Telegram chat shorthands:
@@ -160,13 +162,13 @@ New trait variants can be added within slot limits without breaking existing DNA
 ```bash
 old_pid=$(cat ~/.touchgrass/daemon.pid 2>/dev/null || true)
 [ -n "$old_pid" ] && kill "$old_pid" 2>/dev/null || true
-bun run src/main.ts channels
+tg channels
 ```
-- In dev mode (`bun run src/main.ts ...`), restart the daemon after code changes so Telegram reflects updates:
+- In dev mode, restart the daemon after code changes so Telegram reflects updates:
 ```bash
 old_pid=$(cat ~/.touchgrass/daemon.pid 2>/dev/null || true)
 [ -n "$old_pid" ] && kill "$old_pid" 2>/dev/null || true
-bun run src/main.ts channels
+tg channels
 ```
 - Session IDs are tagged and partial matching is supported in several CLI commands.
 - Use `tg stop` first and `tg kill` only if needed.

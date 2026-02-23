@@ -1991,18 +1991,9 @@ export async function startDaemon(): Promise<void> {
       const remote = sessionManager.getRemote(sessionId);
       if (!remote) return { ok: false, error: "Session not found" };
 
-      // Restrict file access to session's working directory
-      if (remote.cwd) {
-        try {
-          const resolvedFile = await realpath(resolve(remote.cwd, filePath)).catch(() => resolve(remote.cwd, filePath));
-          const resolvedCwd = await realpath(remote.cwd).catch(() => remote.cwd);
-          if (!resolvedFile.startsWith(resolvedCwd + "/") && resolvedFile !== resolvedCwd) {
-            return { ok: false, error: "File must be within the session working directory" };
-          }
-          filePath = resolvedFile;
-        } catch {
-          return { ok: false, error: "Invalid file path" };
-        }
+      // Resolve relative paths against session cwd
+      if (remote.cwd && !filePath.startsWith("/")) {
+        filePath = resolve(remote.cwd, filePath);
       }
 
       let fileStats;
