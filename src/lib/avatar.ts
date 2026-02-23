@@ -1,9 +1,15 @@
 // Agent DNA avatar system
 // Encodes visual identity as a 6-hex-char string (~16M combinations)
 
-export type Pixel = "f" | "e" | "m" | "h" | "l" | "k" | "_";
-// f = face/body, e = eye (dark), m = mouth (dark), h = hat (secondary hue),
-// l = thin leg (face color, ▌ in terminal), k = thin hat (hat color, ▐▌ in terminal),
+export type Pixel = "f" | "e" | "s" | "n" | "m" | "d" | "h" | "l" | "k" | "q" | "r" | "a" | "_";
+// f = face/body, e = eye (dark, full block), s = squint eye (dark, thin horizontal ▄▄),
+// n = narrow eye (dark, thin vertical ▐▌),
+// m = mouth (dark, thin ▀▀ in terminal),
+// d = dark accent (full-block dark, for hat bands etc.),
+// h = hat (secondary hue), l = thin leg (face color, ▌ in terminal),
+// k = thin hat (hat color, ▐▌ in terminal),
+// q = smile corner left (dark ▗ on face bg), r = smile corner right (dark ▖ on face bg),
+// a = arm (face color, thin horizontal ▄▄ in terminal),
 // _ = transparent
 
 // Face row template (7px wide head centered in 9-col grid)
@@ -17,39 +23,49 @@ export const EYES: Pixel[][] = [
   ["_", "f", "e", "f", "f", "f", "e", "f", "_"], // normal-alt
   ["_", "e", "e", "f", "f", "f", "e", "e", "_"], // big
   ["_", "f", "e", "e", "f", "e", "e", "f", "_"], // big close
+  ["_", "f", "s", "f", "f", "f", "s", "f", "_"], // squint
+  ["_", "s", "f", "f", "f", "f", "f", "s", "_"], // squint wide
+  ["_", "f", "n", "f", "f", "f", "n", "f", "_"], // narrow
+  ["_", "n", "f", "f", "f", "f", "f", "n", "_"], // narrow wide
 ];
 
 // --- Mouth variants (2 rows: gap + mouth) ---
+// Uses thin half-block rendering: m=▀▀, q=▗ corner left, r=▖ corner right
 export const MOUTHS: Pixel[][][] = [
   [
-    // smile
-    ["_", "f", "f", "f", "f", "f", "f", "f", "_"],
+    // smile (default)
+    ["_", "f", "q", "f", "f", "f", "r", "f", "_"],
     ["_", "f", "f", "m", "m", "m", "f", "f", "_"],
   ],
   [
-    // flat
-    ["_", "f", "f", "f", "f", "f", "f", "f", "_"],
+    // smirk left
+    ["_", "f", "q", "f", "f", "f", "f", "f", "_"],
     ["_", "f", "f", "m", "m", "m", "f", "f", "_"],
   ],
   [
-    // open
-    ["_", "f", "f", "f", "f", "f", "f", "f", "_"],
-    ["_", "f", "f", "f", "m", "m", "f", "f", "_"],
+    // smirk right
+    ["_", "f", "f", "f", "f", "f", "r", "f", "_"],
+    ["_", "f", "f", "m", "m", "m", "f", "f", "_"],
   ],
   [
-    // smirk
-    ["_", "f", "f", "f", "f", "f", "f", "f", "_"],
-    ["_", "f", "f", "f", "m", "m", "m", "f", "_"],
+    // narrow
+    ["_", "f", "f", "q", "f", "r", "f", "f", "_"],
+    ["_", "f", "f", "f", "m", "f", "f", "f", "_"],
   ],
   [
-    // grin
-    ["_", "f", "f", "f", "f", "f", "f", "f", "_"],
+    // wide smile
+    ["_", "q", "f", "f", "f", "f", "f", "r", "_"],
     ["_", "f", "m", "m", "m", "m", "m", "f", "_"],
   ],
   [
-    // dot
-    ["_", "f", "f", "f", "f", "f", "f", "f", "_"],
-    ["_", "f", "f", "f", "m", "f", "f", "f", "_"],
+    // wide smirk left
+    ["_", "q", "f", "f", "f", "f", "f", "f", "_"],
+    ["_", "f", "m", "m", "m", "m", "m", "f", "_"],
+  ],
+  [
+    // wide smirk right
+    ["_", "f", "f", "f", "f", "f", "f", "r", "_"],
+    ["_", "f", "m", "m", "m", "m", "m", "f", "_"],
   ],
 ];
 
@@ -174,7 +190,7 @@ export const HATS: Pixel[][][] = [
     ["_", "h", "h", "h", "h", "h", "h", "h", "_"],
     ["_", "h", "h", "h", "h", "h", "h", "h", "_"],
     ["_", "h", "h", "h", "h", "h", "h", "h", "_"],
-    ["_", "m", "m", "m", "m", "m", "m", "m", "_"],
+    ["_", "d", "d", "d", "d", "d", "d", "d", "_"],
     ["h", "h", "h", "h", "h", "h", "h", "h", "h"],
   ],
 ];
@@ -189,16 +205,16 @@ export const BODIES: Pixel[][][] = [
   [
     // arms down
     ["_", "f", "f", "f", "f", "f", "f", "f", "_"],
-    ["f", "f", "f", "f", "f", "f", "f", "f", "f"],
+    ["a", "f", "f", "f", "f", "f", "f", "f", "a"],
   ],
   [
     // arms out
-    ["f", "f", "f", "f", "f", "f", "f", "f", "f"],
+    ["a", "f", "f", "f", "f", "f", "f", "f", "a"],
     ["_", "f", "f", "f", "f", "f", "f", "f", "_"],
   ],
   [
     // stubby arms
-    ["f", "f", "f", "f", "f", "f", "f", "f", "f"],
+    ["a", "f", "f", "f", "f", "f", "f", "f", "a"],
     ["_", "_", "f", "f", "f", "f", "f", "_", "_"],
   ],
   [
@@ -216,6 +232,11 @@ export const BODIES: Pixel[][][] = [
     ["_", "f", "f", "f", "f", "f", "f", "f", "_"],
     ["_", "_", "f", "f", "f", "f", "f", "_", "_"],
   ],
+  [
+    // thin arms
+    ["a", "f", "f", "f", "f", "f", "f", "f", "a"],
+    ["_", "f", "f", "f", "f", "f", "f", "f", "_"],
+  ],
 ];
 
 // --- Leg variants (multi-frame for walking animation) ---
@@ -225,33 +246,34 @@ export const LEGS: Pixel[][][] = [
     ["_", "_", "f", "_", "_", "f", "_", "_", "_"],
     ["_", "f", "_", "_", "_", "_", "f", "_", "_"],
   ],
-  [ // quad
-    ["_", "f", "_", "f", "_", "f", "_", "f", "_"],
-    ["_", "f", "f", "_", "_", "_", "f", "f", "_"],
+  [ // quad (thin, alternating pairs)
+    ["_", "l", "_", "_", "_", "_", "_", "l", "_"],
+    ["_", "_", "_", "l", "_", "l", "_", "_", "_"],
   ],
-  [ // tentacles
-    ["_", "_", "f", "_", "f", "_", "f", "_", "_"],
-    ["_", "f", "_", "f", "_", "f", "_", "_", "_"],
+  [ // tentacles (thin, cycle visibility)
+    ["_", "l", "_", "l", "_", "l", "_", "l", "_"],
+    ["_", "_", "l", "_", "l", "_", "l", "_", "_"],
+    ["_", "l", "_", "l", "_", "l", "_", "_", "_"],
   ],
-  [ // hexapod
-    ["_", "f", "f", "f", "_", "f", "f", "f", "_"],
-    ["f", "f", "_", "f", "_", "f", "_", "f", "f"],
+  [ // peg (thin center, splits when walking)
+    ["_", "_", "_", "_", "l", "_", "_", "_", "_"],
+    ["_", "_", "_", "l", "_", "l", "_", "_", "_"],
   ],
-  [ // wheels
-    ["_", "_", "f", "f", "_", "f", "f", "_", "_"],
-    ["_", "f", "f", "_", "_", "_", "f", "f", "_"],
+  [ // thin biped
+    ["_", "_", "l", "_", "_", "_", "l", "_", "_"],
+    ["_", "_", "_", "l", "_", "l", "_", "_", "_"],
   ],
-  [ // tripod
-    ["_", "f", "_", "_", "f", "_", "_", "f", "_"],
-    ["f", "_", "_", "f", "_", "f", "_", "_", "_"],
+  [ // tripod (thin, outer legs step)
+    ["_", "l", "_", "_", "l", "_", "_", "l", "_"],
+    ["_", "_", "l", "_", "l", "_", "l", "_", "_"],
   ],
   [ // wide stance
     ["_", "f", "_", "_", "_", "_", "_", "f", "_"],
     ["_", "_", "f", "_", "_", "_", "f", "_", "_"],
   ],
-  [ // animal
-    ["_", "l", "l", "_", "_", "_", "l", "l", "_"],
-    ["_", "l", "_", "l", "_", "l", "_", "l", "_"],
+  [ // thin narrow
+    ["_", "_", "_", "l", "_", "l", "_", "_", "_"],
+    ["_", "_", "l", "_", "_", "_", "l", "_", "_"],
   ],
 ];
 
@@ -278,8 +300,9 @@ export interface DecodedDNA {
 }
 
 /**
- * Encode trait indices into a 6-character hex DNA string.
+ * Encode trait indices into a 7-character hex DNA string.
  * Uses fixed slot sizes so adding traits doesn't break existing DNAs.
+ * Existing 6-char DNAs are decoded identically (leading zero is implicit).
  */
 export function encodeDNA(traits: DecodedDNA): string {
   let n = traits.hatHue;
@@ -289,12 +312,11 @@ export function encodeDNA(traits: DecodedDNA): string {
   n += traits.hat * SLOTS.bodies * SLOTS.legs * SLOTS.hues * SLOTS.hues;
   n += traits.mouth * SLOTS.hats * SLOTS.bodies * SLOTS.legs * SLOTS.hues * SLOTS.hues;
   n += traits.eyes * SLOTS.mouths * SLOTS.hats * SLOTS.bodies * SLOTS.legs * SLOTS.hues * SLOTS.hues;
-  return n.toString(16).padStart(6, "0");
+  return n.toString(16).padStart(7, "0");
 }
 
 /**
- * Decode a 6-character hex DNA string into trait indices.
- * Also accepts legacy 7-char strings for backward compatibility.
+ * Decode a hex DNA string (6-7 chars) into trait indices.
  * Clamps to actual array lengths for forward compatibility.
  */
 export function decodeDNA(hex: string): DecodedDNA {
@@ -338,18 +360,32 @@ export function generateRandomDNA(): string {
   });
 }
 
+// --- Talk animation frames (universal, override mouth when talking) ---
+// Cycle: agent's normal mouth (talkFrame=0) → open → repeat
+export const TALK_FRAMES: Pixel[][][] = [
+  [
+    // open mouth (full dark, no corners)
+    ["_", "f", "f", "f", "f", "f", "f", "f", "_"],
+    ["_", "f", "f", "d", "d", "d", "f", "f", "_"],
+  ],
+];
+
 /**
  * Generate the pixel grid from decoded DNA traits.
  * @param frame Walking animation frame index (0 = standing). Wraps automatically.
+ * @param talkFrame Talk animation frame (0 = normal mouth, 1+ = talk frames). Wraps automatically.
  */
-export function generateGrid(traits: DecodedDNA, frame = 0): Pixel[][] {
+export function generateGrid(traits: DecodedDNA, frame = 0, talkFrame = 0): Pixel[][] {
   const legFrames = LEGS[traits.legs];
   const legRow = legFrames[frame % legFrames.length];
+  const mouthRows = talkFrame === 0
+    ? MOUTHS[traits.mouth]
+    : TALK_FRAMES[(talkFrame - 1) % TALK_FRAMES.length];
   return [
     ...HATS[traits.hat],
     F,
     EYES[traits.eyes],
-    ...MOUTHS[traits.mouth],
+    ...mouthRows,
     ...BODIES[traits.body],
     legRow,
   ];
@@ -411,18 +447,46 @@ export function renderSVG(dna: string, pixelSize = 10, frame = 0): string {
   const w = (cols + pad * 2) * pixelSize;
   const h = (rows + pad * 2) * pixelSize;
 
+  const half = Math.round(pixelSize / 2);
+  const quarter = Math.round(pixelSize / 4);
   const rects: string[] = [];
   for (let y = 0; y < rows; y++) {
     for (let x = 0; x < cols; x++) {
       const cell = grid[y][x];
-      let fill: string | null = null;
-      if (cell === "f" || cell === "l") fill = faceHex;
-      else if (cell === "e" || cell === "m") fill = darkHex;
-      else if (cell === "h" || cell === "k") fill = hatHex;
-      if (fill) {
-        const rx = (x + pad) * pixelSize;
-        const ry = (y + pad) * pixelSize;
-        rects.push(`<rect x="${rx}" y="${ry}" width="${pixelSize}" height="${pixelSize}" fill="${fill}"/>`);
+      const rx = (x + pad) * pixelSize;
+      const ry = (y + pad) * pixelSize;
+      if (cell === "f") {
+        rects.push(`<rect x="${rx}" y="${ry}" width="${pixelSize}" height="${pixelSize}" fill="${faceHex}"/>`);
+      } else if (cell === "l") {
+        rects.push(`<rect x="${rx}" y="${ry}" width="${half}" height="${pixelSize}" fill="${faceHex}"/>`);
+      } else if (cell === "a") {
+        rects.push(`<rect x="${rx}" y="${ry + half}" width="${pixelSize}" height="${half}" fill="${faceHex}"/>`);
+      } else if (cell === "e" || cell === "d") {
+        rects.push(`<rect x="${rx}" y="${ry}" width="${pixelSize}" height="${pixelSize}" fill="${darkHex}"/>`);
+      } else if (cell === "s") {
+        // Squint eye: face bg + dark bottom half
+        rects.push(`<rect x="${rx}" y="${ry}" width="${pixelSize}" height="${pixelSize}" fill="${faceHex}"/>`);
+        rects.push(`<rect x="${rx}" y="${ry + half}" width="${pixelSize}" height="${half}" fill="${darkHex}"/>`);
+      } else if (cell === "n") {
+        // Narrow eye: face bg + dark center half-width
+        rects.push(`<rect x="${rx}" y="${ry}" width="${pixelSize}" height="${pixelSize}" fill="${faceHex}"/>`);
+        rects.push(`<rect x="${rx + quarter}" y="${ry}" width="${half}" height="${pixelSize}" fill="${darkHex}"/>`);
+      } else if (cell === "m") {
+        // Thin mouth: face bg + dark top half
+        rects.push(`<rect x="${rx}" y="${ry}" width="${pixelSize}" height="${pixelSize}" fill="${faceHex}"/>`);
+        rects.push(`<rect x="${rx}" y="${ry}" width="${pixelSize}" height="${half}" fill="${darkHex}"/>`);
+      } else if (cell === "q") {
+        // Corner left: face bg + dark bottom-right quarter
+        rects.push(`<rect x="${rx}" y="${ry}" width="${pixelSize}" height="${pixelSize}" fill="${faceHex}"/>`);
+        rects.push(`<rect x="${rx + half}" y="${ry + half}" width="${half}" height="${half}" fill="${darkHex}"/>`);
+      } else if (cell === "r") {
+        // Corner right: face bg + dark bottom-left quarter
+        rects.push(`<rect x="${rx}" y="${ry}" width="${pixelSize}" height="${pixelSize}" fill="${faceHex}"/>`);
+        rects.push(`<rect x="${rx}" y="${ry + half}" width="${half}" height="${half}" fill="${darkHex}"/>`);
+      } else if (cell === "h") {
+        rects.push(`<rect x="${rx}" y="${ry}" width="${pixelSize}" height="${pixelSize}" fill="${hatHex}"/>`);
+      } else if (cell === "k") {
+        rects.push(`<rect x="${rx}" y="${ry}" width="${pixelSize}" height="${pixelSize}" fill="${hatHex}"/>`);
       }
     }
   }
@@ -450,6 +514,8 @@ export function renderTerminal(dna: string, frame = 0): string {
   const hatAnsi = `\x1b[38;2;${hatRgb[0]};${hatRgb[1]};${hatRgb[2]}m`;
   const reset = "\x1b[0m";
 
+  const faceBg = `\x1b[48;2;${faceRgb[0]};${faceRgb[1]};${faceRgb[2]}m`;
+
   const lines: string[] = [];
   for (const row of grid) {
     let line = "";
@@ -460,8 +526,20 @@ export function renderTerminal(dna: string, frame = 0): string {
         line += `${faceAnsi}██${reset}`;
       } else if (cell === "l") {
         line += `${faceAnsi}▌${reset} `;
-      } else if (cell === "e" || cell === "m") {
+      } else if (cell === "e" || cell === "d") {
         line += `${darkAnsi}██${reset}`;
+      } else if (cell === "s") {
+        line += `${darkAnsi}${faceBg}▄▄${reset}`;
+      } else if (cell === "n") {
+        line += `${darkAnsi}${faceBg}▐▌${reset}`;
+      } else if (cell === "m") {
+        line += `${darkAnsi}${faceBg}▀▀${reset}`;
+      } else if (cell === "q") {
+        line += `${darkAnsi}${faceBg} ▗${reset}`;
+      } else if (cell === "r") {
+        line += `${darkAnsi}${faceBg}▖ ${reset}`;
+      } else if (cell === "a") {
+        line += `${faceAnsi}▄▄${reset}`;
       } else if (cell === "h") {
         line += `${hatAnsi}██${reset}`;
       } else if (cell === "k") {
@@ -490,8 +568,8 @@ export function renderTerminalSmall(dna: string, frame = 0): string {
   const hatRgb = hslToRgb(hatHueDeg, 0.5, 0.5);
 
   function cellRgb(cell: Pixel): [number, number, number] | null {
-    if (cell === "f" || cell === "l") return faceRgb;
-    if (cell === "e" || cell === "m") return darkRgb;
+    if (cell === "f" || cell === "l" || cell === "a" || cell === "q" || cell === "r" || cell === "m") return faceRgb;
+    if (cell === "e" || cell === "s" || cell === "n" || cell === "d") return darkRgb;
     if (cell === "h" || cell === "k") return hatRgb;
     return null; // transparent
   }

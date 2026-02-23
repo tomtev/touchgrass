@@ -122,12 +122,14 @@ All config, runtime state, and session data lives in `~/.touchgrass/`. This dire
 
 ## Agent DNA Avatar System
 
-Each agent has a unique visual identity encoded as a **6-character hex DNA string** (e.g., `a3f201`). DNA is generated during `tg agent create` and stored in the `<agent-soul>` block of `AGENTS.md`.
+Each agent has a unique visual identity encoded as a **7-character hex DNA string** (e.g., `0a3f201`). DNA is generated during `tg agent create` and stored in the `<agent-soul>` block of `AGENTS.md`. Legacy 6-char DNAs are still supported (parsed identically via `parseInt`).
 
 ### Pixel grid
 
 9 columns wide, variable rows tall. Pixel types:
-- `f` = face/body color, `e` = eye (dark), `m` = mouth (dark)
+- `f` = face/body color, `e` = eye (dark full block), `s` = squint eye (thin horizontal `▄▄`), `n` = narrow eye (thin vertical `▐▌`)
+- `m` = mouth (thin dark `▀▀`), `q` = smile corner left (`▗`), `r` = smile corner right (`▖`)
+- `d` = dark accent (full-block dark, for hat bands etc.)
 - `h` = hat color (secondary hue), `l` = thin leg (`▌` in terminal), `k` = thin hat (`▐▌` in terminal)
 - `_` = transparent
 
@@ -137,15 +139,15 @@ Mixed-radix packing with **fixed slot sizes** for forward compatibility:
 
 | Trait | Current variants | Slot size |
 |-------|-----------------|-----------|
-| eyes | 6 | 12 |
-| mouths | 6 | 12 |
+| eyes | 10 | 12 |
+| mouths | 7 | 12 |
 | hats | 24 | 24 |
 | bodies | 7 | 8 |
 | legs | 8 | 8 |
 | faceHue | 12 | 12 |
 | hatHue | 12 | 12 |
 
-Total: `12 × 12 × 24 × 8 × 8 × 12 × 12 = 15,925,248` (~16M combinations, 6 hex chars).
+Total: `12 × 12 × 24 × 8 × 8 × 12 × 12 = 31,850,496` slot space (~32M, 7 hex chars). Actual unique combos: ~13.5M (not all slots filled yet).
 
 New trait variants can be added within slot limits without breaking existing DNA strings. Shared code in `src/lib/avatar.ts`. The desktop app (`AgentFace.svelte`) duplicates the trait arrays and decode logic — keep both in sync.
 

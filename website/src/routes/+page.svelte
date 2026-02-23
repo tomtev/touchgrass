@@ -5,14 +5,14 @@
 
   const installCommand = 'curl -fsSL https://touchgrass.sh/install.sh | bash';
 
-  const TOTAL = 12 * 12 * 24 * 8 * 8 * 12 * 12;
-  function randomDNA() {
-    return Math.floor(Math.random() * TOTAL).toString(16).padStart(6, '0');
-  }
-
-  const heroDNA = randomDNA();
-  const featureDNAs = [randomDNA(), randomDNA(), randomDNA()];
-  const agentRow = Array.from({ length: 15 }, () => randomDNA());
+  // Deterministic DNAs (avoids SSR/hydration mismatch from Math.random)
+  const heroDNA = '0a3f201';
+  const featureDNAs = ['03b8e10', '0c47a25', '0912d4f'];
+  const agentRow = [
+    '00f1a32', '05d4c81', '0a29e70', '0e8b3d4', '029f6a5',
+    '07c1d93', '0b5e2f6', '01a7b48', '064c9e1', '0d83f27',
+    '038a1c5', '08e5d72', '0cf2a96', '0417e3b', '097b4d8',
+  ];
 </script>
 
 <main class="page">

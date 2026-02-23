@@ -198,11 +198,32 @@ async function createAgent(dest: string, vars: Record<string, string>): Promise<
     // Generate avatar SVG
     await writeFile(join(dest, "avatar.svg"), renderSVG(dna));
 
-    const label = vars["AGENT_NAME"] ? `"${vars["AGENT_NAME"]}"` : "Agent";
+    const BOLD = "\x1b[1m";
+    const DIM = "\x1b[2m";
+    const RESET = "\x1b[0m";
+    const agentName = vars["AGENT_NAME"] || "Agent";
+    const avatar = renderTerminal(dna);
+    const avatarLines = avatar.split("\n");
+    const info = [
+      `${BOLD}${agentName}${RESET}`,
+      vars["AGENT_PURPOSE"] ? `${DIM}${vars["AGENT_PURPOSE"]}${RESET}` : "",
+      `${DIM}dna: ${dna}${RESET}`,
+      `${DIM}${join(dest, "avatar.svg")}${RESET}`,
+    ].filter(Boolean);
+    const avatarWidth = 18;
+    const visLen = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "").length;
+    const infoStart = Math.max(0, Math.floor((avatarLines.length - info.length) / 2));
+    const merged: string[] = [];
+    for (let i = 0; i < avatarLines.length; i++) {
+      const left = avatarLines[i];
+      const pad = " ".repeat(Math.max(0, avatarWidth - visLen(left)));
+      const right = info[i - infoStart] ?? "";
+      merged.push(`${left}${pad}  ${right}`);
+    }
     console.log("");
-    console.log(renderTerminal(dna));
+    console.log(merged.join("\n"));
     console.log("");
-    console.log(`${label} created in ${dest} (dna: ${dna})`);
+    console.log(`Created in ${dest}`);
   } finally {
     await rm(tmpDir, { recursive: true, force: true });
   }

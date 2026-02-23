@@ -1772,7 +1772,7 @@ export async function runRun(): Promise<void> {
       const BOLD = "\x1b[1m";
       const DIM = "\x1b[2m";
       const RESET = "\x1b[0m";
-      const { renderTerminalSmall, encodeDNA, EYES, MOUTHS, HATS, BODIES, LEGS } = await import("../lib/avatar");
+      const { renderTerminal, encodeDNA, EYES, MOUTHS, HATS, BODIES, LEGS } = await import("../lib/avatar");
       // Use explicit DNA or derive a deterministic one from the agent name
       let dna = soul.dna;
       if (!dna) {
@@ -1791,14 +1791,14 @@ export async function runRun(): Promise<void> {
           hatHue: (hash >> 26) % 12,
         });
       }
-      const avatar = renderTerminalSmall(dna);
+      const avatar = renderTerminal(dna);
       const avatarLines = avatar.split("\n");
       const info = [
         `${BOLD}${soul.name}${RESET}`,
         soul.purpose ? `${DIM}${soul.purpose}${RESET}` : "",
         `${DIM}Touchgrass agent${soul.coreVersion ? ` v${soul.coreVersion}` : ""}${RESET}`,
       ].filter(Boolean);
-      const avatarWidth = 9; // 9 columns × 1 char per pixel (half-block)
+      const avatarWidth = 18; // 9 columns × 2 chars per pixel (██)
       const visLen = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "").length;
       const infoStart = Math.max(0, Math.floor((avatarLines.length - info.length) / 2));
       const merged: string[] = [];
