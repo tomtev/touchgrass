@@ -198,44 +198,34 @@ export const HATS: Pixel[][][] = [
 // --- Body variants (flat, no animation frames) ---
 export const BODIES: Pixel[][][] = [
   [
-    // normal - no arms
+    // normal
     ["_", "f", "f", "f", "f", "f", "f", "f", "_"],
     ["_", "f", "f", "f", "f", "f", "f", "f", "_"],
   ],
   [
-    // arms down
-    ["_", "f", "f", "f", "f", "f", "f", "f", "_"],
-    ["a", "f", "f", "f", "f", "f", "f", "f", "a"],
-  ],
-  [
-    // arms out
+    // normal-arms
     ["a", "f", "f", "f", "f", "f", "f", "f", "a"],
     ["_", "f", "f", "f", "f", "f", "f", "f", "_"],
   ],
   [
-    // stubby arms
+    // narrow
+    ["_", "_", "f", "f", "f", "f", "f", "_", "_"],
+    ["_", "_", "f", "f", "f", "f", "f", "_", "_"],
+  ],
+  [
+    // narrow-arms
+    ["_", "a", "f", "f", "f", "f", "f", "a", "_"],
+    ["_", "_", "f", "f", "f", "f", "f", "_", "_"],
+  ],
+  [
+    // tapered
+    ["_", "f", "f", "f", "f", "f", "f", "f", "_"],
+    ["_", "_", "f", "f", "f", "f", "f", "_", "_"],
+  ],
+  [
+    // tapered-arms
     ["a", "f", "f", "f", "f", "f", "f", "f", "a"],
     ["_", "_", "f", "f", "f", "f", "f", "_", "_"],
-  ],
-  [
-    // pear
-    ["_", "_", "f", "f", "f", "f", "f", "_", "_"],
-    ["_", "f", "f", "f", "f", "f", "f", "f", "_"],
-  ],
-  [
-    // round - no arms
-    ["_", "_", "f", "f", "f", "f", "f", "_", "_"],
-    ["_", "_", "f", "f", "f", "f", "f", "_", "_"],
-  ],
-  [
-    // tapered - no arms
-    ["_", "f", "f", "f", "f", "f", "f", "f", "_"],
-    ["_", "_", "f", "f", "f", "f", "f", "_", "_"],
-  ],
-  [
-    // thin arms
-    ["a", "f", "f", "f", "f", "f", "f", "f", "a"],
-    ["_", "f", "f", "f", "f", "f", "f", "f", "_"],
   ],
 ];
 
@@ -255,17 +245,9 @@ export const LEGS: Pixel[][][] = [
     ["_", "_", "l", "_", "l", "_", "l", "_", "_"],
     ["_", "l", "_", "l", "_", "l", "_", "_", "_"],
   ],
-  [ // peg (thin center, splits when walking)
-    ["_", "_", "_", "_", "l", "_", "_", "_", "_"],
-    ["_", "_", "_", "l", "_", "l", "_", "_", "_"],
-  ],
   [ // thin biped
     ["_", "_", "l", "_", "_", "_", "l", "_", "_"],
     ["_", "_", "_", "l", "_", "l", "_", "_", "_"],
-  ],
-  [ // tripod (thin, outer legs step)
-    ["_", "l", "_", "_", "l", "_", "_", "l", "_"],
-    ["_", "_", "l", "_", "l", "_", "l", "_", "_"],
   ],
   [ // wide stance
     ["_", "f", "_", "_", "_", "_", "_", "f", "_"],
@@ -360,6 +342,20 @@ export function generateRandomDNA(): string {
   });
 }
 
+// --- Wave animation frames (override body when waving) ---
+export const WAVE_FRAMES: Pixel[][][] = [
+  [
+    // left up, right down
+    ["a", "f", "f", "f", "f", "f", "f", "f", "_"],
+    ["_", "f", "f", "f", "f", "f", "f", "f", "a"],
+  ],
+  [
+    // left down, right up
+    ["_", "f", "f", "f", "f", "f", "f", "f", "a"],
+    ["a", "f", "f", "f", "f", "f", "f", "f", "_"],
+  ],
+];
+
 // --- Talk animation frames (universal, override mouth when talking) ---
 // Cycle: agent's normal mouth (talkFrame=0) → open → repeat
 export const TALK_FRAMES: Pixel[][][] = [
@@ -374,19 +370,23 @@ export const TALK_FRAMES: Pixel[][][] = [
  * Generate the pixel grid from decoded DNA traits.
  * @param frame Walking animation frame index (0 = standing). Wraps automatically.
  * @param talkFrame Talk animation frame (0 = normal mouth, 1+ = talk frames). Wraps automatically.
+ * @param waveFrame Wave animation frame (0 = normal body, 1+ = wave frames). Wraps automatically.
  */
-export function generateGrid(traits: DecodedDNA, frame = 0, talkFrame = 0): Pixel[][] {
+export function generateGrid(traits: DecodedDNA, frame = 0, talkFrame = 0, waveFrame = 0): Pixel[][] {
   const legFrames = LEGS[traits.legs];
   const legRow = legFrames[frame % legFrames.length];
   const mouthRows = talkFrame === 0
     ? MOUTHS[traits.mouth]
     : TALK_FRAMES[(talkFrame - 1) % TALK_FRAMES.length];
+  const bodyRows = waveFrame === 0
+    ? BODIES[traits.body]
+    : WAVE_FRAMES[(waveFrame - 1) % WAVE_FRAMES.length];
   return [
     ...HATS[traits.hat],
     F,
     EYES[traits.eyes],
     ...mouthRows,
-    ...BODIES[traits.body],
+    ...bodyRows,
     legRow,
   ];
 }

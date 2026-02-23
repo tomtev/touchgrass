@@ -142,8 +142,8 @@ Mixed-radix packing with **fixed slot sizes** for forward compatibility:
 | eyes | 10 | 12 |
 | mouths | 7 | 12 |
 | hats | 24 | 24 |
-| bodies | 7 | 8 |
-| legs | 8 | 8 |
+| bodies | 6 | 8 |
+| legs | 6 | 8 |
 | faceHue | 12 | 12 |
 | hatHue | 12 | 12 |
 

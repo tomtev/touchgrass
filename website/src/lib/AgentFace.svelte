@@ -1,5 +1,5 @@
 <script>
-  let { dna, size = 'lg', walking = false, talking = false } = $props();
+  let { dna, size = 'lg', walking = false, talking = false, waving = false } = $props();
 
   // Pixel types: f=face, e=eye(dark), s=squint eye(thin horiz), n=narrow eye(thin vert),
   // m=mouth(thin dark), h=hat, l=thin leg, k=thin hat,
@@ -57,25 +57,21 @@
   ];
 
   const BODIES = [
-    [['_','f','f','f','f','f','f','f','_'],['_','f','f','f','f','f','f','f','_']],
-    [['_','f','f','f','f','f','f','f','_'],['a','f','f','f','f','f','f','f','a']],
-    [['a','f','f','f','f','f','f','f','a'],['_','f','f','f','f','f','f','f','_']],
-    [['a','f','f','f','f','f','f','f','a'],['_','_','f','f','f','f','f','_','_']],
-    [['_','_','f','f','f','f','f','_','_'],['_','f','f','f','f','f','f','f','_']],
-    [['_','_','f','f','f','f','f','_','_'],['_','_','f','f','f','f','f','_','_']],
-    [['_','f','f','f','f','f','f','f','_'],['_','_','f','f','f','f','f','_','_']],
-    [['a','f','f','f','f','f','f','f','a'],['_','f','f','f','f','f','f','f','_']],
+    [['_','f','f','f','f','f','f','f','_'],['_','f','f','f','f','f','f','f','_']],  // normal
+    [['a','f','f','f','f','f','f','f','a'],['_','f','f','f','f','f','f','f','_']],  // normal-arms
+    [['_','_','f','f','f','f','f','_','_'],['_','_','f','f','f','f','f','_','_']],  // narrow
+    [['_','a','f','f','f','f','f','a','_'],['_','_','f','f','f','f','f','_','_']],  // narrow-arms
+    [['_','f','f','f','f','f','f','f','_'],['_','_','f','f','f','f','f','_','_']],  // tapered
+    [['a','f','f','f','f','f','f','f','a'],['_','_','f','f','f','f','f','_','_']],  // tapered-arms
   ];
 
   const LEGS = [
-    [['_','_','f','_','_','f','_','_','_'],['_','f','_','_','_','_','f','_','_']],
-    [['_','l','_','_','_','_','_','l','_'],['_','_','_','l','_','l','_','_','_']],
-    [['_','l','_','l','_','l','_','l','_'],['_','_','l','_','l','_','l','_','_'],['_','l','_','l','_','l','_','_','_']],
-    [['_','_','_','_','l','_','_','_','_'],['_','_','_','l','_','l','_','_','_']],
-    [['_','_','l','_','_','_','l','_','_'],['_','_','_','l','_','l','_','_','_']],
-    [['_','l','_','_','l','_','_','l','_'],['_','_','l','_','l','_','l','_','_']],
-    [['_','f','_','_','_','_','_','f','_'],['_','_','f','_','_','_','f','_','_']],
-    [['_','_','_','l','_','l','_','_','_'],['_','_','l','_','_','_','l','_','_']],
+    [['_','_','f','_','_','f','_','_','_'],['_','f','_','_','_','_','f','_','_']],  // biped
+    [['_','l','_','_','_','_','_','l','_'],['_','_','_','l','_','l','_','_','_']],  // quad
+    [['_','l','_','l','_','l','_','l','_'],['_','_','l','_','l','_','l','_','_'],['_','l','_','l','_','l','_','_','_']],  // tentacles
+    [['_','_','l','_','_','_','l','_','_'],['_','_','_','l','_','l','_','_','_']],  // thin biped
+    [['_','f','_','_','_','_','_','f','_'],['_','_','f','_','_','_','f','_','_']],  // wide stance
+    [['_','_','_','l','_','l','_','_','_'],['_','_','l','_','_','_','l','_','_']],  // thin narrow
   ];
 
   const SLOTS = { eyes: 12, mouths: 12, hats: 24, bodies: 8, legs: 8, hues: 12 };
@@ -100,29 +96,39 @@
     };
   }
 
+  // Wave animation frames (override body when waving)
+  const WAVE_FRAMES = [
+    [['a','f','f','f','f','f','f','f','_'],['_','f','f','f','f','f','f','f','a']],  // left up, right down
+    [['_','f','f','f','f','f','f','f','a'],['a','f','f','f','f','f','f','f','_']],  // left down, right up
+  ];
+
   // Talk animation frames (universal, override mouth when talking)
   const TALK_FRAMES = [
     [['_','f','f','f','f','f','f','f','_'],['_','f','f','d','d','d','f','f','_']],  // open
   ];
 
-  function generateAvatar(traits, frame = 0, talkFrame = 0) {
+  function generateAvatar(traits, frame = 0, talkFrame = 0, waveFrame = 0) {
     const legFrames = LEGS[traits.legs];
     const legRow = legFrames[frame % legFrames.length];
     const mouthRows = talkFrame === 0
       ? MOUTHS[traits.mouth]
       : TALK_FRAMES[(talkFrame - 1) % TALK_FRAMES.length];
+    const bodyRows = waveFrame === 0
+      ? BODIES[traits.body]
+      : WAVE_FRAMES[(waveFrame - 1) % WAVE_FRAMES.length];
     return [
       ...HATS[traits.hat],
       F,
       EYES[traits.eyes],
       ...mouthRows,
-      ...BODIES[traits.body],
+      ...bodyRows,
       legRow,
     ];
   }
 
   let walkFrame = $state(0);
   let talkFrame = $state(0);
+  let waveFrame = $state(0);
 
   $effect(() => {
     if (!walking) { walkFrame = 0; return; }
@@ -141,8 +147,15 @@
     return () => clearTimeout(timeout);
   });
 
+  $effect(() => {
+    if (!waving) { waveFrame = 0; return; }
+    waveFrame = 1;
+    const id = setInterval(() => { waveFrame = waveFrame === 1 ? 2 : 1; }, 600);
+    return () => clearInterval(id);
+  });
+
   const traits = $derived(decodeDNA(dna));
-  const grid   = $derived(generateAvatar(traits, walkFrame, talkFrame));
+  const grid   = $derived(generateAvatar(traits, walkFrame, talkFrame, waveFrame));
   const rows   = $derived(grid.length);
 
   const hue       = $derived(traits.faceHue * 30);

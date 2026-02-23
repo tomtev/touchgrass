@@ -16,10 +16,10 @@
     'clown-hair', 'stovepipe'
   ];
   const BODIES_NAMES = [
-    'normal', 'arms-down', 'arms-out', 'stubby', 'pear', 'round', 'tapered', 'thin-arms'
+    'normal', 'normal-arms', 'narrow', 'narrow-arms', 'tapered', 'tapered-arms'
   ];
   const LEGS_NAMES = [
-    'biped', 'quad', 'tentacles', 'peg', 'thin-biped', 'tripod', 'wide-stance', 'thin-narrow'
+    'biped', 'quad', 'tentacles', 'thin-biped', 'wide-stance', 'thin-narrow'
   ];
 
   const SLOTS = { eyes: 12, mouths: 12, hats: 24, bodies: 8, legs: 8, hues: 12 };
@@ -36,7 +36,7 @@
     return n.toString(16).padStart(7, '0');
   }
 
-  const base = { eyes: 0, mouth: 0, hat: 0, body: 0, legs: 0, faceHue: 4, hatHue: 8 };
+  const base = { eyes: 0, mouth: 0, hat: 0, body: 0, legs: 0, faceHue: 8, hatHue: 16 };
 
   function variantDNA(trait, index) {
     return encodeDNA({ ...base, [trait]: index });
@@ -66,7 +66,7 @@
 
 <main class="test-page">
   <h1 class="section-title">Avatar Test Page</h1>
-  <p class="section-desc">{TOTAL.toLocaleString()} possible DNA combinations. Eyes: {EYES_NAMES.length}, Mouths: {MOUTHS_NAMES.length}, Hats: {HATS_NAMES.length}, Bodies: {BODIES_NAMES.length}, Legs: {LEGS_NAMES.length}, Hues: 12x12</p>
+  <p class="section-desc">{TOTAL.toLocaleString()} possible DNA combinations. Eyes: {EYES_NAMES.length}, Mouths: {MOUTHS_NAMES.length}, Hats: {HATS_NAMES.length}, Bodies: {BODIES_NAMES.length}, Legs: {LEGS_NAMES.length}, Hues: {SLOTS.hues}x{SLOTS.hues}</p>
 
   <!-- Eyes -->
   <section>
@@ -171,6 +171,19 @@
         <AgentFace dna={randomAvatars[0]} size="xl" />
         <code class="dna-label">xl</code>
       </div>
+    </div>
+  </section>
+
+  <!-- Waving -->
+  <section>
+    <h2 class="section-title">Waving</h2>
+    <div class="avatar-grid">
+      {#each Array.from({ length: 8 }, (_, i) => encodeDNA({ ...base, body: 1, legs: i })) as dna}
+        <div class="avatar-card">
+          <AgentFace {dna} size="lg" waving />
+          <code class="dna-label">{dna}</code>
+        </div>
+      {/each}
     </div>
   </section>
 
