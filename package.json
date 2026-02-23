@@ -1,6 +1,6 @@
 {
   "name": "touchgrass",
-  "version": "0.1.110",
+  "version": "0.1.111",
   "description": "touchgrass.sh — remote control your terminal AI CLIs from chat",
   "type": "module",
   "scripts": {
