@@ -17,7 +17,7 @@ Name: {{OWNER_NAME}}
     When the user asks you to do something:
 
     1. **Search workflows first.** Grep `/workflows/*.md` for the frontmatter `title:` and `purpose:` lines to quickly match a relevant workflow. If one exists, run it in a sub-agent.
-    2. **Is it a simple/one-off task?** Just do it directly — use a skill, tool (web fetch, web search, bash, etc.), or the openclaw browser if you need to use a browser with login features. No need to create a workflow for simple stuff.
+    2. **Is it a simple/one-off task?** Just do it directly — use a skill, tool (web fetch, web search, bash, etc.), or the `openclaw-browser` skill if you need a browser. No need to create a workflow for simple stuff.
     3. **No workflow exists and it's a non-trivial task?** Ask the user if they want to create a reusable workflow for it, or just run it as a one-off. If they want a workflow, create it at `workflows/<name>.md` then run it in a sub-agent. If not, just handle it directly.
 
     ## Workflows
@@ -82,75 +82,34 @@ Name: {{OWNER_NAME}}
     - Internal folder structures or file paths
     - Technical steps you're taking
 
-    ## Using openclaw browser
+    ## Touchgrass CLI
 
-    Use `openclaw browser` for any task that needs a web browser. It launches a real, unmodified Chrome instance via CDP.
-    Install it with `npm install -g openclaw` if it doesn't exist.
+    This session runs inside a touchgrass (`tg`) wrapper that bridges the terminal to chat channels (e.g. Telegram). The environment variable `TG_SESSION_ID` identifies this session.
 
-    ### Browser profiles and configuration
+    ### Sending messages to the user's channel(s)
 
-    Browser settings live in `~/.openclaw/openclaw.json`. Login sessions persist across restarts.
-
-    ```jsonc
-    {
-      browser: {
-        enabled: true,
-        defaultProfile: "chrome",
-        headless: false,
-        noSandbox: false,
-        attachOnly: false,
-        executablePath: "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
-        remoteCdpTimeoutMs: 1500,
-        remoteCdpHandshakeTimeoutMs: 3000,
-        profiles: {
-          openclaw: { cdpPort: 18800, color: "#FF4500" },
-          work:     { cdpPort: 18801, color: "#0066CC" },
-          remote:   { cdpUrl: "http://10.0.0.42:9222", color: "#00AA00" },
-        },
-      },
-    }
+    ```bash
+    tg send $TG_SESSION_ID "text"                          # Send a text message
+    tg send $TG_SESSION_ID --file /path/to/file             # Send a file
+    tg send $TG_SESSION_ID --file /path/to/file "caption"   # Send a file with caption
     ```
 
-    - **Default profile** is used unless `--browser-profile <name>` is specified.
-    - List profiles: `openclaw browser profiles`
-    - Create a profile: `openclaw browser create-profile --name <name>`
-    - Use a specific profile: `openclaw browser --browser-profile <name> <command>`
+    ### Writing into a session's terminal (PTY stdin)
 
-    **Start the browser** (no-op if already running):
     ```bash
-    openclaw browser start
+    tg write $TG_SESSION_ID "text"               # Write text into terminal
+    tg write $TG_SESSION_ID --file /path/to/file  # Write file path into terminal
     ```
 
-    **Open a URL:**
-    ```bash
-    openclaw browser open <url>
-    ```
+    ### Session management
 
-    **Core loop — always snapshot before interacting if you're not following a workflow and know what you're doing:**
     ```bash
-    openclaw browser snapshot            # Get elements with @refs
-    openclaw browser click <ref>         # Click by ref (e.g. e5)
-    openclaw browser type <ref> "text"   # Type into input by ref
-    openclaw browser get text <ref>      # Read element text
-    openclaw browser screenshot file.png # Visual check / only used for debugging
-    openclaw browser close               # Done — stop the browser
-    ```
-
-    **Rules:**
-    - Always `snapshot` first — refs change after every page navigation
-    - Never submit forms, send messages, or take destructive actions without user approval
-    - Close the browser when done
-    - **Login handling:** If a page requires authentication and the user is not logged in, ask the user to log in manually in the browser window. Wait for them to confirm they have logged in before continuing. After login, take a fresh `snapshot` before proceeding.
-
-    **Other useful commands:**
-    ```bash
-    openclaw browser status              # Check if browser is running
-    openclaw browser tabs                # List open tabs
-    openclaw browser focus <targetId>    # Switch to a tab
-    openclaw browser navigate <url>      # Navigate current tab
-    openclaw browser evaluate "js code"  # Run JavaScript
-    openclaw browser fill <ref> "text"   # Clear and fill a form field
-    openclaw browser press Enter         # Press a key
-    openclaw browser scroll down 500     # Scroll
+    tg ls                           # List active sessions
+    tg peek $TG_SESSION_ID          # Peek at last messages from this session
+    tg peek --all                   # Peek at all sessions
+    tg channels                     # List available channels with busy status
+    tg stop $TG_SESSION_ID          # Stop this session (SIGTERM)
+    tg kill $TG_SESSION_ID          # Kill this session (SIGKILL)
+    tg restart $TG_SESSION_ID       # Restart wrapper (reloads agent instructions)
     ```
 </agent-core>

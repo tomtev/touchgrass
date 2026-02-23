@@ -28,76 +28,118 @@ async function resolveSessionId(partial: string): Promise<string> {
   );
 }
 
+async function resolveFile(filePath: string): Promise<string> {
+  const absPath = resolve(process.cwd(), filePath);
+  let fileStat;
+  try {
+    fileStat = await stat(absPath);
+  } catch {
+    console.error(`File not found: ${absPath}`);
+    process.exit(1);
+  }
+  if (!fileStat.isFile()) {
+    console.error(`Not a file: ${absPath}`);
+    process.exit(1);
+  }
+  return absPath;
+}
+
+/**
+ * tg send — send a message or file to the session's linked channel(s)
+ */
 export async function runSend(): Promise<void> {
   const args = process.argv.slice(3);
 
   if (args.length < 2) {
-    console.error('Usage: tg send <session_id> <message>');
-    console.error('       tg send <session_id> --file <path>');
-    console.error('       tg send --file <session_id> <path>');
+    console.error('Usage: tg send <session_id> "text"');
+    console.error('       tg send <session_id> --file <path> ["caption"]');
     console.error('Examples:');
     console.error('  tg send r-abc123 "hello world"');
-    console.error('  tg send r-abc123 --file ./notes.md');
+    console.error('  tg send r-abc123 --file ./report.pdf');
+    console.error('  tg send r-abc123 --file ./img.png "here is the screenshot"');
     process.exit(1);
   }
 
-  let sessionArg = "";
-  let payload = "";
-  let fileMode = false;
+  const sessionArg = args[0];
+  let text = "";
+  let filePath = "";
 
-  if (args[0] === "--file") {
-    if (args.length !== 3) {
-      console.error('Usage: tg send --file <session_id> <path>');
+  // Parse: <session> --file <path> ["caption"] or <session> "text"
+  if (args[1] === "--file") {
+    if (args.length < 3) {
+      console.error('Usage: tg send <session_id> --file <path> ["caption"]');
       process.exit(1);
     }
-    sessionArg = args[1];
-    payload = args[2];
-    fileMode = true;
-  } else if (args[1] === "--file") {
-    if (args.length !== 3) {
-      console.error('Usage: tg send <session_id> --file <path>');
-      process.exit(1);
-    }
-    sessionArg = args[0];
-    payload = args[2];
-    fileMode = true;
+    filePath = args[2];
+    text = args.slice(3).join(" ");
   } else {
-    sessionArg = args[0];
-    payload = args.slice(1).join(" ");
+    text = args.slice(1).join(" ");
   }
 
-  if (!sessionArg || !payload) {
-    console.error("Missing session_id or input.");
+  if (!sessionArg || (!text && !filePath)) {
+    console.error("Missing session_id or message.");
     process.exit(1);
-  }
-
-  if (fileMode) {
-    const absPath = resolve(process.cwd(), payload);
-    let fileStat;
-    try {
-      fileStat = await stat(absPath);
-    } catch {
-      console.error(`File not found: ${absPath}`);
-      process.exit(1);
-    }
-    if (!fileStat.isFile()) {
-      console.error(`Not a file: ${absPath}`);
-      process.exit(1);
-    }
-    payload = absPath;
   }
 
   await ensureDaemon();
   const sessionId = await resolveSessionId(sessionArg);
 
-  if (fileMode) {
+  if (filePath) {
+    const absPath = await resolveFile(filePath);
     await daemonRequest(`/remote/${sessionId}/send-file`, "POST", {
-      filePath: payload,
-      caption: basename(payload),
+      filePath: absPath,
+      caption: text || basename(absPath),
     });
-    console.log(`Sent file to channel(s) for ${sessionId}: ${payload}`);
+    console.log(`Sent file to channel: ${absPath}`);
   } else {
-    await daemonRequest(`/remote/${sessionId}/send-input`, "POST", { text: payload });
-    console.log(`Sent to ${sessionId}`);
+    await daemonRequest(`/remote/${sessionId}/send-message`, "POST", { text });
+    console.log(`Sent to channel: ${text.slice(0, 80)}${text.length > 80 ? "..." : ""}`);
+  }
+}
+
+/**
+ * tg write — write text into the session's terminal (PTY stdin)
+ */
+export async function runWrite(): Promise<void> {
+  const args = process.argv.slice(3);
+
+  if (args.length < 2) {
+    console.error('Usage: tg write <session_id> "text"');
+    console.error('       tg write <session_id> --file <path>');
+    console.error('Examples:');
+    console.error('  tg write r-abc123 "do the thing"');
+    console.error('  tg write r-abc123 --file ./notes.md');
+    process.exit(1);
+  }
+
+  const sessionArg = args[0];
+  let text = "";
+  let filePath = "";
+
+  if (args[1] === "--file") {
+    if (args.length < 3) {
+      console.error('Usage: tg write <session_id> --file <path>');
+      process.exit(1);
+    }
+    filePath = args[2];
+  } else {
+    text = args.slice(1).join(" ");
+  }
+
+  if (!sessionArg || (!text && !filePath)) {
+    console.error("Missing session_id or input.");
+    process.exit(1);
+  }
+
+  await ensureDaemon();
+  const sessionId = await resolveSessionId(sessionArg);
+
+  if (filePath) {
+    const absPath = await resolveFile(filePath);
+    await daemonRequest(`/remote/${sessionId}/send-input`, "POST", { text: `@${absPath}` });
+    console.log(`Wrote file path to terminal: @${absPath}`);
+  } else {
+    await daemonRequest(`/remote/${sessionId}/send-input`, "POST", { text });
+    console.log(`Wrote to terminal: ${text.slice(0, 80)}${text.length > 80 ? "..." : ""}`);
   }
 }

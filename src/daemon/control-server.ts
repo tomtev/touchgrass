@@ -69,6 +69,7 @@ export interface DaemonContext {
   ) => void;
   getBackgroundJobs: (sessionId: string) => Array<{ taskId: string; status: string; command?: string; urls?: string[]; updatedAt: number }>;
   getAllBackgroundJobs: (cwd?: string) => Array<{ sessionId: string; command: string; cwd: string; jobs: Array<{ taskId: string; status: string; command?: string; urls?: string[]; updatedAt: number }> }>;
+  sendMessageToSession: (sessionId: string, text: string) => Promise<{ ok: boolean; error?: string }>;
   sendFileToSession: (sessionId: string, filePath: string, caption?: string) => Promise<{ ok: boolean; error?: string }>;
   stopSessionById: (sessionId: string) => { ok: boolean; error?: string };
   killSessionById: (sessionId: string) => { ok: boolean; error?: string };
@@ -353,7 +354,7 @@ export async function startControlServer(ctx: DaemonContext): Promise<void> {
       }
 
       // Match /remote/:id/* actions
-      const remoteMatch = path.match(/^\/remote\/(r-[a-f0-9]+)\/(input|exit|subscribed-groups|question|tool-call|thinking|assistant|tool-result|approval-needed|typing|background-job|send-input|send-file)$/);
+      const remoteMatch = path.match(/^\/remote\/(r-[a-f0-9]+)\/(input|exit|subscribed-groups|question|tool-call|thinking|assistant|tool-result|approval-needed|typing|background-job|send-input|send-file|send-message)$/);
       if (remoteMatch) {
         const [, sessionId, action] = remoteMatch;
         if (action === "assistant" && req.method === "POST") {
@@ -480,6 +481,18 @@ export async function startControlServer(ctx: DaemonContext): Promise<void> {
           const result = await ctx.sendFileToSession(sessionId, filePath, caption);
           if (!result.ok) {
             return Response.json({ ok: false, error: result.error || "Failed to send file" }, { status: 400 });
+          }
+          return Response.json({ ok: true });
+        }
+        if (action === "send-message" && req.method === "POST") {
+          const body = await readJsonBody(req);
+          const text = body.text as string;
+          if (!text) {
+            return Response.json({ ok: false, error: "Missing text" }, { status: 400 });
+          }
+          const result = await ctx.sendMessageToSession(sessionId, text);
+          if (!result.ok) {
+            return Response.json({ ok: false, error: result.error || "Failed to send message" }, { status: 400 });
           }
           return Response.json({ ok: true });
         }

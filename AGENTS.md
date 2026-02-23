@@ -26,8 +26,10 @@ bun run src/main.ts codex
 bun run src/main.ts pi
 bun run src/main.ts kimi
 
-bun run src/main.ts send <session_id> "text"
-bun run src/main.ts send --file <session_id> <path>
+bun run src/main.ts write <session_id> "text"       # write into terminal (PTY stdin)
+bun run src/main.ts write <session_id> --file <path> # write file path into terminal
+bun run src/main.ts send <session_id> "text"         # send message to channel(s)
+bun run src/main.ts send <session_id> --file <path>  # send file to channel(s)
 
 bun run src/main.ts ls
 bun run src/main.ts channels

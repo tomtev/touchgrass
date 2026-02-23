@@ -50,6 +50,11 @@ async function main() {
       await runSend();
       break;
     }
+    case "write": {
+      const { runWrite } = await import("./cli/send");
+      await runWrite();
+      break;
+    }
     case "peek": {
       const { runPeek } = await import("./cli/peek");
       await runPeek();
@@ -96,7 +101,7 @@ async function main() {
       break;
     default: {
       console.error(`Unknown command: ${command}`);
-      console.error("Supported commands: tg setup, tg claude, tg codex, tg pi, tg kimi, tg stop, tg kill, tg restart");
+      console.error("Supported commands: tg setup, tg claude, tg codex, tg pi, tg kimi, tg write, tg send, tg stop, tg kill, tg restart");
       console.error(`Run "tg help" for more information.`);
       process.exit(1);
     }
@@ -122,7 +127,8 @@ Options (for claude/codex/pi/kimi/resume):
 
   ls       List active sessions
   channels List available channels (DM, groups, topics) with busy status
-  send     Send text to session stdin or send file to its channel(s) (tg send <id> "msg" | tg send --file <id> <path>)
+  write    Write text into a session's terminal (tg write <id> "text" | tg write <id> --file <path>)
+  send     Send a message or file to a session's channel(s) (tg send <id> "text" | tg send <id> --file <path>)
   peek     Peek at last messages from session(s) (tg peek <id>|--all [count])
   stop     Stop a session (SIGTERM / remote stop request)
   kill     Kill a session (SIGKILL / remote kill request)

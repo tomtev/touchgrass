@@ -1966,6 +1966,27 @@ export async function startDaemon(): Promise<void> {
       }
       return results;
     },
+    async sendMessageToSession(sessionId: string, text: string): Promise<{ ok: boolean; error?: string }> {
+      const remote = sessionManager.getRemote(sessionId);
+      if (!remote) return { ok: false, error: "Session not found" };
+
+      const targets = new Set<ChannelChatId>();
+      const targetChat = sessionManager.getBoundChat(sessionId) || remote.chatId;
+      if (targetChat) targets.add(targetChat);
+      for (const groupChatId of sessionManager.getSubscribedGroups(sessionId)) {
+        targets.add(groupChatId);
+      }
+      if (targets.size === 0) return { ok: false, error: "No bound channel for this session" };
+
+      for (const cid of targets) {
+        const channel = getChannelForChat(cid);
+        if (!channel) {
+          return { ok: false, error: `No channel available for ${cid.split(":")[0]}` };
+        }
+        await channel.send(cid, text);
+      }
+      return { ok: true };
+    },
     async sendFileToSession(sessionId: string, filePath: string, caption?: string): Promise<{ ok: boolean; error?: string }> {
       const remote = sessionManager.getRemote(sessionId);
       if (!remote) return { ok: false, error: "Session not found" };
