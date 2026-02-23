@@ -444,3 +444,55 @@ export function renderTerminal(dna: string): string {
   }
   return lines.join("\n");
 }
+
+/**
+ * Compact terminal renderer using half-block characters.
+ * Packs two pixel rows into one terminal line using ▀/▄ with fg/bg colors.
+ * Roughly half the height and width of renderTerminal.
+ */
+export function renderTerminalSmall(dna: string): string {
+  const traits = decodeDNA(dna);
+  const grid = generateGrid(traits);
+
+  const faceHueDeg = traits.faceHue * 30;
+  const hatHueDeg = traits.hatHue * 30;
+
+  const faceRgb = hslToRgb(faceHueDeg, 0.5, 0.5);
+  const darkRgb = hslToRgb(faceHueDeg, 0.5, 0.28);
+  const hatRgb = hslToRgb(hatHueDeg, 0.5, 0.5);
+
+  function cellRgb(cell: Pixel): [number, number, number] | null {
+    if (cell === "f" || cell === "l") return faceRgb;
+    if (cell === "e" || cell === "m") return darkRgb;
+    if (cell === "h" || cell === "k") return hatRgb;
+    return null; // transparent
+  }
+
+  const reset = "\x1b[0m";
+  const lines: string[] = [];
+
+  // Process two rows at a time using ▀ (upper half block)
+  for (let r = 0; r < grid.length; r += 2) {
+    const topRow = grid[r];
+    const botRow = r + 1 < grid.length ? grid[r + 1] : null;
+    let line = "";
+    for (let c = 0; c < topRow.length; c++) {
+      const top = cellRgb(topRow[c]);
+      const bot = botRow ? cellRgb(botRow[c]) : null;
+      if (top && bot) {
+        // ▀ with fg=top, bg=bot
+        line += `\x1b[38;2;${top[0]};${top[1]};${top[2]}m\x1b[48;2;${bot[0]};${bot[1]};${bot[2]}m▀${reset}`;
+      } else if (top) {
+        // ▀ with fg=top, no bg
+        line += `\x1b[38;2;${top[0]};${top[1]};${top[2]}m▀${reset}`;
+      } else if (bot) {
+        // ▄ with fg=bot, no bg
+        line += `\x1b[38;2;${bot[0]};${bot[1]};${bot[2]}m▄${reset}`;
+      } else {
+        line += " ";
+      }
+    }
+    lines.push(line);
+  }
+  return lines.join("\n");
+}

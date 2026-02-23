@@ -6,6 +6,7 @@ export interface AgentSoul {
   purpose: string;
   owner: string;
   dna?: string;
+  coreVersion?: string;
 }
 
 function extractTagContent(content: string, tag: string): string | null {
@@ -37,11 +38,16 @@ export async function readAgentSoul(cwd: string): Promise<AgentSoul | null> {
 
   const dna = parseField(soulBlock, "DNA") || undefined;
 
+  // Extract agent-core version from <agent-core version="X.Y">
+  const coreMatch = content.match(/<agent-core\s+version="([^"]+)"/);
+  const coreVersion = coreMatch?.[1] || undefined;
+
   return {
     name: parseField(soulBlock, "Name"),
     purpose: parseField(soulBlock, "Purpose"),
     owner: ownerBlock ? parseField(ownerBlock, "Name") : "",
     dna,
+    coreVersion,
   };
 }
 

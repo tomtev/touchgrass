@@ -1772,31 +1772,45 @@ export async function runRun(): Promise<void> {
       const BOLD = "\x1b[1m";
       const DIM = "\x1b[2m";
       const RESET = "\x1b[0m";
-      if (soul.dna) {
-        const { renderTerminal } = await import("../lib/avatar");
-        const avatar = renderTerminal(soul.dna);
-        const avatarLines = avatar.split("\n");
-        const info = [
-          `${BOLD}${soul.name}${RESET}`,
-          soul.purpose ? `${DIM}${soul.purpose}${RESET}` : "",
-        ].filter(Boolean);
-        // Merge avatar lines with info lines side-by-side
-        const avatarWidth = 18; // 9 columns × 2 chars per pixel
-        const visLen = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "").length;
-        // Place info lines vertically centered beside the avatar
-        const infoStart = Math.max(0, Math.floor((avatarLines.length - info.length) / 2));
-        const merged: string[] = [];
-        for (let i = 0; i < avatarLines.length; i++) {
-          const left = avatarLines[i];
-          const pad = " ".repeat(Math.max(0, avatarWidth - visLen(left)));
-          const right = info[i - infoStart] ?? "";
-          merged.push(`${left}${pad}  ${right}`);
+      const { renderTerminalSmall, encodeDNA, EYES, MOUTHS, HATS, BODIES, LEGS } = await import("../lib/avatar");
+      // Use explicit DNA or derive a deterministic one from the agent name
+      let dna = soul.dna;
+      if (!dna) {
+        let hash = 0;
+        for (let i = 0; i < soul.name.length; i++) {
+          hash = soul.name.charCodeAt(i) + ((hash << 5) - hash);
         }
-        console.log(merged.join("\n"));
-      } else {
-        console.log(`${BOLD}${soul.name}${RESET}${soul.purpose ? ` — ${DIM}${soul.purpose}${RESET}` : ""}`);
+        hash = Math.abs(hash);
+        dna = encodeDNA({
+          eyes: hash % EYES.length,
+          mouth: (hash >> 4) % MOUTHS.length,
+          hat: (hash >> 8) % HATS.length,
+          body: (hash >> 14) % BODIES.length,
+          legs: (hash >> 18) % LEGS.length,
+          faceHue: (hash >> 22) % 12,
+          hatHue: (hash >> 26) % 12,
+        });
       }
-      console.log();
+      const avatar = renderTerminalSmall(dna);
+      const avatarLines = avatar.split("\n");
+      const info = [
+        `${BOLD}${soul.name}${RESET}`,
+        soul.purpose ? `${DIM}${soul.purpose}${RESET}` : "",
+        `${DIM}Touchgrass agent${soul.coreVersion ? ` v${soul.coreVersion}` : ""}${RESET}`,
+      ].filter(Boolean);
+      const avatarWidth = 9; // 9 columns × 1 char per pixel (half-block)
+      const visLen = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "").length;
+      const infoStart = Math.max(0, Math.floor((avatarLines.length - info.length) / 2));
+      const merged: string[] = [];
+      for (let i = 0; i < avatarLines.length; i++) {
+        const left = avatarLines[i];
+        const pad = " ".repeat(Math.max(0, avatarWidth - visLen(left)));
+        const right = info[i - infoStart] ?? "";
+        merged.push(`${left}${pad}  ${right}`);
+      }
+      console.log(merged.join("\n"));
+      const cols = process.stdout.columns || 80;
+      console.log(`\x1b[2m${"─".repeat(cols)}\x1b[0m`);
     }
   } catch {
     // Non-fatal — no agent soul
