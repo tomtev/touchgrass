@@ -1,19 +1,31 @@
 import { join, resolve } from "path";
 import { mkdtemp, readdir, readFile, rm, unlink, writeFile } from "fs/promises";
 import { tmpdir } from "os";
-import { generateRandomDNA, renderTerminal } from "../lib/avatar";
+import { generateRandomDNA, renderTerminal, renderSVG } from "../lib/avatar";
 
 const REPO = "tomtev/touchgrass";
 const BRANCH = "main";
 const TEMPLATE_DIR = "agent-template";
 const TARBALL_URL = `https://github.com/${REPO}/archive/refs/heads/${BRANCH}.tar.gz`;
 
+import { createInterface } from "readline";
+
+function prompt(question: string): Promise<string> {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  return new Promise((resolve) => {
+    rl.question(question, (answer) => {
+      rl.close();
+      resolve(answer.trim());
+    });
+  });
+}
+
 export async function runAgent(): Promise<void> {
   const sub = process.argv[3];
 
   switch (sub) {
     case "create": {
-      // Parse args: tg agent create [folder] --name "X" --owner "Y" --description "Z"
+      // Parse args: tg agent create [folder] --name "X" --owner "Y" --purpose "Z"
       const args = process.argv.slice(4);
       let targetDir: string | null = null;
       const vars: Record<string, string> = {};
@@ -23,11 +35,19 @@ export async function runAgent(): Promise<void> {
           vars["AGENT_NAME"] = args[++i];
         } else if (args[i] === "--owner" && i + 1 < args.length) {
           vars["OWNER_NAME"] = args[++i];
-        } else if (args[i] === "--description" && i + 1 < args.length) {
-          vars["AGENT_DESCRIPTION"] = args[++i];
+        } else if (args[i] === "--purpose" && i + 1 < args.length) {
+          vars["AGENT_PURPOSE"] = args[++i];
         } else if (!args[i].startsWith("--") && !targetDir) {
           targetDir = args[i];
         }
+      }
+
+      // Interactive prompts for missing fields
+      if (!vars["AGENT_NAME"]) {
+        vars["AGENT_NAME"] = await prompt("Agent name: ") || "My Agent";
+      }
+      if (!vars["AGENT_PURPOSE"]) {
+        vars["AGENT_PURPOSE"] = await prompt("Purpose: ") || "A personal agent that helps with tasks using workflows and skills.";
       }
 
       const dest = targetDir ? resolve(targetDir) : process.cwd();
@@ -42,17 +62,22 @@ export async function runAgent(): Promise<void> {
       await updateAgent(process.cwd());
       break;
     }
+    case "avatar": {
+      await generateAvatarSVGs(process.cwd());
+      break;
+    }
     default: {
       console.log(`Usage: tg agent <command>
 
 Commands:
   create [folder]   Scaffold a new agent
   update            Update agent-core to latest
+  avatar            Regenerate avatar SVGs from DNA
 
 Create options:
   --name <name>              Agent name
   --owner <name>             Owner name
-  --description <text>       Agent description`);
+  --purpose <text>           Agent purpose`);
       if (sub) process.exit(1);
       break;
     }
@@ -137,12 +162,12 @@ async function createAgent(dest: string, vars: Record<string, string>): Promise<
   const dna = generateRandomDNA();
   const resolved: Record<string, string> = {
     AGENT_NAME: vars["AGENT_NAME"] || "My Agent",
-    AGENT_DESCRIPTION: vars["AGENT_DESCRIPTION"] || "A personal agent that helps with tasks using workflows and skills.",
+    AGENT_PURPOSE: vars["AGENT_PURPOSE"] || "A personal agent that helps with tasks using workflows and skills.",
     OWNER_NAME: vars["OWNER_NAME"] || await detectOwnerName(),
     AGENT_DNA: dna,
   };
 
-  console.log("Downloading agent template...");
+  console.log("Spawning agent...");
   const tmpDir = await downloadTemplate();
   const extractDir = join(tmpDir, "out");
 
@@ -168,6 +193,9 @@ async function createAgent(dest: string, vars: Record<string, string>): Promise<
       const rsyncErr = await new Response(rsync.stderr).text();
       throw new Error(`Failed to copy template files: ${rsyncErr.trim()}`);
     }
+
+    // Generate avatar SVG
+    await writeFile(join(dest, "avatar.svg"), renderSVG(dna));
 
     const label = vars["AGENT_NAME"] ? `"${vars["AGENT_NAME"]}"` : "Agent";
     console.log("");
@@ -223,4 +251,35 @@ async function updateAgent(dir: string): Promise<void> {
   } finally {
     await rm(tmpDir, { recursive: true, force: true });
   }
+}
+
+// --- avatar ---
+
+function extractDNA(content: string): string | null {
+  const soulBlock = extractBlock(content, "agent-soul");
+  if (!soulBlock) return null;
+  const dnaMatch = soulBlock.full.match(/dna:\s*([a-f0-9]{6,7})/i);
+  return dnaMatch?.[1] ?? null;
+}
+
+async function generateAvatarSVGs(dir: string): Promise<void> {
+  const agentsPath = join(dir, "AGENTS.md");
+  let content: string;
+  try {
+    content = await readFile(agentsPath, "utf-8");
+  } catch {
+    throw new Error("No AGENTS.md found in current directory. Are you in an agent folder?");
+  }
+
+  const dna = extractDNA(content);
+  if (!dna) {
+    throw new Error("No DNA found in <agent-soul> block of AGENTS.md.");
+  }
+
+  const outPath = join(dir, "avatar.svg");
+  await writeFile(outPath, renderSVG(dna));
+
+  console.log(renderTerminal(dna));
+  console.log("");
+  console.log(`Avatar saved to ${outPath} (dna: ${dna})`);
 }

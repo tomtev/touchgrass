@@ -20,6 +20,7 @@ import {
 } from "./handlers/background-jobs";
 import { handleSkillsCommand } from "./handlers/skills";
 import { logger } from "../daemon/logger";
+import { notifyApp } from "../daemon/notify-app";
 
 export interface RouterContext {
   config: TgConfig;
@@ -249,6 +250,7 @@ export async function routeMessage(
       const added = addLinkedGroup(ctx.config, chatId, topicTitle, channelName);
       if (added) {
         await saveConfig(ctx.config);
+        notifyApp({ type: "channel-linked", title: topicTitle, chatId });
         await ctx.channel.send(chatId, `Topic ${fmt.bold(fmt.escape(topicTitle))} linked. You can now connect a ⛳️ Touchgrass session to it.`);
       } else {
         await ctx.channel.send(chatId, `This topic is already linked.`);
@@ -265,6 +267,7 @@ export async function routeMessage(
       const added = addLinkedGroup(ctx.config, chatId, msg.chatTitle, channelName);
       if (added) {
         await saveConfig(ctx.config);
+        notifyApp({ type: "channel-linked", title: msg.chatTitle || "Group", chatId });
         await ctx.channel.send(chatId, `Group added as a channel to ⛳️ Touchgrass. You can now connect a session to it.`);
       } else {
         await ctx.channel.send(chatId, `This group is already linked.`);
@@ -289,6 +292,7 @@ export async function routeMessage(
     }
     if (removeLinkedGroup(ctx.config, chatId, channelName)) {
       await saveConfig(ctx.config);
+      notifyApp({ type: "channel-unlinked", chatId });
       await ctx.channel.send(chatId, isTopic(chatId) ? "Topic unlinked." : "Group unlinked.");
     } else {
       await ctx.channel.send(chatId, "This chat is not linked.");

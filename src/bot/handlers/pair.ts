@@ -4,6 +4,7 @@ import { validatePairingCode } from "../../security/pairing";
 import { addPairedUser, isUserPaired } from "../../security/allowlist";
 import { checkRateLimit } from "../../security/rate-limiter";
 import { logger } from "../../daemon/logger";
+import { notifyApp } from "../../daemon/notify-app";
 
 export async function handlePair(
   msg: InboundMessage,
@@ -41,6 +42,7 @@ export async function handlePair(
 
   await addPairedUser(ctx.config, userId, username, ctx.channelName || "telegram");
   await logger.info("User paired", { userId, username });
+  notifyApp({ type: "user-paired", username: username || undefined });
   await ctx.channel.send(
     chatId,
     `Paired successfully! Welcome${username ? `, @${username}` : ""}.\n\nSend ${fmt.code(`tg ${fmt.escape("<command>")}`)} to run a command.\nSend /start to see available commands.`

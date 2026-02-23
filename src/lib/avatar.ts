@@ -1,5 +1,5 @@
 // Agent DNA avatar system
-// Encodes visual identity as a 6-hex-char string (~2.1M combinations)
+// Encodes visual identity as a 6-hex-char string (~16M combinations)
 
 export type Pixel = "f" | "e" | "m" | "h" | "l" | "k" | "_";
 // f = face/body, e = eye (dark), m = mouth (dark), h = hat (secondary hue),
@@ -232,13 +232,13 @@ export const LEGS: Pixel[][] = [
 
 // Fixed slot sizes for stable DNA encoding.
 // Adding new variants within these limits won't break existing DNA strings.
-// 8 * 8 * 64 * 16 * 16 * 12 * 12 = 150,994,944 (~151M, fits in 7 hex chars)
+// 12 * 12 * 24 * 8 * 8 * 12 * 12 = 15,925,248 (~16M, fits in 6 hex chars)
 export const SLOTS = {
-  eyes: 8,
-  mouths: 8,
-  hats: 64,
-  bodies: 16,
-  legs: 16,
+  eyes: 12,
+  mouths: 12,
+  hats: 24,
+  bodies: 8,
+  legs: 8,
   hues: 12,
 };
 
@@ -253,7 +253,7 @@ export interface DecodedDNA {
 }
 
 /**
- * Encode trait indices into a 7-character hex DNA string.
+ * Encode trait indices into a 6-character hex DNA string.
  * Uses fixed slot sizes so adding traits doesn't break existing DNAs.
  */
 export function encodeDNA(traits: DecodedDNA): string {
@@ -264,11 +264,12 @@ export function encodeDNA(traits: DecodedDNA): string {
   n += traits.hat * SLOTS.bodies * SLOTS.legs * SLOTS.hues * SLOTS.hues;
   n += traits.mouth * SLOTS.hats * SLOTS.bodies * SLOTS.legs * SLOTS.hues * SLOTS.hues;
   n += traits.eyes * SLOTS.mouths * SLOTS.hats * SLOTS.bodies * SLOTS.legs * SLOTS.hues * SLOTS.hues;
-  return n.toString(16).padStart(7, "0");
+  return n.toString(16).padStart(6, "0");
 }
 
 /**
- * Decode a 7-character hex DNA string into trait indices.
+ * Decode a 6-character hex DNA string into trait indices.
+ * Also accepts legacy 7-char strings for backward compatibility.
  * Clamps to actual array lengths for forward compatibility.
  */
 export function decodeDNA(hex: string): DecodedDNA {
@@ -352,6 +353,53 @@ export function hslToRgb(h: number, s: number, l: number): [number, number, numb
     Math.round((g1 + m) * 255),
     Math.round((b1 + m) * 255),
   ];
+}
+
+/**
+ * Render a DNA string as an SVG string with transparent background.
+ * Each pixel is rendered as a square rect. 1-cell padding around the grid.
+ */
+export function renderSVG(dna: string, pixelSize = 10): string {
+  const traits = decodeDNA(dna);
+  const grid = generateGrid(traits);
+
+  const faceHueDeg = traits.faceHue * 30;
+  const hatHueDeg = traits.hatHue * 30;
+
+  const faceRgb = hslToRgb(faceHueDeg, 0.5, 0.5);
+  const darkRgb = hslToRgb(faceHueDeg, 0.5, 0.28);
+  const hatRgb = hslToRgb(hatHueDeg, 0.5, 0.5);
+
+  const toHex = (r: number, g: number, b: number) =>
+    `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b.toString(16).padStart(2, "0")}`;
+
+  const faceHex = toHex(...faceRgb);
+  const darkHex = toHex(...darkRgb);
+  const hatHex = toHex(...hatRgb);
+
+  const cols = 9;
+  const rows = grid.length;
+  const pad = 1; // 1-cell padding
+  const w = (cols + pad * 2) * pixelSize;
+  const h = (rows + pad * 2) * pixelSize;
+
+  const rects: string[] = [];
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < cols; x++) {
+      const cell = grid[y][x];
+      let fill: string | null = null;
+      if (cell === "f" || cell === "l") fill = faceHex;
+      else if (cell === "e" || cell === "m") fill = darkHex;
+      else if (cell === "h" || cell === "k") fill = hatHex;
+      if (fill) {
+        const rx = (x + pad) * pixelSize;
+        const ry = (y + pad) * pixelSize;
+        rects.push(`<rect x="${rx}" y="${ry}" width="${pixelSize}" height="${pixelSize}" fill="${fill}"/>`);
+      }
+    }
+  }
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" shape-rendering="crispEdges">\n${rects.join("\n")}\n</svg>`;
 }
 
 /**

@@ -1,6 +1,6 @@
 <agent-soul>
 Name: {{AGENT_NAME}}
-Description: {{AGENT_DESCRIPTION}}
+Purpose: {{AGENT_PURPOSE}}
 DNA: {{AGENT_DNA}}
 </agent-soul>
 

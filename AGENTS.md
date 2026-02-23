@@ -64,7 +64,7 @@ Telegram chat shorthands:
 - `src/cli/agent.ts` - agent create command (generates DNA, renders terminal avatar)
 - `src/lib/avatar.ts` - shared avatar DNA system (encode/decode, grid generation, terminal render)
 - `src/daemon/index.ts` - daemon wiring and routing
-- `src/daemon/agent-soul.ts` - agent soul read/write (name, description, owner, DNA)
+- `src/daemon/agent-soul.ts` - agent soul read/write (name, purpose, owner, DNA)
 - `src/daemon/control-server.ts` - HTTP API for daemon (includes agent-soul endpoints)
 - `src/bot/command-router.ts` - inbound message routing
 - `src/bot/handlers/stdin-input.ts` - session input auto-routing
@@ -118,7 +118,7 @@ All config, runtime state, and session data lives in `~/.touchgrass/`. This dire
 
 ## Agent DNA Avatar System
 
-Each agent has a unique visual identity encoded as a **7-character hex DNA string** (e.g., `025c202`). DNA is generated during `tg agent create` and stored in the `<agent-soul>` block of `AGENTS.md`.
+Each agent has a unique visual identity encoded as a **6-character hex DNA string** (e.g., `a3f201`). DNA is generated during `tg agent create` and stored in the `<agent-soul>` block of `AGENTS.md`.
 
 ### Pixel grid
 
@@ -133,15 +133,15 @@ Mixed-radix packing with **fixed slot sizes** for forward compatibility:
 
 | Trait | Current variants | Slot size |
 |-------|-----------------|-----------|
-| eyes | 6 | 8 |
-| mouths | 6 | 8 |
-| hats | 24 | 64 |
-| bodies | 7 | 16 |
-| legs | 8 | 16 |
+| eyes | 6 | 12 |
+| mouths | 6 | 12 |
+| hats | 24 | 24 |
+| bodies | 7 | 8 |
+| legs | 8 | 8 |
 | faceHue | 12 | 12 |
 | hatHue | 12 | 12 |
 
-Total: `8 × 8 × 64 × 16 × 16 × 12 × 12 = 150,994,944` (~151M combinations, 7 hex chars).
+Total: `12 × 12 × 24 × 8 × 8 × 12 × 12 = 15,925,248` (~16M combinations, 6 hex chars).
 
 New trait variants can be added within slot limits without breaking existing DNA strings. Shared code in `src/lib/avatar.ts`. The desktop app (`AgentFace.svelte`) duplicates the trait arrays and decode logic — keep both in sync.
 

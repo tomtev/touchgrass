@@ -3,7 +3,7 @@ import { join } from "path";
 
 export interface AgentSoul {
   name: string;
-  description: string;
+  purpose: string;
   owner: string;
   dna?: string;
 }
@@ -39,7 +39,7 @@ export async function readAgentSoul(cwd: string): Promise<AgentSoul | null> {
 
   return {
     name: parseField(soulBlock, "Name"),
-    description: parseField(soulBlock, "Description"),
+    purpose: parseField(soulBlock, "Purpose"),
     owner: ownerBlock ? parseField(ownerBlock, "Name") : "",
     dna,
   };
@@ -55,7 +55,7 @@ export async function writeAgentSoul(cwd: string, soul: AgentSoul): Promise<void
   }
 
   const dnaLine = soul.dna ? `\nDNA: ${soul.dna}` : "";
-  const newSoulBlock = `<agent-soul>\nName: ${soul.name}\nDescription: ${soul.description}${dnaLine}\n</agent-soul>`;
+  const newSoulBlock = `<agent-soul>\nName: ${soul.name}\nPurpose: ${soul.purpose}${dnaLine}\n</agent-soul>`;
   const newOwnerBlock = `<agent-owner>\nName: ${soul.owner}\n</agent-owner>`;
 
   const existingSoul = extractTagContent(content, "agent-soul");

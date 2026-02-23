@@ -191,7 +191,7 @@ export async function startControlServer(ctx: DaemonContext): Promise<void> {
         }
         const body = await readJsonBody(req);
         const name = body.name as string;
-        const description = body.description as string;
+        const purpose = body.purpose as string;
         const owner = body.owner as string;
         const dna = (body.dna as string) || undefined;
         if (!name) {
@@ -199,7 +199,7 @@ export async function startControlServer(ctx: DaemonContext): Promise<void> {
         }
         const { writeAgentSoul } = await import("./agent-soul");
         try {
-          await writeAgentSoul(cwd, { name, description: description || "", owner: owner || "", dna });
+          await writeAgentSoul(cwd, { name, purpose: purpose || "", owner: owner || "", dna });
           return Response.json({ ok: true });
         } catch (e: unknown) {
           const msg = e instanceof Error ? e.message : "Failed to write";
