@@ -210,10 +210,13 @@ export async function startDaemon(): Promise<void> {
     if (!channel?.sendPoll) return null;
     return channel.sendPoll(chatId, question, options, multiSelect);
   };
-  const closePollForChat = (chatId: ChannelChatId, messageId: string): void => {
+  const closePollForChat = (chatId: ChannelChatId, messageId: string, confirmText?: string): void => {
     const channel = getChannelForChat(chatId);
-    if (!channel?.closePoll) return;
-    channel.closePoll(chatId, messageId).catch(() => {});
+    if (confirmText && channel?.editMessage) {
+      channel.editMessage(chatId, messageId, confirmText).catch(() => {});
+    } else if (channel?.closePoll) {
+      channel.closePoll(chatId, messageId).catch(() => {});
+    }
   };
   const reconnectNoticeBySession = new Map<string, number>();
   const RECONNECT_NOTICE_COOLDOWN_MS = 30_000;
@@ -1321,6 +1324,8 @@ export async function startDaemon(): Promise<void> {
         totalQuestions: pending.questions.length,
         multiSelect: q.multiSelect,
         optionCount: optionLabels.length - 1, // exclude "Other"
+        question: questionText,
+        optionLabels,
       });
     } catch (e) {
       await logger.error("Failed to send poll", { sessionId, error: (e as Error).message });
@@ -1396,7 +1401,6 @@ export async function startDaemon(): Promise<void> {
         return;
       }
 
-      closePollForChat(filePicker.chatId, filePicker.messageId);
       sessionManager.removeFilePicker(answer.pollId);
 
       const selectedIdx = answer.optionIds[0];
@@ -1406,9 +1410,15 @@ export async function startDaemon(): Promise<void> {
 
       if (selected.kind === "cancel") {
         const pickerFmt = getFormatterForChat(filePicker.chatId);
-        sendToChat(filePicker.chatId, `${pickerFmt.escape("📎")} File picker canceled.`);
+        closePollForChat(
+          filePicker.chatId,
+          filePicker.messageId,
+          `${pickerFmt.escape("📎")} File picker canceled.`
+        );
         return;
       }
+
+      closePollForChat(filePicker.chatId, filePicker.messageId);
 
       if (selected.kind === "clear") {
         sessionManager.setPendingFileMentions(
@@ -1514,7 +1524,6 @@ export async function startDaemon(): Promise<void> {
         return;
       }
 
-      closePollForChat(outputModePicker.chatId, outputModePicker.messageId);
       sessionManager.removeOutputModePicker(answer.pollId);
 
       const selectedIdx = answer.optionIds[0];
@@ -1527,9 +1536,10 @@ export async function startDaemon(): Promise<void> {
       }
       const selectedModeLabel = selectedMode === "compact" ? "simple" : selectedMode;
       const pickerFmt = getFormatterForChat(outputModePicker.chatId);
-      sendToChat(
+      closePollForChat(
         outputModePicker.chatId,
-        `${pickerFmt.escape("⛳️")} Output mode is now ${pickerFmt.code(pickerFmt.escape(selectedModeLabel))} for this chat.`
+        outputModePicker.messageId,
+        `${pickerFmt.escape("⛳️")} Output mode set to ${pickerFmt.bold(pickerFmt.escape(selectedModeLabel))}`
       );
       return;
     }
@@ -1549,7 +1559,6 @@ export async function startDaemon(): Promise<void> {
         return;
       }
 
-      closePollForChat(rcPicker.chatId, rcPicker.messageId);
       sessionManager.removeRemoteControlPicker(answer.pollId);
 
       const selectedIdx = answer.optionIds[0];
@@ -1559,16 +1568,24 @@ export async function startDaemon(): Promise<void> {
       const pickerFmt = getFormatterForChat(rcPicker.chatId);
 
       if (selected.kind === "exit") {
+        closePollForChat(
+          rcPicker.chatId,
+          rcPicker.messageId,
+          `${pickerFmt.escape("⛳️")} Remote control disconnected.`
+        );
         sessionManager.detach(rcPicker.chatId);
         syncCommandMenuForChat(rcPicker.chatId, rcPicker.ownerUserId);
-        sendToChat(rcPicker.chatId, `${pickerFmt.escape("⛳️")} Remote control disconnected.`);
         return;
       }
 
       // Bind session to this chat
       const remote = sessionManager.getRemote(selected.sessionId);
       if (!remote) {
-        sendToChat(rcPicker.chatId, `${pickerFmt.escape("⛳️")} Session is no longer active.`);
+        closePollForChat(
+          rcPicker.chatId,
+          rcPicker.messageId,
+          `${pickerFmt.escape("⛳️")} Session is no longer active.`
+        );
         return;
       }
 
@@ -1584,8 +1601,9 @@ export async function startDaemon(): Promise<void> {
         sessionManager.subscribeGroup(selected.sessionId, rcPicker.chatId);
       }
       syncCommandMenuForChat(rcPicker.chatId, rcPicker.ownerUserId);
-      sendToChat(
+      closePollForChat(
         rcPicker.chatId,
+        rcPicker.messageId,
         `${pickerFmt.escape("⛳️")} ${pickerFmt.bold(pickerFmt.escape(sessionLabel(remote.command, remote.cwd)))} connected`
       );
 
@@ -1605,11 +1623,16 @@ export async function startDaemon(): Promise<void> {
     // Handle "Load recent messages?" poll answer
     const recentPoll = sessionManager.getRecentMessagesPoll(answer.pollId);
     if (recentPoll) {
-      closePollForChat(recentPoll.chatId, recentPoll.messageId);
       sessionManager.removeRecentMessagesPoll(answer.pollId);
 
       const selectedIdx = answer.optionIds[0];
+      const recentFmt = getFormatterForChat(recentPoll.chatId);
       if (selectedIdx === 0) { // "Yes"
+        closePollForChat(
+          recentPoll.chatId,
+          recentPoll.messageId,
+          `${recentFmt.escape("📋")} Loading recent messages…`
+        );
         try {
           const manifests = readManifests();
           const manifest = manifests.get(recentPoll.sessionId);
@@ -1633,8 +1656,10 @@ export async function startDaemon(): Promise<void> {
         } catch {
           sendToChat(recentPoll.chatId, "Failed to load recent messages.");
         }
+      } else {
+        // "No" — just dismiss
+        closePollForChat(recentPoll.chatId, recentPoll.messageId, `${recentFmt.escape("📋")} Skipped loading recent messages.`);
       }
-      // "No" (selectedIdx === 1): just close poll, do nothing
       return;
     }
 
@@ -1656,19 +1681,38 @@ export async function startDaemon(): Promise<void> {
       return;
     }
 
-    // Close the poll
-    closePollForChat(poll.chatId, poll.messageId);
     sessionManager.removePoll(answer.pollId);
 
     const otherIdx = poll.optionCount; // "Other" is the last option
     const selectedOther = answer.optionIds.includes(otherIdx);
 
+    // Build confirmation text
+    const pollFmt = getFormatterForChat(poll.chatId);
     if (selectedOther) {
+      closePollForChat(
+        poll.chatId,
+        poll.messageId,
+        poll.question
+          ? `${pollFmt.bold(pollFmt.escape(poll.question))}\n${pollFmt.escape("→ Other (type your answer)")}`
+          : undefined
+      );
       // User chose "Other" — push marker, wait for text message
       remote.inputQueue.push("\x1b[POLL_OTHER]");
       // Don't advance to next question; text handler will do that
       sessionManager.clearPendingQuestions(poll.sessionId);
     } else {
+      // Build selected labels for confirmation
+      let confirmText: string | undefined;
+      if (poll.question && poll.optionLabels) {
+        const selectedLabels = answer.optionIds
+          .filter((i) => i < poll.optionLabels!.length)
+          .map((i) => poll.optionLabels![i]);
+        if (selectedLabels.length > 0) {
+          confirmText = `${pollFmt.bold(pollFmt.escape(poll.question))}\n${pollFmt.escape("→ " + selectedLabels.join(", "))}`;
+        }
+      }
+      closePollForChat(poll.chatId, poll.messageId, confirmText);
+
       // Encode selected options
       const encoded = `\x1b[POLL:${answer.optionIds.join(",")}:${poll.multiSelect ? "1" : "0"}]`;
       remote.inputQueue.push(encoded);
@@ -2182,6 +2226,8 @@ export async function startDaemon(): Promise<void> {
             totalQuestions: 1,
             multiSelect: false,
             optionCount: 3,
+            question,
+            optionLabels: options,
           });
         }
       ).catch((e) => {

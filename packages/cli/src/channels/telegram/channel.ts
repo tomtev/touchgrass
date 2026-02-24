@@ -307,6 +307,15 @@ export class TelegramChannel implements Channel {
     return { pollId: poll?.id ?? "", messageId: String(sent.message_id) };
   }
 
+  async editMessage(chatId: ChannelChatId, messageId: string, html: string): Promise<void> {
+    const { chatId: numChatId, threadId } = fromChatId(chatId);
+    try {
+      await this.api.editMessageText(numChatId, Number(messageId), html, "HTML", threadId);
+    } catch {
+      // Ignore if message is no longer editable.
+    }
+  }
+
   async closePoll(chatId: ChannelChatId, messageId: string): Promise<void> {
     const actionId = this.actionPollByMessage.get(`${chatId}:${messageId}`);
     if (actionId) {

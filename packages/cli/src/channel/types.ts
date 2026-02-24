@@ -71,6 +71,7 @@ export interface Channel {
   // Optional capabilities — not all channels support these
   sendPoll?(chatId: ChannelChatId, question: string, options: string[], multiSelect: boolean): Promise<PollResult>;
   closePoll?(chatId: ChannelChatId, messageId: string): Promise<void>;
+  editMessage?(chatId: ChannelChatId, messageId: string, html: string): Promise<void>;
   upsertStatusBoard?(
     chatId: ChannelChatId,
     boardKey: string,

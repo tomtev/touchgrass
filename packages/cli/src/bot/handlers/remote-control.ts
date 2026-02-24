@@ -7,7 +7,6 @@ import { readAgentSoul } from "../../daemon/agent-soul";
 import { paths } from "../../config/paths";
 
 const RC_BUTTON_LIMIT = 10;
-const TAIL_BYTES = 16 * 1024;
 const MAX_OPTION_CHARS = 100;
 
 export interface SessionManifest {
@@ -34,76 +33,7 @@ export function readManifests(): Map<string, SessionManifest> {
   return manifests;
 }
 
-function readTailUtf8(filePath: string): string {
-  try {
-    const { size } = require("fs").statSync(filePath);
-    if (size <= 0) return "";
-    const readSize = Math.min(size, TAIL_BYTES);
-    const offset = Math.max(0, size - readSize);
-    const fd = require("fs").openSync(filePath, "r");
-    const buffer = Buffer.alloc(readSize);
-    try {
-      const bytesRead = require("fs").readSync(fd, buffer, 0, readSize, offset);
-      return buffer.toString("utf8", 0, bytesRead);
-    } finally {
-      require("fs").closeSync(fd);
-    }
-  } catch {
-    return "";
-  }
-}
 
-function extractLastAssistantText(jsonlFile: string): string | null {
-  const tail = readTailUtf8(jsonlFile);
-  if (!tail) return null;
-  const lines = tail.split(/\r?\n/);
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const line = lines[i]?.trim();
-    if (!line) continue;
-    try {
-      const msg = JSON.parse(line) as Record<string, unknown>;
-      // Claude format
-      if (msg.type === "assistant") {
-        const m = msg.message as Record<string, unknown> | undefined;
-        if (m?.content && Array.isArray(m.content)) {
-          const texts = (m.content as Array<Record<string, unknown>>)
-            .filter((b) => b.type === "text" && typeof b.text === "string")
-            .map((b) => b.text as string)
-            .join(" ")
-            .trim();
-          if (texts) return texts;
-        }
-      }
-      // PI format
-      if (msg.type === "message") {
-        const m = msg.message as Record<string, unknown> | undefined;
-        if (m?.role === "assistant" && m.content && Array.isArray(m.content)) {
-          const texts = (m.content as Array<Record<string, unknown>>)
-            .filter((b) => b.type === "text" && typeof b.text === "string")
-            .map((b) => b.text as string)
-            .join(" ")
-            .trim();
-          if (texts) return texts;
-        }
-      }
-      // Codex format
-      if (msg.type === "event_msg") {
-        const payload = msg.payload as Record<string, unknown> | undefined;
-        if (payload?.type === "agent_message" && typeof payload.message === "string") {
-          const text = (payload.message as string).trim();
-          if (text) return text;
-        }
-      }
-    } catch {}
-  }
-  return null;
-}
-
-function truncateLabel(text: string, maxChars: number): string {
-  const collapsed = text.replace(/\s+/g, " ").trim();
-  if (collapsed.length <= maxChars) return collapsed;
-  return `${collapsed.slice(0, maxChars - 1).trimEnd()}…`;
-}
 
 function relativeTime(ms: number): string {
   const seconds = Math.floor(ms / 1000);
@@ -142,20 +72,7 @@ async function buildSessionLabel(remote: RemoteSession, manifest: SessionManifes
     }
   }
 
-  // Get last message preview with remaining space
-  let preview = "";
-  const jsonlFile = manifest?.jsonlFile || null;
-  if (jsonlFile) {
-    const lastText = extractLastAssistantText(jsonlFile);
-    if (lastText) {
-      const available = MAX_OPTION_CHARS - timePrefix.length - header.length - 3; // 3 for " · "
-      if (available > 10) {
-        preview = ` · ${truncateLabel(lastText, available)}`;
-      }
-    }
-  }
-
-  return `${timePrefix}${header}${preview}`;
+  return `${timePrefix}${header}`;
 }
 
 export async function handleStartRemoteControl(

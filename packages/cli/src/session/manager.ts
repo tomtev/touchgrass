@@ -23,6 +23,8 @@ export interface PendingPoll {
   totalQuestions: number;
   multiSelect: boolean;
   optionCount: number; // number of real options (excluding "Other")
+  question?: string;
+  optionLabels?: string[];
 }
 
 export interface AskQuestion {
