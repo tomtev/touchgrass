@@ -15,6 +15,18 @@
   ];
 </script>
 
+<svelte:head>
+  <title>touchgrass.sh - Remote control Claude Code, Codex, Pi and more</title>
+  <meta name="description" content="Remote control Claude Code, Codex, Pi and more with Telegram. Manage sessions from your phone." />
+  <meta property="og:title" content="touchgrass.sh" />
+  <meta property="og:description" content="Remote control Claude Code, Codex, Pi and more with Telegram." />
+  <meta property="og:image" content="https://touchgrass.sh/touchgrass-og.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:image" content="https://touchgrass.sh/touchgrass-og.png" />
+</svelte:head>
+
 <main class="page">
   <GrassHero>
     <div class="hero-content">
@@ -56,7 +68,7 @@
         <div class="feature-grid cols-3">
           <article class="card">
             <div class="card-body feature-card-inner">
-              <Avatar dna={featureDNAs[0]} size="sm" />
+              <Avatar dna={featureDNAs[0]} size="lg" />
               <div>
                 <p class="feature-title">Zero config</p>
                 <p class="feature-desc">Wraps your existing CLI. Just prefix with <code>tg</code> and you're live.</p>
@@ -65,7 +77,7 @@
           </article>
           <article class="card">
             <div class="card-body feature-card-inner">
-              <Avatar dna={featureDNAs[1]} size="sm" />
+              <Avatar dna={featureDNAs[1]} size="lg" />
               <div>
                 <p class="feature-title">Multi-tool</p>
                 <p class="feature-desc">Claude Code, Codex, Pi, and Kimi supported out of the box.</p>
@@ -74,7 +86,7 @@
           </article>
           <article class="card">
             <div class="card-body feature-card-inner">
-              <Avatar dna={featureDNAs[2]} size="sm" />
+              <Avatar dna={featureDNAs[2]} size="lg" />
               <div>
                 <p class="feature-title">Build agents</p>
                 <p class="feature-desc">Scaffold personal agents with workflows, skills, and updatable core.</p>

@@ -7,7 +7,7 @@
     "dev": "vite dev",
     "build": "vite build",
     "preview": "vite preview",
-    "deploy": "vite build && wrangler pages deploy .svelte-kit/cloudflare"
+    "deploy": "vite build && wrangler deploy"
   },
   "devDependencies": {
     "@sveltejs/adapter-cloudflare": "^7.0.0",
