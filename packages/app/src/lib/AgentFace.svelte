@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { AgentFace } from '@touchgrass/avatar/svelte';
+  import { Avatar } from '@touchgrass/avatar/svelte';
 
   interface Props {
     name?: string;
@@ -14,4 +14,4 @@
   let { name, size = 'lg', dna, animated = false, walking = false, talking = false, waving = false }: Props = $props();
 </script>
 
-<AgentFace {dna} {name} {size} {walking} {talking} {waving} />
+<Avatar {dna} {name} {size} {walking} {talking} {waving} />

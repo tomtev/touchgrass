@@ -1,1 +1,1 @@
-export { default as AgentFace } from './AgentFace.svelte';
+export { default as Avatar } from './Avatar.svelte';
