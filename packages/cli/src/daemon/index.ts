@@ -27,7 +27,6 @@ import {
 } from "./lifecycle";
 import { startControlServer, type ChannelInfo, type ConfigChannelSummary, type ConfigChannelDetails } from "./control-server";
 import { routeMessage } from "../bot/command-router";
-import { buildResumePickerPage } from "../bot/handlers/resume";
 import type { BackgroundJobSessionSummary } from "../bot/handlers/background-jobs";
 import { SessionManager } from "../session/manager";
 import { formatSimpleToolResult, formatToolCall } from "./tool-display";
@@ -39,7 +38,9 @@ import { createChannel } from "../channel/factory";
 import type { Formatter } from "../channel/formatter";
 import type { Channel, ChannelChatId, ChannelUserId } from "../channel/types";
 import { getChannelName, getChannelType, getRootChatIdNumber, parseChannelAddress } from "../channel/id";
-import type { AskQuestion, PendingFilePickerOption } from "../session/manager";
+import type { AskQuestion, PendingFilePickerOption, PendingRecentMessagesPoll } from "../session/manager";
+import { readManifests } from "../bot/handlers/remote-control";
+import { collectEntriesFromRaw, type DisplayEntry } from "../cli/peek";
 import { chmod, open, readFile, realpath, stat, writeFile } from "fs/promises";
 import { basename, join, resolve } from "path";
 
@@ -1498,74 +1499,6 @@ export async function startDaemon(): Promise<void> {
       return;
     }
 
-    const resumePicker = sessionManager.getResumePickerByPollId(answer.pollId);
-    if (resumePicker) {
-      if (!isUserPaired(config, answer.userId)) {
-        logger.warn("Ignoring resume picker answer from unpaired user", { userId: answer.userId, pollId: answer.pollId });
-        return;
-      }
-      if (resumePicker.ownerUserId !== answer.userId) {
-        logger.warn("Ignoring resume picker answer from non-owner", {
-          userId: answer.userId,
-          pollId: answer.pollId,
-          ownerUserId: resumePicker.ownerUserId,
-        });
-        return;
-      }
-
-      closePollForChat(resumePicker.chatId, resumePicker.messageId);
-      sessionManager.removeResumePicker(answer.pollId);
-
-      const selectedIdx = answer.optionIds[0];
-      if (!Number.isFinite(selectedIdx)) return;
-      if (selectedIdx < 0 || selectedIdx >= resumePicker.options.length) return;
-      const selected = resumePicker.options[selectedIdx];
-
-      if (selected.kind === "more") {
-        const nextPage = buildResumePickerPage(
-          resumePicker.sessions,
-          selected.nextOffset
-        );
-        sendPollToChat(resumePicker.chatId, nextPage.title, nextPage.optionLabels, false)
-          .then((sent) => {
-            if (!sent) return;
-            sessionManager.registerResumePicker({
-              pollId: sent.pollId,
-              messageId: sent.messageId,
-              chatId: resumePicker.chatId,
-              ownerUserId: resumePicker.ownerUserId,
-              sessionId: resumePicker.sessionId,
-              tool: resumePicker.tool,
-              sessions: resumePicker.sessions,
-              offset: nextPage.offset,
-              options: nextPage.options,
-            });
-          })
-          .catch(() => {});
-        return;
-      }
-
-      const remote = sessionManager.getRemote(resumePicker.sessionId);
-      if (!remote) {
-        const pickerFmt = getFormatterForChat(resumePicker.chatId);
-        sendToChat(resumePicker.chatId, `${pickerFmt.escape("⛳️")} Session is no longer active.`);
-        return;
-      }
-
-      if (!sessionManager.requestRemoteResume(remote.id, selected.sessionRef)) {
-        const pickerFmt = getFormatterForChat(resumePicker.chatId);
-        sendToChat(resumePicker.chatId, `${pickerFmt.escape("⛳️")} Could not request resume on current session.`);
-        return;
-      }
-
-      const pickerFmt = getFormatterForChat(resumePicker.chatId);
-      sendToChat(
-        resumePicker.chatId,
-        `${pickerFmt.escape("⛳️")} Switching to ${pickerFmt.code(pickerFmt.escape(selected.label))}...`
-      );
-      return;
-    }
-
     const outputModePicker = sessionManager.getOutputModePickerByPollId(answer.pollId);
     if (outputModePicker) {
       if (!isUserPaired(config, answer.userId)) {
@@ -1598,6 +1531,110 @@ export async function startDaemon(): Promise<void> {
         outputModePicker.chatId,
         `${pickerFmt.escape("⛳️")} Output mode is now ${pickerFmt.code(pickerFmt.escape(selectedModeLabel))} for this chat.`
       );
+      return;
+    }
+
+    const rcPicker = sessionManager.getRemoteControlPickerByPollId(answer.pollId);
+    if (rcPicker) {
+      if (!isUserPaired(config, answer.userId)) {
+        logger.warn("Ignoring remote-control picker answer from unpaired user", { userId: answer.userId, pollId: answer.pollId });
+        return;
+      }
+      if (rcPicker.ownerUserId !== answer.userId) {
+        logger.warn("Ignoring remote-control picker answer from non-owner", {
+          userId: answer.userId,
+          pollId: answer.pollId,
+          ownerUserId: rcPicker.ownerUserId,
+        });
+        return;
+      }
+
+      closePollForChat(rcPicker.chatId, rcPicker.messageId);
+      sessionManager.removeRemoteControlPicker(answer.pollId);
+
+      const selectedIdx = answer.optionIds[0];
+      if (!Number.isFinite(selectedIdx)) return;
+      if (selectedIdx < 0 || selectedIdx >= rcPicker.options.length) return;
+      const selected = rcPicker.options[selectedIdx];
+      const pickerFmt = getFormatterForChat(rcPicker.chatId);
+
+      if (selected.kind === "exit") {
+        sessionManager.detach(rcPicker.chatId);
+        syncCommandMenuForChat(rcPicker.chatId, rcPicker.ownerUserId);
+        sendToChat(rcPicker.chatId, `${pickerFmt.escape("⛳️")} Remote control disconnected.`);
+        return;
+      }
+
+      // Bind session to this chat
+      const remote = sessionManager.getRemote(selected.sessionId);
+      if (!remote) {
+        sendToChat(rcPicker.chatId, `${pickerFmt.escape("⛳️")} Session is no longer active.`);
+        return;
+      }
+
+      // Disconnect old session from this chat if taken
+      const oldRemote = sessionManager.getAttachedRemote(rcPicker.chatId);
+      if (oldRemote && oldRemote.id !== selected.sessionId) {
+        sessionManager.detach(rcPicker.chatId);
+      }
+
+      sessionManager.attach(rcPicker.chatId, selected.sessionId);
+      // Subscribe group for output broadcasting if it's a group chat
+      if (rcPicker.chatId !== remote.chatId) {
+        sessionManager.subscribeGroup(selected.sessionId, rcPicker.chatId);
+      }
+      syncCommandMenuForChat(rcPicker.chatId, rcPicker.ownerUserId);
+      sendToChat(
+        rcPicker.chatId,
+        `${pickerFmt.escape("⛳️")} ${pickerFmt.bold(pickerFmt.escape(sessionLabel(remote.command, remote.cwd)))} connected`
+      );
+
+      // Offer to load recent messages
+      sendPollToChat(rcPicker.chatId, "Load recent messages?", ["Yes", "No"], false).then((sent) => {
+        if (!sent) return;
+        sessionManager.registerRecentMessagesPoll(sent.pollId, {
+          sessionId: selected.sessionId,
+          chatId: rcPicker.chatId,
+          messageId: sent.messageId,
+        });
+      }).catch(() => {});
+
+      return;
+    }
+
+    // Handle "Load recent messages?" poll answer
+    const recentPoll = sessionManager.getRecentMessagesPoll(answer.pollId);
+    if (recentPoll) {
+      closePollForChat(recentPoll.chatId, recentPoll.messageId);
+      sessionManager.removeRecentMessagesPoll(answer.pollId);
+
+      const selectedIdx = answer.optionIds[0];
+      if (selectedIdx === 0) { // "Yes"
+        try {
+          const manifests = readManifests();
+          const manifest = manifests.get(recentPoll.sessionId);
+          if (manifest?.jsonlFile) {
+            const raw = require("fs").readFileSync(manifest.jsonlFile, "utf-8") as string;
+            const entries = collectEntriesFromRaw(raw, 5);
+            if (entries.length > 0) {
+              const fmt = getFormatterForChat(recentPoll.chatId);
+              const lines = entries.map((e: DisplayEntry) => {
+                const roleLabel = e.role === "assistant" ? "Assistant" : e.role === "user" ? "User" : "Tool";
+                const text = e.text.length > 200 ? e.text.slice(0, 200) + "…" : e.text;
+                return `${fmt.bold(`[${roleLabel}]`)} ${fmt.escape(text)}`;
+              });
+              sendToChat(recentPoll.chatId, `${fmt.escape("📋")} Recent activity:\n\n${lines.join("\n")}`);
+            } else {
+              sendToChat(recentPoll.chatId, "No recent messages found.");
+            }
+          } else {
+            sendToChat(recentPoll.chatId, "No session log available.");
+          }
+        } catch {
+          sendToChat(recentPoll.chatId, "Failed to load recent messages.");
+        }
+      }
+      // "No" (selectedIdx === 1): just close poll, do nothing
       return;
     }
 

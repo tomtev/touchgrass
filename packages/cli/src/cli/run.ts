@@ -124,44 +124,6 @@ function validateRunSetupPreflight(config: TgConfig): RunSetupPreflight {
   return { ok: true };
 }
 
-// Y/n confirmation prompt
-function confirmPrompt(message: string): Promise<boolean> {
-  return new Promise((resolve) => {
-    const YELLOW = "\x1b[33m";
-    const RESET = "\x1b[0m";
-    const DIM = "\x1b[2m";
-    process.stdout.write(`${YELLOW}⚠ ${message}${RESET} ${DIM}(Y/n)${RESET} `);
-
-    if (!process.stdin.isTTY) {
-      process.stdout.write("\n");
-      resolve(true);
-      return;
-    }
-
-    const wasRaw = process.stdin.isRaw;
-    process.stdin.setRawMode(true);
-
-    function onData(data: Buffer) {
-      const key = data.toString().toLowerCase();
-      process.stdin.removeListener("data", onData);
-      process.stdin.setRawMode(wasRaw ?? false);
-
-      if (key === "y" || key === "\r" || key === "\n") {
-        process.stdout.write("yes\n");
-        resolve(true);
-      } else if (key === "\x03") {
-        process.stdout.write("\n");
-        process.exit(130);
-      } else {
-        process.stdout.write("no\n");
-        resolve(false);
-      }
-    }
-
-    process.stdin.on("data", onData);
-  });
-}
-
 // Arrow-key picker for terminal selection
 export function terminalPicker(title: string, options: string[], hint?: string, disabled?: Set<number>): Promise<number> {
   return new Promise((resolve) => {
@@ -1643,38 +1605,8 @@ export async function runRun(): Promise<void> {
         }
         selectedFromFlag = true;
       } else {
-        const labels = pickerOptions.map((o) => o.label);
-        const choice = await terminalPicker(
-          "⛳ Select a channel:",
-          labels,
-          "Use `tg links` to manage linked channels",
-        );
-        if (choice >= 0 && choice < pickerOptions.length) {
-          const chosen = pickerOptions[choice];
-          if (chosen.chatId) {
-            // If channel is busy, confirm replacement
-            if (chosen.busy && chosen.busyLabel) {
-              const confirmed = await confirmPrompt(`Channel in use by ${chosen.busyLabel}. Replace?`);
-              if (!confirmed) {
-                selectedLabelForPrint = "No channel";
-              } else {
-                selectedChatForBind = chosen.chatId as ChannelChatId;
-                preferredOwnerType = getChannelType(chosen.chatId);
-                preferredOwnerName = getChannelName(chosen.chatId);
-                const typeLabel = chosen.type === "dm" ? "DM" : chosen.type === "group" ? "Group" : chosen.type === "topic" ? "Topic" : "";
-                selectedLabelForPrint = `${chosen.title} (${typeLabel})`;
-              }
-            } else {
-              selectedChatForBind = chosen.chatId as ChannelChatId;
-              preferredOwnerType = getChannelType(chosen.chatId);
-              preferredOwnerName = getChannelName(chosen.chatId);
-              const typeLabel = chosen.type === "dm" ? "DM" : chosen.type === "group" ? "Group" : chosen.type === "topic" ? "Topic" : "";
-              selectedLabelForPrint = `${chosen.title} (${typeLabel})`;
-            }
-          } else {
-            selectedLabelForPrint = "No channel";
-          }
-        }
+        // No --channel flag: auto-bind to DM, let user use /start_remote_control from any chat
+        selectedLabelForPrint = null;
       }
     } catch (e) {
       console.error("Failed to load channels from daemon.");
@@ -1722,14 +1654,8 @@ export async function runRun(): Promise<void> {
 
       remoteId = res.sessionId as string;
 
-      let targetBindChat = selectedChatForBind;
-      if (!channelFlag && !targetBindChat) {
-        const dmBusy = res.dmBusy as boolean;
-        if (!dmBusy) {
-          targetBindChat = chatId;
-          selectedLabelForPrint = selectedLabelForPrint || "DM";
-        }
-      }
+      // Only bind to a chat if user explicitly passed --channel
+      const targetBindChat = selectedChatForBind;
 
       if (targetBindChat) {
         try {
@@ -1740,13 +1666,20 @@ export async function runRun(): Promise<void> {
           });
           chatId = targetBindChat as ChannelChatId;
           didBindChat = true;
-          if (selectedLabelForPrint) {
-            console.log(`⛳️ Channel linked: ${selectedLabelForPrint}`);
-          }
         } catch (bindErr) {
           const errText = `\x1b[33m⚠ ${(bindErr as Error).message}\x1b[0m`;
           console.error(`${errText}. Continuing without channel binding.`);
         }
+      }
+
+      // Always print touchgrass banner
+      const channelTypes = [...new Set(Object.values(config.channels).map(c => c.type))];
+      const channelLabel = channelTypes.length > 0
+        ? channelTypes.map(t => t.charAt(0).toUpperCase() + t.slice(1)).join(", ")
+        : "chat";
+      console.log(`⛳ touchgrass · /start_remote_control to connect from ${channelLabel}`);
+      if (selectedLabelForPrint) {
+        console.log(`  Channel: ${selectedLabelForPrint}`);
       }
     } catch (e) {
       console.error("Failed to register session with daemon.");

@@ -90,6 +90,24 @@ export interface PendingOutputModePicker {
   options: Array<"compact" | "verbose">;
 }
 
+export interface PendingRecentMessagesPoll {
+  sessionId: string;
+  chatId: ChannelChatId;
+  messageId: string;
+}
+
+export type RemoteControlPickerOption =
+  | { kind: "session"; sessionId: string; label: string }
+  | { kind: "exit" };
+
+export interface PendingRemoteControlPicker {
+  pollId: string;
+  messageId: string;
+  chatId: ChannelChatId;
+  ownerUserId: ChannelUserId;
+  options: RemoteControlPickerOption[];
+}
+
 export class SessionManager {
   private remotes: Map<string, RemoteSession> = new Map();
   // Map: channelChatId → sessionId (attached session)
@@ -106,6 +124,10 @@ export class SessionManager {
   private pendingResumePickers: Map<string, PendingResumePicker> = new Map();
   // Map: pollId → pending output mode picker metadata
   private pendingOutputModePickers: Map<string, PendingOutputModePicker> = new Map();
+  // Map: pollId → pending remote control picker metadata
+  private pendingRemoteControlPickers: Map<string, PendingRemoteControlPicker> = new Map();
+  // Map: pollId → pending "load recent messages?" poll metadata
+  private pendingRecentMessagesPolls: Map<string, PendingRecentMessagesPoll> = new Map();
   // Map: sessionId|chatId|userId → file mentions to prepend on next text input
   private pendingFileMentions: Map<string, string[]> = new Map();
 
@@ -212,6 +234,8 @@ export class SessionManager {
     this.pendingFilePickers.clear();
     this.pendingResumePickers.clear();
     this.pendingOutputModePickers.clear();
+    this.pendingRemoteControlPickers.clear();
+    this.pendingRecentMessagesPolls.clear();
     this.pendingFileMentions.clear();
   }
 
@@ -385,6 +409,30 @@ export class SessionManager {
 
   removeOutputModePicker(pollId: string): void {
     this.pendingOutputModePickers.delete(pollId);
+  }
+
+  registerRemoteControlPicker(picker: PendingRemoteControlPicker): void {
+    this.pendingRemoteControlPickers.set(picker.pollId, picker);
+  }
+
+  getRemoteControlPickerByPollId(pollId: string): PendingRemoteControlPicker | undefined {
+    return this.pendingRemoteControlPickers.get(pollId);
+  }
+
+  removeRemoteControlPicker(pollId: string): void {
+    this.pendingRemoteControlPickers.delete(pollId);
+  }
+
+  registerRecentMessagesPoll(pollId: string, poll: PendingRecentMessagesPoll): void {
+    this.pendingRecentMessagesPolls.set(pollId, poll);
+  }
+
+  getRecentMessagesPoll(pollId: string): PendingRecentMessagesPoll | undefined {
+    return this.pendingRecentMessagesPolls.get(pollId);
+  }
+
+  removeRecentMessagesPoll(pollId: string): void {
+    this.pendingRecentMessagesPolls.delete(pollId);
   }
 
   setPendingFileMentions(

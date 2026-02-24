@@ -109,42 +109,42 @@ describe("Telegram command menus", () => {
       isGroup: false,
       isLinkedGroup: false,
       hasActiveSession: false,
-    }))).toEqual([]);
+    }))).toEqual(["start_remote_control"]);
 
     expect(names(__telegramChannelTestUtils.buildCommandMenu({
       isPaired: true,
       isGroup: false,
       isLinkedGroup: false,
       hasActiveSession: true,
-    }))).toEqual(["session", "files", "resume", "output_mode", "thinking", "background_jobs", "skills"]);
+    }))).toEqual(["stop_remote_control", "change_session", "session", "files", "output_mode", "thinking", "background_jobs", "skills"]);
 
     expect(names(__telegramChannelTestUtils.buildCommandMenu({
       isPaired: true,
       isGroup: true,
       isLinkedGroup: false,
       hasActiveSession: false,
-    }))).toEqual(["link"]);
+    }))).toEqual(["start_remote_control", "link"]);
 
     expect(names(__telegramChannelTestUtils.buildCommandMenu({
       isPaired: true,
       isGroup: true,
       isLinkedGroup: false,
       hasActiveSession: true,
-    }))).toEqual(["link"]);
+    }))).toEqual(["start_remote_control", "link"]);
 
     expect(names(__telegramChannelTestUtils.buildCommandMenu({
       isPaired: true,
       isGroup: true,
       isLinkedGroup: true,
       hasActiveSession: false,
-    }))).toEqual(["link", "unlink"]);
+    }))).toEqual(["start_remote_control", "link", "unlink"]);
 
     expect(names(__telegramChannelTestUtils.buildCommandMenu({
       isPaired: true,
       isGroup: true,
       isLinkedGroup: true,
       hasActiveSession: true,
-    }))).toEqual(["session", "files", "resume", "output_mode", "thinking", "background_jobs", "skills", "link", "unlink"]);
+    }))).toEqual(["stop_remote_control", "change_session", "session", "files", "output_mode", "thinking", "background_jobs", "skills", "link", "unlink"]);
   });
 
   it("syncs chat-member command menu and skips duplicate updates", async () => {
@@ -187,7 +187,7 @@ describe("Telegram command menus", () => {
     });
 
     expect(calls).toHaveLength(1);
-    expect(calls[0]?.commands).toEqual(["link"]);
+    expect(calls[0]?.commands).toEqual(["start_remote_control", "link"]);
     expect(calls[0]?.scope).toEqual({
       type: "chat_member",
       chat_id: -100,
@@ -204,7 +204,7 @@ describe("Telegram command menus", () => {
     });
 
     expect(calls).toHaveLength(2);
-    expect(calls[1]?.commands).toEqual(["session", "files", "resume", "output_mode", "thinking", "background_jobs", "skills", "link", "unlink"]);
+    expect(calls[1]?.commands).toEqual(["stop_remote_control", "change_session", "session", "files", "output_mode", "thinking", "background_jobs", "skills", "link", "unlink"]);
   });
 
   it("uses chat scope for DM command menu sync", async () => {
@@ -239,7 +239,7 @@ describe("Telegram command menus", () => {
     });
 
     expect(calls).toHaveLength(1);
-    expect(calls[0]?.commands).toEqual([]);
+    expect(calls[0]?.commands).toEqual(["start_remote_control"]);
     expect(calls[0]?.scope).toEqual({
       type: "chat",
       chat_id: 7,

@@ -41,7 +41,7 @@
               Remote control Claude Code, Codex, Pi and more with Telegram.
             </h1>
             <p class="card-subtitle">
-              Manage your code projects, build personal agents and manage long-running sessions from your phone.
+              Manage your code projects and long-running sessions from your phone.
             </p>
           </div>
         </article>
@@ -88,8 +88,8 @@
             <div class="card-body feature-card-inner">
               <Avatar dna={featureDNAs[2]} size="lg" />
               <div>
-                <p class="feature-title">Build agents</p>
-                <p class="feature-desc">Scaffold personal agents with workflows, skills, and updatable core.</p>
+                <p class="feature-title">Works from anywhere</p>
+                <p class="feature-desc">Send prompts, approve tools, and share files — all from your phone.</p>
               </div>
             </div>
           </article>
@@ -134,23 +134,6 @@
 tg setup          # connect your Telegram bot
 tg pair           # pair from chat
 tg claude         # start a bridged session</code></pre>
-          </div>
-        </article>
-
-        <article class="card">
-          <div class="card-body-lg agent-card-inner">
-            <div class="agent-card-hero">
-              <Avatar dna={heroDNA} size="xl" walking />
-            </div>
-            <div>
-              <p class="code-section-title">Build a personal agent</p>
-              <p class="code-section-desc">
-                Scaffold an agent with workflows and skills. The managed core updates automatically — your customizations stay untouched.
-              </p>
-              <pre class="code-block"><code>tg agent create my-agent --name "My Agent"
-cd my-agent
-tg claude</code></pre>
-            </div>
           </div>
         </article>
 

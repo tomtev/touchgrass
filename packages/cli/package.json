@@ -11,8 +11,9 @@
     "test": "rm -rf .touchgrass-test && TOUCHGRASS_HOME=.touchgrass-test bun test"
   },
   "dependencies": {
-    "termlings": "^0.1.2",
-    "playwright": "^1.58.2"
+    "@opentui/core": "^0.1.81",
+    "playwright": "^1.58.2",
+    "termlings": "^0.1.2"
   },
   "devDependencies": {
     "@types/bun": "latest",

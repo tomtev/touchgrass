@@ -10,7 +10,6 @@ import { handleHelp } from "./handlers/help";
 import { handleSessionMgmt } from "./handlers/session-mgmt";
 import { handleStdinInput } from "./handlers/stdin-input";
 import { handleFilesCommand, handleInlineFileSearch } from "./handlers/files";
-import { handleResumeCommand } from "./handlers/resume";
 import { handleSessionCommand } from "./handlers/session";
 import { handleOutputModeCommand } from "./handlers/output-mode";
 import { handleThinkingCommand } from "./handlers/thinking";
@@ -19,6 +18,7 @@ import {
   type BackgroundJobSessionSummary,
 } from "./handlers/background-jobs";
 import { handleSkillsCommand } from "./handlers/skills";
+import { handleStartRemoteControl, handleStopRemoteControl } from "./handlers/remote-control";
 import { logger } from "../daemon/logger";
 import { notifyApp } from "../daemon/notify-app";
 
@@ -69,7 +69,7 @@ export async function routeMessage(
   // Channel-agnostic command aliases for platforms where slash commands are not practical.
   if (text === "tg files" || text.startsWith("tg files ")) text = `/files${text.slice("tg files".length)}`;
   else if (text === "tg session") text = "/session";
-  else if (text === "tg resume") text = "/resume";
+  else if (text === "tg change_session" || text === "tg change-session") text = "/change_session";
   else if (text === "tg output_mode" || text.startsWith("tg output_mode ")) text = `/output_mode${text.slice("tg output_mode".length)}`;
   else if (text === "tg output-mode" || text.startsWith("tg output-mode ")) text = `/output_mode${text.slice("tg output-mode".length)}`;
   else if (text === "tg thinking" || text.startsWith("tg thinking ")) text = `/thinking${text.slice("tg thinking".length)}`;
@@ -78,6 +78,8 @@ export async function routeMessage(
   else if (text === "tg skills") text = "/skills";
   else if (text === "tg link" || text.startsWith("tg link ")) text = `/link${text.slice("tg link".length)}`;
   else if (text === "tg unlink") text = "/unlink";
+  else if (text === "tg rc") text = "/start_remote_control";
+  else if (text === "tg rc stop") text = "/stop_remote_control";
   else if (text === "tg pair" || text.startsWith("tg pair ")) text = `/pair${text.slice("tg pair".length)}`;
 
   const userId = msg.userId;
@@ -152,14 +154,34 @@ export async function routeMessage(
     return;
   }
 
+  // /start_remote_control auto-links unlinked groups
+  if ((text === "/start_remote_control" || text === "/start-remote-control") && isGroup && !linked) {
+    if (isTopic(chatId)) {
+      const parentChat = getParentChatId(chatId);
+      if (addLinkedGroup(ctx.config, parentChat, msg.chatTitle, channelName)) {
+        await saveConfig(ctx.config);
+      }
+      const topicTitle = msg.topicTitle || "Topic";
+      addLinkedGroup(ctx.config, chatId, topicTitle, channelName);
+    } else {
+      addLinkedGroup(ctx.config, chatId, msg.chatTitle, channelName);
+    }
+    await saveConfig(ctx.config);
+    notifyApp({ type: "channel-linked", title: msg.chatTitle || "Group", chatId });
+  }
+
   if (
     isGroup &&
     text !== "/link" &&
     !text.startsWith("/link ") &&
     text !== "/unlink" &&
+    text !== "/start_remote_control" &&
+    text !== "/start-remote-control" &&
+    text !== "/change_session" &&
+    text !== "/change-session" &&
     !linked
   ) {
-    await ctx.channel.send(chatId, `This group is not linked yet. Run ${fmt.code("/link")} first.`);
+    await ctx.channel.send(chatId, `This group is not linked yet. Run ${fmt.code("/link")} or ${fmt.code("/start_remote_control")} first.`);
     return;
   }
 
@@ -183,9 +205,15 @@ export async function routeMessage(
     return;
   }
 
-  // /resume — pick a prior session and restart the connected tool with it
-  if (text === "/resume") {
-    await handleResumeCommand({ ...msg, text }, ctx);
+  // /start_remote_control or /change_session — pick a running session to connect to this chat
+  if (text === "/start_remote_control" || text === "/start-remote-control" || text === "/change_session" || text === "/change-session") {
+    await handleStartRemoteControl({ ...msg, text }, ctx);
+    return;
+  }
+
+  // /stop_remote_control — disconnect session from this chat
+  if (text === "/stop_remote_control" || text === "/stop-remote-control") {
+    await handleStopRemoteControl({ ...msg, text }, ctx);
     return;
   }
 

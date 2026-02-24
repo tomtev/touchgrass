@@ -56,7 +56,7 @@ function resolveManifest(partial: string): SessionManifest {
 // Map tool_use_id → tool name for labeling results
 const idToName = new Map<string, string>();
 
-interface DisplayEntry {
+export interface DisplayEntry {
   role: "assistant" | "user" | "tool";
   text: string;
 }
@@ -241,7 +241,7 @@ function parseCount(countArg: string | undefined): number {
   return count;
 }
 
-function collectEntriesFromRaw(raw: string, count: number): DisplayEntry[] {
+export function collectEntriesFromRaw(raw: string, count: number): DisplayEntry[] {
   // Take last ~50 raw lines to parse (more than count since tool calls etc. produce entries)
   const rawLines = raw.trim().split("\n");
   const tail = rawLines.slice(-(count * 5));

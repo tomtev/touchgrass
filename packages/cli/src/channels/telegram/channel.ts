@@ -74,11 +74,13 @@ interface TelegramBotCommand {
 const TELEGRAM_COMMANDS = {
   files: { command: "files", description: "Pick repo paths for next message" },
   session: { command: "session", description: "Show current session and resume command" },
-  resume: { command: "resume", description: "Pick and resume a previous session" },
+  changeSession: { command: "change_session", description: "Switch to a different session" },
   outputMode: { command: "output_mode", description: "Set output mode simple/verbose" },
   thinking: { command: "thinking", description: "Toggle thinking on/off" },
   backgroundJobs: { command: "background_jobs", description: "List running background jobs" },
   skills: { command: "skills", description: "List available agent skills" },
+  startRemoteControl: { command: "start_remote_control", description: "Connect a running session to this chat" },
+  stopRemoteControl: { command: "stop_remote_control", description: "Disconnect session from this chat" },
   link: { command: "link", description: "Add this chat as a channel" },
   unlink: { command: "unlink", description: "Remove this chat as a channel" },
   pair: { command: "pair", description: "Pair with code: /pair <code>" },
@@ -94,20 +96,23 @@ function buildCommandMenu(
   if (!ctx.isPaired) return [TELEGRAM_COMMANDS.pair];
 
   if (ctx.isGroup && !ctx.isLinkedGroup) {
-    return [TELEGRAM_COMMANDS.link];
+    return [TELEGRAM_COMMANDS.startRemoteControl, TELEGRAM_COMMANDS.link];
   }
 
   const commands: TelegramBotCommand[] = [];
   if (ctx.hasActiveSession) {
     commands.push(
+      TELEGRAM_COMMANDS.stopRemoteControl,
+      TELEGRAM_COMMANDS.changeSession,
       TELEGRAM_COMMANDS.session,
       TELEGRAM_COMMANDS.files,
-      TELEGRAM_COMMANDS.resume,
       TELEGRAM_COMMANDS.outputMode,
       TELEGRAM_COMMANDS.thinking,
       TELEGRAM_COMMANDS.backgroundJobs,
       TELEGRAM_COMMANDS.skills
     );
+  } else {
+    commands.push(TELEGRAM_COMMANDS.startRemoteControl);
   }
   if (ctx.isGroup) {
     // Always show both link and unlink for groups — Telegram command menus are

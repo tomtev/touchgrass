@@ -3,8 +3,8 @@
   let { children } = $props();
 
   const siteUrl = 'https://touchgrass.sh';
-  const pageTitle = 'touchgrass.sh | The worlds most powerful AI agents in your pocket';
-  const pageDescription = 'Control Claude Code, Codex, and more from Telegram and build personal agents. Send prompts, approve tools, and manage sessions from your phone.';
+  const pageTitle = 'touchgrass.sh | Remote control Claude Code, Codex, Pi and more';
+  const pageDescription = 'Remote control Claude Code, Codex, and more from Telegram. Send prompts, approve tools, and manage sessions from your phone.';
   const ogImageUrl = `${siteUrl}/og.png`;
   const seoSchema = {
     '@context': 'https://schema.org',

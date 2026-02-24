@@ -4,7 +4,6 @@ Use Telegram as a remote controller for Claude Code, Codex, Kimi, Pi and more.
 
 - **Zero config** — wraps your existing CLI tools, no new runtime to learn
 - **Works from your phone** — send prompts, approve tools, attach files from Telegram
-- **Build agents** — scaffold personal agents with workflows, skills, and managed core updates
 - **Multi-tool** — supports Claude Code, Codex, Pi, Kimi out of the box
 - **Lightweight** — just a PTY bridge + daemon, auto-starts and auto-stops
 
@@ -12,7 +11,6 @@ Use Telegram as a remote controller for Claude Code, Codex, Kimi, Pi and more.
 
 - [Install](#install)
 - [Setup](#setup)
-- [Agents](#agents)
 - [How it works](#how-it-works)
 - [CLI reference](#touchgrass-cli-reference)
 - [FAQ](#faq)
@@ -34,66 +32,46 @@ irm https://touchgrass.sh/install.ps1 | iex
 
 ## Setup
 
-1. Create a Telegram bot and copy its token:
-- Open [@BotFather](https://t.me/BotFather)
-- Run `/newbot` and complete bot creation
-- Copy the bot token
+### 1. Setup channel
 
-2. In your terminal:
+Create a Telegram bot via [@BotFather](https://t.me/BotFather) (`/newbot`), then:
 
 ```bash
-tg setup
-# or non-interactive:
 tg setup --telegram <bot-token>
-# configure an additional named Telegram bot entry:
-tg setup --telegram <bot-token> --channel <name>
-# inspect configured bot entries:
-tg setup --list-channels
-tg setup --channel <name> --show
 ```
 
-3. Pair from your chat (DM bot):
-- Telegram: `/pair <code>`
-- `tg setup --telegram <bot-token>` prints a pairing code immediately.
-- Fresh `tg setup` also prints a pairing code when no owner is paired yet.
-- If no code is shown, run:
+Pair from Telegram by DMing your bot: `/pair <code>` (the code is printed by `tg setup`).
 
-```bash
-tg pair
-```
-
-4. Optional group/channel/thread linking:
-- Use `/link` inside the group/thread you want to use for bridging.
-- Group note: Disable BotFather group privacy (`/setprivacy` -> Disable) so non-command messages are visible.
-
-5. Start a bridged terminal session:
+### 2. Start a CLI session
 
 ```bash
 tg claude
-tg claude --dangerously-skip-permissions
 tg codex
-tg codex --dangerously-bypass-approvals-and-sandbox
 tg pi
 tg kimi
 ```
 
-### Safer execution examples (recommended)
+You'll see a banner confirming the session is touchgrass-wrapped:
 
-Prefer these over dangerous bypass flags when possible.
+```
+⛳ touchgrass · /start_remote_control to connect from Telegram
+```
+
+### 3. Remote control
+
+From any Telegram chat where your bot is present (DM or group), run `/start_remote_control` to pick a session and connect.
+
+For groups: add your bot and disable BotFather group privacy (`/setprivacy` -> Disable) so it can see messages.
+
+### CLI flags
 
 Claude (permission modes + tool/path controls):
 
 ```bash
-# Default permission flow
+tg claude --dangerously-skip-permissions
 tg claude --permission-mode default
-
-# Auto-accept file edits, still keep permission model
 tg claude --permission-mode acceptEdits
-
-# Allow access to an extra directory in addition to current project
 tg claude --add-dir ../shared-lib
-
-# Restrict tool usage
 tg claude --allowed-tools "Read,Edit,Bash(git:*)"
 tg claude --disallowed-tools "Bash(rm:*)"
 ```
@@ -101,56 +79,10 @@ tg claude --disallowed-tools "Bash(rm:*)"
 Codex (sandbox + approval policy):
 
 ```bash
-# Recommended balanced mode
+tg codex --dangerously-bypass-approvals-and-sandbox
 tg codex --sandbox workspace-write --ask-for-approval on-request
-
-# Tighter mode: only trusted commands without approval
 tg codex --sandbox workspace-write --ask-for-approval untrusted
-
-# Auto-run in workspace sandbox, escalate only when needed
-tg codex --sandbox workspace-write --ask-for-approval on-failure
 ```
-
-## Agents
-
-Create a personal agent powered by Claude Code, Codex, or any supported CLI tool. Agents are just folders with an `AGENTS.md` file that defines behavior, workflows, and skills.
-
-### Create an agent
-
-```bash
-tg agent create my-agent --name "My Agent" --owner "Your Name" --description "What it does"
-cd my-agent
-tg claude
-```
-
-All flags are optional — defaults are used when omitted:
-
-```bash
-tg agent create my-agent
-```
-
-### What you get
-
-```
-my-agent/
-  AGENTS.md          # Agent definition (soul, owner, core behavior)
-  CLAUDE.md          # Points to AGENTS.md
-  workflows/         # Reusable workflows (standalone .md files with frontmatter)
-  skills/            # Reusable skills (SKILL.md files)
-```
-
-The `<agent-core>` block in `AGENTS.md` contains the managed agent behavior — resolution logic, workflow/skill patterns, and built-in capabilities. Everything outside that block (name, description, owner) is yours to customize.
-
-### Update agent core
-
-When a new version of the agent core is released, update in place:
-
-```bash
-cd my-agent
-tg agent update
-```
-
-This replaces the `<agent-core>` block with the latest version while keeping your name, description, owner, workflows, and skills untouched.
 
 ## How it works
 
@@ -178,13 +110,14 @@ Two processes cooperate:
 
 ### Telegram commands
 
-- `/files` (or `tg files <query>`) opens inline picker buttons in the same chat, lets you select multiple `@path` entries, and queues them for your next message.
-- `@?<query>` is shorthand for the same picker (example: `@?readme`).
-- `@?<query> - <prompt>` resolves the top fuzzy match and sends `@path - prompt` directly (example: `@?readme - summarize this file`).
-- `/resume` (or `tg resume`) opens a picker of recent local sessions for this tool and restarts into the selected session.
-- `/output_mode simple|verbose` (or `tg output_mode simple|verbose`) sets bridge verbosity for the current chat (`simple` is default).
-- `/thinking on|off|toggle` (or `tg thinking on|off|toggle`) controls whether thinking previews are forwarded for this chat (default: off).
-- `/background_jobs` (Telegram command menu) or `/background-jobs` (or `tg background-jobs`) lists currently running background jobs for your connected session(s).
+- `/start_remote_control` — pick a running session to connect to this chat.
+- `/stop_remote_control` — disconnect the current session from this chat.
+- `/files` (or `@?<query>`) — inline file picker; select `@path` entries for your next message.
+- `@?<query> - <prompt>` — resolve top fuzzy match and send `@path - prompt` directly.
+- `/change_session` — switch to a different running session.
+- `/output_mode simple|verbose` — set bridge verbosity for this chat.
+- `/thinking on|off|toggle` — toggle thinking previews for this chat.
+- `/background_jobs` — list running background jobs for connected sessions.
 
 ## Touchgrass CLI reference
 
@@ -197,20 +130,10 @@ tg pi [args]
 tg kimi [args]
 ```
 
-- `tg claude [args]`: run Claude Code with chat bridge on the selected/linked channel.
-- `tg codex [args]`: run Codex with chat bridge on the selected/linked channel.
-- `tg pi [args]`: run PI with chat bridge on the selected/linked channel.
-- `tg kimi [args]`: run Kimi with chat bridge on the selected/linked channel.
-
-### Agents
-
-```bash
-tg agent create [folder] --name "Name" --owner "Owner" --description "Desc"
-tg agent update
-```
-
-- `tg agent create [folder]`: scaffold a new agent from the template into the given folder (or current directory).
-- `tg agent update`: update the `<agent-core>` block in `AGENTS.md` to the latest version.
+- `tg claude [args]`: run Claude Code with touchgrass bridge.
+- `tg codex [args]`: run Codex with touchgrass bridge.
+- `tg pi [args]`: run PI with touchgrass bridge.
+- `tg kimi [args]`: run Kimi with touchgrass bridge.
 
 ### Setup and health
 
