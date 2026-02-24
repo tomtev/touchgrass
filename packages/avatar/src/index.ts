@@ -237,14 +237,14 @@ export const LEGS: Pixel[][][] = [
     ["_", "_", "f", "_", "_", "f", "_", "_", "_"],
     ["_", "f", "_", "_", "_", "_", "f", "_", "_"],
   ],
-  [ // quad (thin, alternating pairs)
-    ["_", "l", "_", "_", "_", "_", "_", "l", "_"],
+  [ // outer (thin, alternating pairs)
+    ["_", "_", "l", "_", "_", "_", "_", "l", "_"],
     ["_", "_", "_", "l", "_", "l", "_", "_", "_"],
   ],
-  [ // tentacles (thin, cycle visibility)
-    ["_", "l", "_", "l", "_", "l", "_", "l", "_"],
-    ["_", "_", "l", "_", "l", "_", "l", "_", "_"],
-    ["_", "l", "_", "l", "_", "l", "_", "_", "_"],
+  [ // tentacles (outer thick, inner stagger)
+    ["_", "f", "_", "l", "_", "l", "_", "f", "_"],
+    ["_", "f", "_", "f", "_", "l", "_", "f", "_"],
+    ["_", "f", "_", "l", "_", "f", "_", "f", "_"],
   ],
   [ // thin biped
     ["_", "_", "l", "_", "_", "_", "l", "_", "_"],
@@ -336,6 +336,11 @@ export function traitsFromName(name: string): DecodedDNA {
   for (let i = 0; i < name.length; i++) {
     hash = name.charCodeAt(i) + ((hash << 5) - hash);
   }
+  // Bit-mixing finalizer: spreads entropy across all 32 bits
+  // so even short strings produce varied upper-bit values (hues).
+  hash = Math.imul(hash ^ (hash >>> 16), 0x45d9f3b);
+  hash = Math.imul(hash ^ (hash >>> 13), 0x45d9f3b);
+  hash = hash ^ (hash >>> 16);
   const h = Math.abs(hash);
   return {
     eyes:    h % EYES.length,
@@ -577,6 +582,169 @@ export function renderTerminal(dna: string, frame = 0): string {
  * Packs two pixel rows into one terminal line using ▀/▄ with fg/bg colors.
  * Roughly half the height and width of renderTerminal.
  */
+/**
+ * Render a DNA string as a layered SVG with separate groups for animated parts.
+ * Returns the SVG string, number of leg frames, and total row count.
+ * Used by framework components for CSS-only animation (no JS timers).
+ */
+export function renderLayeredSVG(dna: string, pixelSize = 10): {
+  svg: string;
+  legFrames: number;
+  rows: number;
+} {
+  const traits = decodeDNA(dna);
+
+  const faceHueDeg = traits.faceHue * 30;
+  const hatHueDeg = traits.hatHue * 30;
+
+  const faceRgb = hslToRgb(faceHueDeg, 0.5, 0.5);
+  const darkRgb = hslToRgb(faceHueDeg, 0.5, 0.28);
+  const hatRgb = hslToRgb(hatHueDeg, 0.5, 0.5);
+
+  const toHex = (r: number, g: number, b: number) =>
+    `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b.toString(16).padStart(2, "0")}`;
+
+  const faceHex = toHex(...faceRgb);
+  const darkHex = toHex(...darkRgb);
+  const hatHex = toHex(...hatRgb);
+
+  const half = Math.round(pixelSize / 2);
+  const quarter = Math.round(pixelSize / 4);
+  const cols = 9;
+
+  const hatRows = HATS[traits.hat];
+  const mouthNormal = MOUTHS[traits.mouth];
+  const mouthTalk = TALK_FRAMES[0];
+  const bodyNormal = BODIES[traits.body];
+  const waveF1 = WAVE_FRAMES[0];
+  const waveF2 = WAVE_FRAMES[1];
+  const legVariant = LEGS[traits.legs];
+  const legFrameCount = legVariant.length;
+
+  // hat + face + eyes + 2 mouth + 2 body + 1 legs
+  const totalRows = hatRows.length + 1 + 1 + 2 + 2 + 1;
+  const w = cols * pixelSize;
+  const h = totalRows * pixelSize;
+
+  function px(cell: Pixel, rx: number, ry: number): string {
+    if (cell === "_") return "";
+    if (cell === "f") return `<rect x="${rx}" y="${ry}" width="${pixelSize}" height="${pixelSize}" fill="${faceHex}"/>`;
+    if (cell === "l") return `<rect x="${rx}" y="${ry}" width="${half}" height="${pixelSize}" fill="${faceHex}"/>`;
+    if (cell === "a") return `<rect x="${rx}" y="${ry + half}" width="${pixelSize}" height="${half}" fill="${faceHex}"/>`;
+    if (cell === "e" || cell === "d") return `<rect x="${rx}" y="${ry}" width="${pixelSize}" height="${pixelSize}" fill="${darkHex}"/>`;
+    if (cell === "s") return `<rect x="${rx}" y="${ry}" width="${pixelSize}" height="${pixelSize}" fill="${faceHex}"/><rect x="${rx}" y="${ry + half}" width="${pixelSize}" height="${half}" fill="${darkHex}"/>`;
+    if (cell === "n") return `<rect x="${rx}" y="${ry}" width="${pixelSize}" height="${pixelSize}" fill="${faceHex}"/><rect x="${rx + quarter}" y="${ry}" width="${half}" height="${pixelSize}" fill="${darkHex}"/>`;
+    if (cell === "m") return `<rect x="${rx}" y="${ry}" width="${pixelSize}" height="${pixelSize}" fill="${faceHex}"/><rect x="${rx}" y="${ry}" width="${pixelSize}" height="${half}" fill="${darkHex}"/>`;
+    if (cell === "q") return `<rect x="${rx}" y="${ry}" width="${pixelSize}" height="${pixelSize}" fill="${faceHex}"/><rect x="${rx + half}" y="${ry + half}" width="${half}" height="${half}" fill="${darkHex}"/>`;
+    if (cell === "r") return `<rect x="${rx}" y="${ry}" width="${pixelSize}" height="${pixelSize}" fill="${faceHex}"/><rect x="${rx}" y="${ry + half}" width="${half}" height="${half}" fill="${darkHex}"/>`;
+    if (cell === "h" || cell === "k") return `<rect x="${rx}" y="${ry}" width="${pixelSize}" height="${pixelSize}" fill="${hatHex}"/>`;
+    return "";
+  }
+
+  function renderRows(rows: Pixel[][], startY: number): string {
+    let out = "";
+    for (let y = 0; y < rows.length; y++) {
+      for (let x = 0; x < cols; x++) {
+        out += px(rows[y][x], x * pixelSize, (startY + y) * pixelSize);
+      }
+    }
+    return out;
+  }
+
+  // Static rows: hat + face + eyes
+  const staticRects = renderRows([...hatRows, F, EYES[traits.eyes]], 0);
+
+  // Mouth starts after static rows
+  const mY = hatRows.length + 2;
+  const mouth0 = renderRows(mouthNormal, mY);
+  const mouth1 = renderRows(mouthTalk, mY);
+
+  // Body starts after mouth
+  const bY = mY + 2;
+  const body0 = renderRows(bodyNormal, bY);
+  const body1 = renderRows(waveF1, bY);
+  const body2 = renderRows(waveF2, bY);
+
+  // Legs start after body
+  const lY = bY + 2;
+  const legs0 = renderRows([legVariant[0]], lY);
+  const legs1 = legFrameCount > 1 ? renderRows([legVariant[1]], lY) : "";
+  const legs2 = legFrameCount > 2 ? renderRows([legVariant[2]], lY) : "";
+  const legs3 = legFrameCount > 3 ? renderRows([legVariant[3]], lY) : "";
+
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" shape-rendering="crispEdges">` +
+    `<g class="tg-bob">${staticRects}` +
+    `<g class="tg-mouth-0">${mouth0}</g>` +
+    `<g class="tg-mouth-1">${mouth1}</g>` +
+    `<g class="tg-body-0">${body0}</g>` +
+    `<g class="tg-body-1">${body1}</g>` +
+    `<g class="tg-body-2">${body2}</g>` +
+    `</g>` +
+    `<g class="tg-legs-0">${legs0}</g>` +
+    (legs1 ? `<g class="tg-legs-1">${legs1}</g>` : "") +
+    (legs2 ? `<g class="tg-legs-2">${legs2}</g>` : "") +
+    (legs3 ? `<g class="tg-legs-3">${legs3}</g>` : "") +
+    `</svg>`;
+
+  return { svg, legFrames: legFrameCount, rows: totalRows };
+}
+
+/**
+ * Shared CSS for layered SVG avatar animations.
+ * Inject once into the document head. Components use CSS classes
+ * (.idle, .walking, .talking, .waving, .walk-3f) on the wrapper div.
+ */
+export function getAvatarCSS(): string {
+  return `
+.tg-avatar .tg-mouth-1,
+.tg-avatar .tg-body-1,
+.tg-avatar .tg-body-2,
+.tg-avatar .tg-legs-1,
+.tg-avatar .tg-legs-2,
+.tg-avatar .tg-legs-3 { opacity: 0 }
+
+@keyframes tg-toggle {
+  0%, 49.99% { opacity: 1 }
+  50%, 100% { opacity: 0 }
+}
+@keyframes tg-toggle-3 {
+  0%, 33.32% { opacity: 1 }
+  33.33%, 100% { opacity: 0 }
+}
+@keyframes tg-toggle-4 {
+  0%, 24.99% { opacity: 1 }
+  25%, 100% { opacity: 0 }
+}
+@keyframes tg-idle-bob {
+  0%, 30%, 100% { transform: translateY(0) }
+  35%, 65% { transform: translateY(1px) }
+}
+
+.tg-avatar.idle .tg-bob {
+  animation: tg-idle-bob 3s steps(1) infinite;
+  animation-delay: var(--tg-idle-delay, 0s);
+}
+
+.tg-avatar.walking .tg-legs-0 { animation: tg-toggle 800ms steps(1) infinite }
+.tg-avatar.walking .tg-legs-1 { animation: tg-toggle 800ms steps(1) infinite; animation-delay: -400ms }
+.tg-avatar.walking.walk-3f .tg-legs-0 { animation: tg-toggle-3 1200ms steps(1) infinite }
+.tg-avatar.walking.walk-3f .tg-legs-1 { animation: tg-toggle-3 1200ms steps(1) infinite; animation-delay: -800ms }
+.tg-avatar.walking.walk-3f .tg-legs-2 { animation: tg-toggle-3 1200ms steps(1) infinite; animation-delay: -400ms }
+.tg-avatar.walking.walk-4f .tg-legs-0 { animation: tg-toggle-4 1200ms steps(1) infinite }
+.tg-avatar.walking.walk-4f .tg-legs-1 { animation: tg-toggle-4 1200ms steps(1) infinite; animation-delay: -900ms }
+.tg-avatar.walking.walk-4f .tg-legs-2 { animation: tg-toggle-4 1200ms steps(1) infinite; animation-delay: -600ms }
+.tg-avatar.walking.walk-4f .tg-legs-3 { animation: tg-toggle-4 1200ms steps(1) infinite; animation-delay: -300ms }
+
+.tg-avatar.talking .tg-mouth-0 { animation: tg-toggle 400ms steps(1) infinite }
+.tg-avatar.talking .tg-mouth-1 { animation: tg-toggle 400ms steps(1) infinite; animation-delay: -200ms }
+
+.tg-avatar.waving .tg-body-0 { opacity: 0 }
+.tg-avatar.waving .tg-body-1 { animation: tg-toggle 1200ms steps(1) infinite }
+.tg-avatar.waving .tg-body-2 { animation: tg-toggle 1200ms steps(1) infinite; animation-delay: -600ms }
+`;
+}
+
 export function renderTerminalSmall(dna: string, frame = 0): string {
   const traits = decodeDNA(dna);
   const grid = generateGrid(traits, frame);

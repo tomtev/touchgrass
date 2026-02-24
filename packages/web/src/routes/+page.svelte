@@ -1,7 +1,7 @@
 <script>
   import GrassHero from '$lib/GrassHero.svelte';
   import CopyButton from '$lib/CopyButton.svelte';
-  import AgentFace from '$lib/AgentFace.svelte';
+  import { Avatar } from '@touchgrass/avatar/svelte';
 
   const installCommand = 'curl -fsSL https://touchgrass.sh/install.sh | bash';
 
@@ -56,7 +56,7 @@
         <div class="feature-grid cols-3">
           <article class="card">
             <div class="card-body feature-card-inner">
-              <AgentFace dna={featureDNAs[0]} size="sm" />
+              <Avatar dna={featureDNAs[0]} size="sm" />
               <div>
                 <p class="feature-title">Zero config</p>
                 <p class="feature-desc">Wraps your existing CLI. Just prefix with <code>tg</code> and you're live.</p>
@@ -65,7 +65,7 @@
           </article>
           <article class="card">
             <div class="card-body feature-card-inner">
-              <AgentFace dna={featureDNAs[1]} size="sm" />
+              <Avatar dna={featureDNAs[1]} size="sm" />
               <div>
                 <p class="feature-title">Multi-tool</p>
                 <p class="feature-desc">Claude Code, Codex, Pi, and Kimi supported out of the box.</p>
@@ -74,7 +74,7 @@
           </article>
           <article class="card">
             <div class="card-body feature-card-inner">
-              <AgentFace dna={featureDNAs[2]} size="sm" />
+              <Avatar dna={featureDNAs[2]} size="sm" />
               <div>
                 <p class="feature-title">Build agents</p>
                 <p class="feature-desc">Scaffold personal agents with workflows, skills, and updatable core.</p>
@@ -128,7 +128,7 @@ tg claude         # start a bridged session</code></pre>
         <article class="card">
           <div class="card-body-lg agent-card-inner">
             <div class="agent-card-hero">
-              <AgentFace dna={heroDNA} size="xl" walking />
+              <Avatar dna={heroDNA} size="xl" walking />
             </div>
             <div>
               <p class="code-section-title">Build a personal agent</p>
@@ -154,7 +154,7 @@ tg claude</code></pre>
 
         <div class="agent-row">
           {#each agentRow as dna}
-            <AgentFace {dna} size="sm" />
+            <Avatar {dna} size="sm" />
           {/each}
         </div>
       </div>

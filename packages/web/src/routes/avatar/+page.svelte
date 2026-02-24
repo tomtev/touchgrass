@@ -1,19 +1,52 @@
 <script>
-  import AgentFace from '$lib/AgentFace.svelte';
+  import { Avatar } from '@touchgrass/avatar/svelte';
   import CopyButton from '$lib/CopyButton.svelte';
   import CodeBlock from '$lib/CodeBlock.svelte';
-  import { encodeDNA, SLOTS, EYES, MOUTHS, HATS, BODIES, LEGS } from '@touchgrass/avatar';
+  import { encodeDNA, decodeDNA, generateRandomDNA, traitsFromName, SLOTS, EYES, MOUTHS, HATS, BODIES, LEGS } from '@touchgrass/avatar';
 
   const installCommand = 'npm install @touchgrass/avatar';
-
   const heroDNA = '0a3f201';
   const showcaseDNAs = [
     '03b8e10', '0c47a25', '0912d4f', '00f1a32', '05d4c81',
     '0a29e70', '0e8b3d4', '029f6a5', '07c1d93', '0b5e2f6',
   ];
-
   const TOTAL = SLOTS.eyes * SLOTS.mouths * SLOTS.hats * SLOTS.bodies * SLOTS.legs * SLOTS.hues * SLOTS.hues;
-  const base = { eyes: 0, mouth: 0, hat: 0, body: 0, legs: 0, faceHue: 8, hatHue: 2 };
+
+  // Builder state
+  let builderTraits = $state({ eyes: 0, mouth: 0, hat: 2, body: 1, legs: 0, faceHue: 8, hatHue: 2 });
+  let builderDna = $derived(encodeDNA(builderTraits));
+  let builderWalking = $state(false);
+  let builderTalking = $state(false);
+  let builderWaving = $state(false);
+
+  // Name-to-avatar
+  let nameInput = $state('');
+  let nameDna = $derived(nameInput ? encodeDNA(traitsFromName(nameInput)) : null);
+
+  // Trait name arrays
+  const EYES_NAMES = ['normal','wide','close','normal-alt','big','big-close','squint','squint-wide','narrow','narrow-wide','narrow-close'];
+  const MOUTHS_NAMES = ['smile','smirk-left','smirk-right','narrow','wide-smile','wide-smirk-left','wide-smirk-right'];
+  const HATS_NAMES = ['none','tophat','beanie','crown','cap','horns','mohawk','antenna','halo','bandage','wide-brim','unicorn','ears','spikes','party-hat','flat-top','afro','spiky-thin','side-sweep','tiara','cowboy','knitted','clown-hair','stovepipe'];
+  const BODIES_NAMES = ['normal','normal-arms','narrow','narrow-arms','tapered','tapered-arms'];
+  const LEGS_NAMES = ['biped','outer','tentacles','thin-biped','wide-stance','thin-narrow'];
+  const HUE_NAMES = ['red','orange','yellow','lime','green','teal','cyan','azure','blue','purple','magenta','rose'];
+
+  // Leg demo base traits
+  const legDemoBase = { eyes: 0, mouth: 0, hat: 2, body: 0, legs: 0, faceHue: 8, hatHue: 2 };
+
+  // Mass grid (60 deterministic avatars with random animations)
+  const massGrid = Array.from({ length: 60 }, (_, i) => {
+    const dna = encodeDNA(traitsFromName(`agent-${i}`));
+    // Use index to deterministically assign animations (~30% walking, ~20% talking, ~10% waving, rest idle)
+    const mod = i % 10;
+    return {
+      dna,
+      walking: mod === 1 || mod === 4 || mod === 7,
+      talking: mod === 2 || mod === 5 || mod === 8,
+      waving: mod === 3,
+    };
+  });
+
 
   // Code examples
   const coreExample = `import { generateRandomDNA, renderSVG } from '@touchgrass/avatar';
@@ -108,6 +141,10 @@ const walk = renderSVG('0a3f201', 10, 1);   // walking frame 1
 const uri = \`data:image/svg+xml,\${encodeURIComponent(svg)}\`;`;
 
   let activeTab = $state('svelte');
+
+  function randomize() {
+    builderTraits = decodeDNA(generateRandomDNA());
+  }
 </script>
 
 <svelte:head>
@@ -125,7 +162,7 @@ const uri = \`data:image/svg+xml,\${encodeURIComponent(svg)}\`;`;
       <div class="card-header">
         <div class="av-hero-row">
           {#each showcaseDNAs.slice(0, 7) as dna}
-            <AgentFace {dna} size="lg" />
+            <Avatar {dna} size="lg" />
           {/each}
         </div>
         <h1 class="card-title">Pixel art avatars for the web and terminal.</h1>
@@ -159,7 +196,7 @@ const uri = \`data:image/svg+xml,\${encodeURIComponent(svg)}\`;`;
     <div class="feature-grid cols-3">
       <article class="card">
         <div class="card-body feature-card-inner">
-          <AgentFace dna={showcaseDNAs[0]} size="sm" />
+          <Avatar dna={showcaseDNAs[0]} size="sm" />
           <div>
             <p class="feature-title">7-char DNA</p>
             <p class="feature-desc">Each avatar is a hex string like <code>0a3f201</code>. Store it, share it, render it anywhere.</p>
@@ -168,7 +205,7 @@ const uri = \`data:image/svg+xml,\${encodeURIComponent(svg)}\`;`;
       </article>
       <article class="card">
         <div class="card-body feature-card-inner">
-          <AgentFace dna={showcaseDNAs[1]} size="sm" />
+          <Avatar dna={showcaseDNAs[1]} size="sm" />
           <div>
             <p class="feature-title">32M combinations</p>
             <p class="feature-desc">7 traits: eyes, mouth, hat, body, legs, and two color hues. All deterministic.</p>
@@ -177,7 +214,7 @@ const uri = \`data:image/svg+xml,\${encodeURIComponent(svg)}\`;`;
       </article>
       <article class="card">
         <div class="card-body feature-card-inner">
-          <AgentFace dna={showcaseDNAs[2]} size="sm" />
+          <Avatar dna={showcaseDNAs[2]} size="sm" />
           <div>
             <p class="feature-title">Web + Terminal</p>
             <p class="feature-desc">SVG, Svelte, React, Vue, or ANSI terminal art. Same DNA everywhere.</p>
@@ -186,42 +223,127 @@ const uri = \`data:image/svg+xml,\${encodeURIComponent(svg)}\`;`;
       </article>
     </div>
 
-    <!-- Showcase with big avatar + animation demos -->
+    <!-- Example Grid -->
     <article class="card">
       <div class="card-body-lg">
-        <div class="av-showcase">
-          <div class="av-showcase-hero">
-            <AgentFace dna={heroDNA} size="xl" waving />
+        <p class="code-section-title">Examples</p>
+        <div class="av-mass-grid">
+          {#each massGrid as av}
+            <Avatar dna={av.dna} size="lg" walking={av.walking} talking={av.talking} waving={av.waving} />
+          {/each}
+        </div>
+      </div>
+    </article>
+
+    <!-- Name to Avatar -->
+    <article class="card">
+      <div class="card-body-lg">
+        <p class="code-section-title">Name to Avatar</p>
+        <p class="code-section-desc">Type any string to see its deterministic avatar. Same name always produces the same result.</p>
+        <div class="av-name-section">
+          <input
+            type="text"
+            class="av-name-input"
+            placeholder="type a name..."
+            bind:value={nameInput}
+          />
+          {#if nameDna}
+            <div class="av-name-result">
+              <Avatar dna={nameDna} size="lg" />
+              <code class="av-name-dna">{nameDna}</code>
+            </div>
+          {/if}
+        </div>
+      </div>
+    </article>
+
+    <!-- Animation Showcase -->
+    <article class="card">
+      <div class="card-body-lg">
+        <p class="code-section-title">Animations</p>
+        <div class="av-anim-section">
+          <div class="av-anim-group">
+            <p class="av-anim-label">Idle</p>
+            <div class="av-anim-row">
+              {#each showcaseDNAs.slice(0, 3) as dna}
+                <Avatar {dna} size="lg" />
+              {/each}
+            </div>
           </div>
-          <div class="av-anim-section">
-            <div class="av-anim-group">
-              <p class="av-anim-label">Idle</p>
-              <div class="av-anim-row">
-                {#each showcaseDNAs.slice(0, 3) as dna}
-                  <AgentFace {dna} size="lg" />
-                {/each}
-              </div>
+          <div class="av-anim-group">
+            <p class="av-anim-label">Walking</p>
+            <div class="av-anim-row">
+              {#each Array.from({ length: LEGS.length }, (_, i) => i) as i}
+                <div class="av-anim-item">
+                  <Avatar dna={encodeDNA({...legDemoBase, legs: i})} size="lg" walking />
+                  <span class="av-anim-item-label">{LEGS_NAMES[i]}</span>
+                </div>
+              {/each}
             </div>
-            <div class="av-anim-group">
-              <p class="av-anim-label">Walking</p>
-              <div class="av-anim-row">
-                {#each showcaseDNAs.slice(3, 6) as dna}
-                  <AgentFace {dna} size="lg" walking />
-                {/each}
-              </div>
+          </div>
+          <div class="av-anim-group">
+            <p class="av-anim-label">Talking</p>
+            <div class="av-anim-row">
+              {#each showcaseDNAs.slice(3, 6) as dna}
+                <Avatar {dna} size="lg" talking />
+              {/each}
             </div>
-            <div class="av-anim-group">
-              <p class="av-anim-label">Talking</p>
-              <div class="av-anim-row">
-                {#each showcaseDNAs.slice(6, 9) as dna}
-                  <AgentFace {dna} size="lg" talking />
-                {/each}
+          </div>
+          <div class="av-anim-group">
+            <p class="av-anim-label">Waving</p>
+            <div class="av-anim-row">
+              {#each showcaseDNAs.slice(6, 9) as dna}
+                <Avatar {dna} size="lg" waving />
+              {/each}
+            </div>
+          </div>
+          <div class="av-anim-group">
+            <p class="av-anim-label">Combined</p>
+            <div class="av-anim-row">
+              <div class="av-anim-item">
+                <Avatar dna={showcaseDNAs[0]} size="lg" walking talking />
+                <span class="av-anim-item-label">walk+talk</span>
+              </div>
+              <div class="av-anim-item">
+                <Avatar dna={showcaseDNAs[1]} size="lg" walking talking />
+                <span class="av-anim-item-label">walk+talk</span>
+              </div>
+              <div class="av-anim-item">
+                <Avatar dna={showcaseDNAs[2]} size="lg" waving talking />
+                <span class="av-anim-item-label">wave+talk</span>
+              </div>
+              <div class="av-anim-item">
+                <Avatar dna={showcaseDNAs[3]} size="lg" waving talking />
+                <span class="av-anim-item-label">wave+talk</span>
               </div>
             </div>
           </div>
         </div>
       </div>
     </article>
+
+    <!-- Size Comparison -->
+    <article class="card">
+      <div class="card-body-lg">
+        <p class="code-section-title">Sizes</p>
+        <div class="av-size-row">
+          <div class="av-size-item">
+            <Avatar dna={builderDna} size="sm" />
+            <span class="av-size-label">sm (3px)</span>
+          </div>
+          <div class="av-size-item">
+            <Avatar dna={builderDna} size="lg" />
+            <span class="av-size-label">lg (8px)</span>
+          </div>
+          <div class="av-size-item">
+            <Avatar dna={builderDna} size="xl" />
+            <span class="av-size-label">xl (14px)</span>
+          </div>
+        </div>
+      </div>
+    </article>
+
+
 
     <!-- Quick start -->
     <article class="card">
@@ -274,23 +396,14 @@ const uri = \`data:image/svg+xml,\${encodeURIComponent(svg)}\`;`;
       </div>
     </article>
 
-    <!-- Rendering -->
-    <div class="feature-grid cols-2">
-      <article class="card">
-        <div class="card-body-lg">
-          <p class="code-section-title">Terminal rendering</p>
-          <p class="code-section-desc">ANSI 24-bit color for CLIs.</p>
-          <CodeBlock code={terminalExample} lang="ts" />
-        </div>
-      </article>
-      <article class="card">
-        <div class="card-body-lg">
-          <p class="code-section-title">SVG rendering</p>
-          <p class="code-section-desc">Scalable vector output with walking frames.</p>
-          <CodeBlock code={svgExample} lang="ts" />
-        </div>
-      </article>
-    </div>
+    <!-- SVG rendering -->
+    <article class="card">
+      <div class="card-body-lg">
+        <p class="code-section-title">SVG rendering</p>
+        <p class="code-section-desc">Scalable vector output with walking frames.</p>
+        <CodeBlock code={svgExample} lang="ts" />
+      </div>
+    </article>
 
     <!-- DNA encoding table -->
     <article class="card">
@@ -317,41 +430,6 @@ const uri = \`data:image/svg+xml,\${encodeURIComponent(svg)}\`;`;
       </div>
     </article>
 
-    <!-- Trait galleries -->
-    <article class="card">
-      <div class="card-body-lg">
-        <p class="code-section-title">Hats ({HATS.length} variants)</p>
-        <div class="av-trait-row">
-          {#each Array.from({ length: HATS.length }, (_, i) => i) as i}
-            <AgentFace dna={encodeDNA({ ...base, hat: i })} size="sm" />
-          {/each}
-        </div>
-      </div>
-    </article>
-
-    <div class="feature-grid cols-2">
-      <article class="card">
-        <div class="card-body-lg">
-          <p class="code-section-title">Eyes ({EYES.length})</p>
-          <div class="av-trait-row">
-            {#each Array.from({ length: EYES.length }, (_, i) => i) as i}
-              <AgentFace dna={encodeDNA({ ...base, eyes: i })} size="sm" />
-            {/each}
-          </div>
-        </div>
-      </article>
-      <article class="card">
-        <div class="card-body-lg">
-          <p class="code-section-title">12 hues</p>
-          <div class="av-trait-row">
-            {#each Array.from({ length: 12 }, (_, i) => i) as hue}
-              <AgentFace dna={encodeDNA({ ...base, faceHue: hue, hatHue: (hue + 6) % 12, hat: 2 })} size="sm" />
-            {/each}
-          </div>
-        </div>
-      </article>
-    </div>
-
     <!-- Exports -->
     <article class="card">
       <div class="card-body-lg">
@@ -361,6 +439,142 @@ const uri = \`data:image/svg+xml,\${encodeURIComponent(svg)}\`;`;
 @touchgrass/avatar/react    React component
 @touchgrass/avatar/vue      Vue 3 component
 @touchgrass/avatar/ink      Ink component (React for terminals)`} lang="bash" />
+      </div>
+    </article>
+
+    <!-- Avatar Builder -->
+    <article class="card">
+      <div class="card-body-lg">
+        <p class="code-section-title">Avatar Builder</p>
+        <div class="av-builder">
+          <div class="av-builder-preview">
+            <Avatar dna={builderDna} size="xl" walking={builderWalking} talking={builderTalking} waving={builderWaving} />
+            <div class="av-builder-toggles">
+              <button class="av-toggle" class:active={builderWalking} onclick={() => builderWalking = !builderWalking}>walk</button>
+              <button class="av-toggle" class:active={builderTalking} onclick={() => builderTalking = !builderTalking}>talk</button>
+              <button class="av-toggle" class:active={builderWaving} onclick={() => builderWaving = !builderWaving}>wave</button>
+            </div>
+            <div class="av-builder-controls">
+              <code class="av-builder-dna">{builderDna}</code>
+              <CopyButton command={builderDna} />
+              <button class="av-randomize" onclick={randomize}>Randomize</button>
+            </div>
+          </div>
+          <div class="av-trait-picker">
+            <!-- Face hue -->
+            <div class="av-trait-row-wrap">
+              <span class="av-trait-label">Face hue</span>
+              <div class="av-trait-options">
+                {#each Array.from({ length: 12 }, (_, i) => i) as i}
+                  <button
+                    class="av-trait-option"
+                    class:selected={builderTraits.faceHue === i}
+                    onclick={() => builderTraits.faceHue = i}
+                    title={HUE_NAMES[i]}
+                  >
+                    <Avatar dna={encodeDNA({...builderTraits, faceHue: i})} size="sm" />
+                  </button>
+                {/each}
+              </div>
+            </div>
+            <!-- Hat hue -->
+            <div class="av-trait-row-wrap">
+              <span class="av-trait-label">Hat hue</span>
+              <div class="av-trait-options">
+                {#each Array.from({ length: 12 }, (_, i) => i) as i}
+                  <button
+                    class="av-trait-option"
+                    class:selected={builderTraits.hatHue === i}
+                    onclick={() => builderTraits.hatHue = i}
+                    title={HUE_NAMES[i]}
+                  >
+                    <Avatar dna={encodeDNA({...builderTraits, hatHue: i})} size="sm" />
+                  </button>
+                {/each}
+              </div>
+            </div>
+            <!-- Eyes -->
+            <div class="av-trait-row-wrap">
+              <span class="av-trait-label">Eyes</span>
+              <div class="av-trait-options">
+                {#each Array.from({ length: EYES.length }, (_, i) => i) as i}
+                  <button
+                    class="av-trait-option"
+                    class:selected={builderTraits.eyes === i}
+                    onclick={() => builderTraits.eyes = i}
+                    title={EYES_NAMES[i]}
+                  >
+                    <Avatar dna={encodeDNA({...builderTraits, eyes: i})} size="sm" />
+                  </button>
+                {/each}
+              </div>
+            </div>
+            <!-- Mouths -->
+            <div class="av-trait-row-wrap">
+              <span class="av-trait-label">Mouth</span>
+              <div class="av-trait-options">
+                {#each Array.from({ length: MOUTHS.length }, (_, i) => i) as i}
+                  <button
+                    class="av-trait-option"
+                    class:selected={builderTraits.mouth === i}
+                    onclick={() => builderTraits.mouth = i}
+                    title={MOUTHS_NAMES[i]}
+                  >
+                    <Avatar dna={encodeDNA({...builderTraits, mouth: i})} size="sm" />
+                  </button>
+                {/each}
+              </div>
+            </div>
+            <!-- Hats -->
+            <div class="av-trait-row-wrap">
+              <span class="av-trait-label">Hat</span>
+              <div class="av-trait-options">
+                {#each Array.from({ length: HATS.length }, (_, i) => i) as i}
+                  <button
+                    class="av-trait-option"
+                    class:selected={builderTraits.hat === i}
+                    onclick={() => builderTraits.hat = i}
+                    title={HATS_NAMES[i]}
+                  >
+                    <Avatar dna={encodeDNA({...builderTraits, hat: i})} size="sm" />
+                  </button>
+                {/each}
+              </div>
+            </div>
+            <!-- Bodies -->
+            <div class="av-trait-row-wrap">
+              <span class="av-trait-label">Body</span>
+              <div class="av-trait-options">
+                {#each Array.from({ length: BODIES.length }, (_, i) => i) as i}
+                  <button
+                    class="av-trait-option"
+                    class:selected={builderTraits.body === i}
+                    onclick={() => builderTraits.body = i}
+                    title={BODIES_NAMES[i]}
+                  >
+                    <Avatar dna={encodeDNA({...builderTraits, body: i})} size="sm" />
+                  </button>
+                {/each}
+              </div>
+            </div>
+            <!-- Legs -->
+            <div class="av-trait-row-wrap">
+              <span class="av-trait-label">Legs</span>
+              <div class="av-trait-options">
+                {#each Array.from({ length: LEGS.length }, (_, i) => i) as i}
+                  <button
+                    class="av-trait-option"
+                    class:selected={builderTraits.legs === i}
+                    onclick={() => builderTraits.legs = i}
+                    title={LEGS_NAMES[i]}
+                  >
+                    <Avatar dna={encodeDNA({...builderTraits, legs: i})} size="sm" />
+                  </button>
+                {/each}
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </article>
 
@@ -377,7 +591,7 @@ const uri = \`data:image/svg+xml,\${encodeURIComponent(svg)}\`;`;
 
     <div class="agent-row">
       {#each showcaseDNAs as dna}
-        <AgentFace {dna} size="sm" />
+        <Avatar {dna} size="sm" />
       {/each}
     </div>
 
@@ -414,22 +628,191 @@ const uri = \`data:image/svg+xml,\${encodeURIComponent(svg)}\`;`;
     padding-bottom: 0.5rem;
   }
 
-  /* Showcase */
-  .av-showcase {
+  /* Builder */
+  .av-builder {
     display: flex;
     gap: 2rem;
-    align-items: center;
+    align-items: flex-start;
+    margin-top: 0.75rem;
   }
 
-  .av-showcase-hero {
+  .av-builder-preview {
     flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .av-builder-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .av-builder-dna {
+    font-family: var(--font-mono);
+    font-size: 0.875rem;
+    color: rgb(110, 231, 183);
+    background: rgba(110, 231, 183, 0.1);
+    padding: 0.25rem 0.5rem;
+    border-radius: 0.25rem;
+  }
+
+  .av-builder-toggles {
+    display: flex;
+    gap: 0.375rem;
+  }
+
+  .av-toggle {
+    padding: 0.2rem 0.5rem;
+    border-radius: 0.25rem;
+    border: 1px solid rgba(167, 243, 208, 0.2);
+    background: transparent;
+    color: rgba(209, 250, 229, 0.5);
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .av-toggle:hover {
+    border-color: rgba(167, 243, 208, 0.4);
+    color: rgba(209, 250, 229, 0.8);
+  }
+
+  .av-toggle.active {
+    background: rgba(110, 231, 183, 0.15);
+    border-color: rgba(110, 231, 183, 0.4);
+    color: rgb(110, 231, 183);
+  }
+
+  .av-randomize {
+    padding: 0.25rem 0.625rem;
+    border-radius: 0.375rem;
+    border: 1px solid rgba(167, 243, 208, 0.2);
+    background: transparent;
+    color: rgba(209, 250, 229, 0.7);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .av-randomize:hover {
+    background: rgba(255, 255, 255, 0.05);
+    color: rgba(209, 250, 229, 0.95);
+    border-color: rgba(167, 243, 208, 0.4);
+  }
+
+  .av-trait-picker {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    min-width: 0;
+  }
+
+  .av-trait-row-wrap {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .av-trait-label {
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    color: rgba(209, 250, 229, 0.5);
+    width: 5rem;
+    flex-shrink: 0;
+    text-align: right;
+  }
+
+  .av-trait-options {
+    display: flex;
+    gap: 3px;
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    padding-bottom: 2px;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(167, 243, 208, 0.15) transparent;
+  }
+
+  .av-trait-option {
+    flex-shrink: 0;
+    padding: 2px;
+    border: 1px solid transparent;
+    border-radius: 3px;
+    background: transparent;
+    cursor: pointer;
+    transition: border-color 0.15s;
+  }
+
+  .av-trait-option:hover {
+    border-color: rgba(110, 231, 183, 0.4);
+  }
+
+  .av-trait-option.selected {
+    border-color: rgb(110, 231, 183);
+    background: rgba(110, 231, 183, 0.1);
   }
 
   @media (max-width: 639px) {
-    .av-showcase {
+    .av-builder {
       flex-direction: column;
       align-items: center;
     }
+    .av-trait-row-wrap {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 0.25rem;
+    }
+    .av-trait-label {
+      text-align: left;
+      width: auto;
+    }
+  }
+
+  /* Name to Avatar */
+  .av-name-section {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    margin-top: 0.75rem;
+    flex-wrap: wrap;
+  }
+
+  .av-name-input {
+    font-family: var(--font-mono);
+    font-size: 0.875rem;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid rgba(167, 243, 208, 0.2);
+    border-radius: 0.375rem;
+    background: rgba(0, 0, 0, 0.3);
+    color: rgba(209, 250, 229, 0.9);
+    width: 16rem;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+
+  .av-name-input:focus {
+    border-color: rgba(110, 231, 183, 0.5);
+  }
+
+  .av-name-input::placeholder {
+    color: rgba(209, 250, 229, 0.3);
+  }
+
+  .av-name-result {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .av-name-dna {
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+    color: rgba(209, 250, 229, 0.6);
   }
 
   /* Animations */
@@ -437,7 +820,7 @@ const uri = \`data:image/svg+xml,\${encodeURIComponent(svg)}\`;`;
     display: flex;
     flex-direction: column;
     gap: 1rem;
-    flex: 1;
+    margin-top: 0.75rem;
   }
 
   .av-anim-group {
@@ -450,7 +833,7 @@ const uri = \`data:image/svg+xml,\${encodeURIComponent(svg)}\`;`;
     font-family: var(--font-mono);
     font-size: 0.75rem;
     color: rgba(209, 250, 229, 0.5);
-    width: 4.5rem;
+    width: 5rem;
     flex-shrink: 0;
     text-align: right;
   }
@@ -459,6 +842,20 @@ const uri = \`data:image/svg+xml,\${encodeURIComponent(svg)}\`;`;
     display: flex;
     gap: 0.75rem;
     flex-wrap: wrap;
+    align-items: flex-end;
+  }
+
+  .av-anim-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.25rem;
+  }
+
+  .av-anim-item-label {
+    font-family: var(--font-mono);
+    font-size: 0.625rem;
+    color: rgba(209, 250, 229, 0.35);
   }
 
   @media (max-width: 639px) {
@@ -468,6 +865,45 @@ const uri = \`data:image/svg+xml,\${encodeURIComponent(svg)}\`;`;
     }
     .av-anim-label {
       text-align: left;
+      width: auto;
+    }
+  }
+
+  /* Sizes */
+  .av-size-row {
+    display: flex;
+    align-items: flex-end;
+    gap: 2rem;
+    margin-top: 0.75rem;
+    flex-wrap: wrap;
+  }
+
+  .av-size-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .av-size-label {
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    color: rgba(209, 250, 229, 0.45);
+  }
+
+
+  /* Mass Grid */
+  .av-mass-grid {
+    display: grid;
+    grid-template-columns: repeat(10, 1fr);
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+    justify-items: center;
+  }
+
+  @media (max-width: 639px) {
+    .av-mass-grid {
+      grid-template-columns: repeat(5, 1fr);
     }
   }
 
@@ -506,14 +942,6 @@ const uri = \`data:image/svg+xml,\${encodeURIComponent(svg)}\`;`;
     font-size: 0.75rem;
     color: rgba(209, 250, 229, 0.45);
     margin-bottom: 0.5rem;
-  }
-
-  /* Trait rows */
-  .av-trait-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-    margin-top: 0.75rem;
   }
 
   /* Table */

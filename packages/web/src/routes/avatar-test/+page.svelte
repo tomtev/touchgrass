@@ -1,5 +1,5 @@
 <script>
-  import AgentFace from '$lib/AgentFace.svelte';
+  import { Avatar } from '@touchgrass/avatar/svelte';
   import { encodeDNA, SLOTS, EYES, MOUTHS, HATS, BODIES, LEGS } from '@touchgrass/avatar';
 
   const EYES_NAMES = [
@@ -63,7 +63,7 @@
     <div class="avatar-grid">
       {#each EYES_NAMES as name, i}
         <div class="avatar-card">
-          <AgentFace dna={variantDNA('eyes', i)} size="xl" />
+          <Avatar dna={variantDNA('eyes', i)} size="xl" />
           <code class="dna-label">{i}: {name}</code>
         </div>
       {/each}
@@ -76,7 +76,7 @@
     <div class="avatar-grid">
       {#each MOUTHS_NAMES as name, i}
         <div class="avatar-card">
-          <AgentFace dna={variantDNA('mouth', i)} size="xl" />
+          <Avatar dna={variantDNA('mouth', i)} size="xl" />
           <code class="dna-label">{i}: {name}</code>
         </div>
       {/each}
@@ -89,7 +89,7 @@
     <div class="avatar-grid">
       {#each HATS_NAMES as name, i}
         <div class="avatar-card">
-          <AgentFace dna={variantDNA('hat', i)} size="lg" />
+          <Avatar dna={variantDNA('hat', i)} size="lg" />
           <code class="dna-label">{i}: {name}</code>
         </div>
       {/each}
@@ -102,7 +102,7 @@
     <div class="avatar-grid">
       {#each BODIES_NAMES as name, i}
         <div class="avatar-card">
-          <AgentFace dna={variantDNA('body', i)} size="xl" />
+          <Avatar dna={variantDNA('body', i)} size="xl" />
           <code class="dna-label">{i}: {name}</code>
         </div>
       {/each}
@@ -115,7 +115,7 @@
     <div class="avatar-grid">
       {#each LEGS_NAMES as name, i}
         <div class="avatar-card">
-          <AgentFace dna={variantDNA('legs', i)} size="xl" />
+          <Avatar dna={variantDNA('legs', i)} size="xl" />
           <code class="dna-label">{i}: {name}</code>
         </div>
       {/each}
@@ -124,7 +124,7 @@
     <div class="avatar-grid">
       {#each LEGS_NAMES as name, i}
         <div class="avatar-card">
-          <AgentFace dna={variantDNA('legs', i)} size="xl" walking />
+          <Avatar dna={variantDNA('legs', i)} size="xl" walking />
           <code class="dna-label">{name}</code>
         </div>
       {/each}
@@ -137,7 +137,7 @@
     <div class="avatar-grid">
       {#each Array.from({ length: 12 }, (_, i) => i) as hue}
         <div class="avatar-card">
-          <AgentFace dna={encodeDNA({ ...base, faceHue: hue, hatHue: (hue + 6) % 12, hat: 2 })} size="lg" />
+          <Avatar dna={encodeDNA({ ...base, faceHue: hue, hatHue: (hue + 6) % 12, hat: 2 })} size="lg" />
           <code class="dna-label">{hue * 30}&deg;</code>
         </div>
       {/each}
@@ -149,15 +149,15 @@
     <h2 class="section-title">Sizes</h2>
     <div class="size-row">
       <div class="avatar-card">
-        <AgentFace dna={randomAvatars[0]} size="sm" />
+        <Avatar dna={randomAvatars[0]} size="sm" />
         <code class="dna-label">sm</code>
       </div>
       <div class="avatar-card">
-        <AgentFace dna={randomAvatars[0]} size="lg" />
+        <Avatar dna={randomAvatars[0]} size="lg" />
         <code class="dna-label">lg</code>
       </div>
       <div class="avatar-card">
-        <AgentFace dna={randomAvatars[0]} size="xl" />
+        <Avatar dna={randomAvatars[0]} size="xl" />
         <code class="dna-label">xl</code>
       </div>
     </div>
@@ -169,7 +169,7 @@
     <div class="avatar-grid">
       {#each Array.from({ length: 8 }, (_, i) => encodeDNA({ ...base, body: 1, legs: i })) as dna}
         <div class="avatar-card">
-          <AgentFace {dna} size="lg" waving />
+          <Avatar {dna} size="lg" waving />
           <code class="dna-label">{dna}</code>
         </div>
       {/each}
@@ -182,7 +182,7 @@
     <div class="avatar-grid">
       {#each randomAvatars.slice(0, 8) as dna}
         <div class="avatar-card">
-          <AgentFace {dna} size="lg" talking />
+          <Avatar {dna} size="lg" talking />
           <code class="dna-label">{dna}</code>
         </div>
       {/each}
@@ -196,7 +196,7 @@
     <div class="avatar-grid">
       {#each randomAvatars.slice(0, 20) as dna}
         <div class="avatar-card">
-          <AgentFace {dna} size="lg" />
+          <Avatar {dna} size="lg" />
           <code class="dna-label">{dna}</code>
         </div>
       {/each}
@@ -209,7 +209,7 @@
     <div class="avatar-grid">
       {#each randomAvatars.slice(20, 40) as dna}
         <div class="avatar-card">
-          <AgentFace {dna} size="lg" walking />
+          <Avatar {dna} size="lg" walking />
           <code class="dna-label">{dna}</code>
         </div>
       {/each}
@@ -222,7 +222,7 @@
     <div class="xl-row">
       {#each randomAvatars.slice(0, 8) as dna}
         <div class="avatar-card">
-          <AgentFace {dna} size="xl" walking />
+          <Avatar {dna} size="xl" walking />
           <code class="dna-label">{dna}</code>
         </div>
       {/each}
