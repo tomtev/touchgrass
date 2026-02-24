@@ -22,7 +22,17 @@ Write-Host "  touchgrass.sh" -ForegroundColor White
 Write-Host "  Manage Claude Code, Codex, and more from your phone." -ForegroundColor DarkGray
 Write-Host ""
 
-$arch = [System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture.ToString().ToLowerInvariant()
+$arch = $null
+try {
+  $arch = [System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture.ToString().ToLowerInvariant()
+} catch {}
+if (-not $arch) {
+  # Fallback for Windows PowerShell 5.1 (.NET Framework)
+  $arch = $env:PROCESSOR_ARCHITECTURE
+  if ($arch -eq "AMD64") { $arch = "x64" }
+  elseif ($arch -eq "ARM64") { $arch = "arm64" }
+  else { $arch = $arch.ToLowerInvariant() }
+}
 if ($arch -ne "x64") {
   Fail "Unsupported Windows architecture: $arch (supported: x64)"
 }
