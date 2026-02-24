@@ -263,10 +263,6 @@ export class SessionManager {
       lastSeenAt: Date.now(),
     };
     this.remotes.set(id, remote);
-    // Only auto-attach if no existing attachment (don't overwrite)
-    if (!this.attachments.has(chatId)) {
-      this.attachments.set(chatId, id);
-    }
     return remote;
   }
 

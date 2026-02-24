@@ -20,21 +20,20 @@ describe("registerRemote", () => {
     expect(remote.controlAction).toBeNull();
   });
 
-  it("auto-attaches to chatId when no existing attachment", () => {
+  it("does not auto-attach to chatId on register", () => {
     const mgr = createManager();
-    const remote = mgr.registerRemote("claude", "telegram:100" as ChannelChatId, "telegram:100" as ChannelUserId);
+    mgr.registerRemote("claude", "telegram:100" as ChannelChatId, "telegram:100" as ChannelUserId);
     const attached = mgr.getAttachedRemote("telegram:100" as ChannelChatId);
-    expect(attached).toBeDefined();
-    expect(attached!.id).toBe(remote.id);
+    expect(attached).toBeUndefined();
   });
 
-  it("does not overwrite existing attachment on same chatId", () => {
+  it("registers multiple sessions on same chatId without attaching", () => {
     const mgr = createManager();
     const first = mgr.registerRemote("claude", "telegram:100" as ChannelChatId, "telegram:100" as ChannelUserId);
     const second = mgr.registerRemote("codex", "telegram:100" as ChannelChatId, "telegram:100" as ChannelUserId);
-    const attached = mgr.getAttachedRemote("telegram:100" as ChannelChatId);
-    expect(attached!.id).toBe(first.id);
-    // Second session still exists
+    expect(mgr.getAttachedRemote("telegram:100" as ChannelChatId)).toBeUndefined();
+    // Both sessions exist
+    expect(mgr.getRemote(first.id)).toBeDefined();
     expect(mgr.getRemote(second.id)).toBeDefined();
   });
 });
@@ -59,6 +58,7 @@ describe("attach / detach", () => {
   it("detach removes the attachment", () => {
     const mgr = createManager();
     const remote = mgr.registerRemote("claude", "telegram:100" as ChannelChatId, "telegram:100" as ChannelUserId);
+    mgr.attach("telegram:100" as ChannelChatId, remote.id);
     mgr.detach("telegram:100" as ChannelChatId);
     const attached = mgr.getAttachedRemote("telegram:100" as ChannelChatId);
     expect(attached).toBeUndefined();
@@ -118,6 +118,7 @@ describe("getAttachedRemote", () => {
   it("returns the attached remote session", () => {
     const mgr = createManager();
     const remote = mgr.registerRemote("claude", "telegram:100" as ChannelChatId, "telegram:100" as ChannelUserId);
+    mgr.attach("telegram:100" as ChannelChatId, remote.id);
     const found = mgr.getAttachedRemote("telegram:100" as ChannelChatId);
     expect(found).toBeDefined();
     expect(found!.id).toBe(remote.id);
@@ -132,6 +133,7 @@ describe("getAttachedRemote", () => {
   it("cleans up stale attachment when remote was removed", () => {
     const mgr = createManager();
     const remote = mgr.registerRemote("claude", "telegram:100" as ChannelChatId, "telegram:100" as ChannelUserId);
+    mgr.attach("telegram:100" as ChannelChatId, remote.id);
     mgr.removeRemote(remote.id);
     // Attachment still exists in map but remote is gone — should auto-cleanup
     expect(mgr.getAttachedRemote("telegram:100" as ChannelChatId)).toBeUndefined();
@@ -337,6 +339,7 @@ describe("getBoundChat", () => {
   it("returns the chatId attached to a session", () => {
     const mgr = createManager();
     const remote = mgr.registerRemote("claude", "telegram:100" as ChannelChatId, "telegram:100" as ChannelUserId);
+    mgr.attach("telegram:100" as ChannelChatId, remote.id);
     expect(mgr.getBoundChat(remote.id)).toBe("telegram:100");
   });
 
@@ -348,6 +351,7 @@ describe("getBoundChat", () => {
   it("reflects re-binding to a different chat", () => {
     const mgr = createManager();
     const remote = mgr.registerRemote("claude", "telegram:100" as ChannelChatId, "telegram:100" as ChannelUserId);
+    mgr.attach("telegram:100" as ChannelChatId, remote.id);
     // Detach DM, attach group
     mgr.detach("telegram:100" as ChannelChatId);
     mgr.attach("telegram:-200" as ChannelChatId, remote.id);
@@ -357,7 +361,8 @@ describe("getBoundChat", () => {
   it("prefers a non-owner bound chat over owner DM when both are attached", () => {
     const mgr = createManager();
     const remote = mgr.registerRemote("claude", "telegram:100" as ChannelChatId, "telegram:100" as ChannelUserId);
-    // Keep owner DM attached and also attach a topic/group chat.
+    // Attach owner DM and also attach a topic/group chat.
+    mgr.attach("telegram:100" as ChannelChatId, remote.id);
     mgr.attach("telegram:-200:7" as ChannelChatId, remote.id);
     expect(mgr.getBoundChat(remote.id)).toBe("telegram:-200:7");
   });
