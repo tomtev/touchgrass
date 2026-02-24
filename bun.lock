@@ -15,7 +15,7 @@
         "@xterm/addon-web-links": "^0.12.0",
         "@xterm/addon-webgl": "^0.19.0",
         "@xterm/xterm": "^6.0.0",
-        "termlings": "workspace:*",
+        "termlings": "^0.1.2",
       },
       "devDependencies": {
         "@sveltejs/vite-plugin-svelte": "^6.2.1",
@@ -33,26 +33,22 @@
     },
     "packages/cli": {
       "name": "@touchgrass/cli",
-      "version": "0.1.112",
+      "version": "0.1.113",
       "dependencies": {
         "playwright": "^1.58.2",
-        "termlings": "workspace:*",
+        "termlings": "^0.1.2",
       },
       "devDependencies": {
         "@types/bun": "latest",
         "typescript": "^5.7.0",
       },
     },
-    "packages/termlings": {
-      "name": "termlings",
-      "version": "0.1.1",
-    },
     "packages/web": {
       "name": "@touchgrass/web",
       "version": "0.1.0",
       "dependencies": {
         "@knadh/oat": "^0.3.0",
-        "termlings": "workspace:*",
+        "termlings": "^0.1.2",
       },
       "devDependencies": {
         "@sveltejs/adapter-cloudflare": "^7.0.0",
@@ -422,7 +418,7 @@
 
     "svelte-check": ["svelte-check@4.4.3", "", { "dependencies": { "@jridgewell/trace-mapping": "^0.3.25", "chokidar": "^4.0.1", "fdir": "^6.2.0", "picocolors": "^1.0.0", "sade": "^1.7.4" }, "peerDependencies": { "svelte": "^4.0.0 || ^5.0.0-next.0", "typescript": ">=5.0.0" }, "bin": { "svelte-check": "bin/svelte-check" } }, "sha512-4HtdEv2hOoLCEsSXI+RDELk9okP/4sImWa7X02OjMFFOWeSdFF3NFy3vqpw0z+eH9C88J9vxZfUXz/Uv2A1ANw=="],
 
-    "termlings": ["termlings@workspace:packages/termlings"],
+    "termlings": ["termlings@0.1.2", "", { "bin": { "termlings": "bin/termlings.js" } }, "sha512-M5ZfvLYxc2ZoMwJ8d2yrqHz76giA8jW5S/FOJKQ39a/Fhgg3W56w7IZ8GTWXvlf9G/RCKYL7o5ydUqYBxviWZg=="],
 
     "tinyglobby": ["tinyglobby@0.2.15", "", { "dependencies": { "fdir": "^6.5.0", "picomatch": "^4.0.3" } }, "sha512-j2Zq4NyQYG5XMST4cbs02Ak8iJUdxRM0XI5QyxXuZOzKOINmWurp3smXu3y5wDcJrptwpSjgXHzIQxR0omXljQ=="],
 

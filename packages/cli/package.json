@@ -11,7 +11,7 @@
     "test": "rm -rf .touchgrass-test && TOUCHGRASS_HOME=.touchgrass-test bun test"
   },
   "dependencies": {
-    "termlings": "workspace:*",
+    "termlings": "^0.1.2",
     "playwright": "^1.58.2"
   },
   "devDependencies": {

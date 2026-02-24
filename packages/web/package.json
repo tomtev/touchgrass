@@ -20,6 +20,6 @@
   },
   "dependencies": {
     "@knadh/oat": "^0.3.0",
-    "termlings": "workspace:*"
+    "termlings": "^0.1.2"
   }
 }

@@ -1,7 +1,8 @@
 import { join, resolve } from "path";
 import { mkdtemp, readdir, readFile, rm, unlink, writeFile } from "fs/promises";
 import { tmpdir } from "os";
-import { generateRandomDNA, renderTerminal, renderSVG } from "termlings";
+import { generateRandomDNA, renderTerminal, renderSVG, decodeDNA, encodeDNA, traitsFromName, generateGrid, hslToRgb, LEGS } from "termlings";
+import type { Pixel, DecodedDNA } from "termlings";
 
 const REPO = "tomtev/touchgrass";
 const BRANCH = "main";
@@ -67,6 +68,12 @@ export async function runAgent(): Promise<void> {
       await generateAvatarSVGs(targetDir ? resolve(targetDir) : process.cwd());
       break;
     }
+    case "demo": {
+      const demoInput = process.argv[4];
+      const demoFlags = new Set(process.argv.slice(4).filter(a => a.startsWith("--")).map(a => a.slice(2)));
+      await animateTermling(demoInput, demoFlags);
+      break;
+    }
     default: {
       console.log(`Usage: tg agent <command>
 
@@ -74,11 +81,18 @@ Commands:
   create [folder]   Scaffold a new agent
   update            Update agent-core to latest
   avatar            Regenerate avatar SVGs from DNA
+  demo [dna|name]   Animate a termling in the terminal
 
 Create options:
   --name <name>              Agent name
   --owner <name>             Owner name
-  --purpose <text>           Agent purpose`);
+  --purpose <text>           Agent purpose
+
+Demo options:
+  --walk                     Walk animation
+  --talk                     Talk animation
+  --wave                     Wave animation
+  --compact                  Half-height rendering`);
       if (sub) process.exit(1);
       break;
     }
@@ -160,15 +174,94 @@ async function detectOwnerName(): Promise<string> {
 }
 
 async function createAgent(dest: string, vars: Record<string, string>): Promise<void> {
-  const dna = generateRandomDNA();
+  const agentName = vars["AGENT_NAME"] || "My Agent";
+  const ownerName = vars["OWNER_NAME"] || await detectOwnerName();
+
+  // --- Avatar approval loop (wave while waiting) ---
+  let dna = generateRandomDNA();
+
+  while (true) {
+    const traits = decodeDNA(dna);
+    const fRgb = hslToRgb(traits.faceHue * 30, 0.5, 0.5);
+    const dRgb = hslToRgb(traits.faceHue * 30, 0.5, 0.28);
+    const hRgb = hslToRgb(traits.hatHue * 30, 0.5, 0.5);
+
+    // Show waving animation while waiting for input
+    const BOLD = "\x1b[1m";
+    const DIM = "\x1b[2m";
+    const RESET = "\x1b[0m";
+
+    console.log("");
+    const info = [
+      `${BOLD}${agentName}${RESET}`,
+      `${DIM}dna: ${dna}${RESET}`,
+    ];
+
+    // Start waving animation
+    process.stdout.write("\x1b[?25l"); // hide cursor
+    let waveFrame = 1;
+    let tick = 0;
+
+    const avatarWidth = 18;
+    const visLen = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "").length;
+
+    function renderMergedFrame(wFrame: number): { output: string; lineCount: number } {
+      const grid = generateGrid(traits, 0, 0, wFrame);
+      const rendered = renderTerminalFromGrid(grid, fRgb, dRgb, hRgb);
+      const avatarLines = rendered.split("\n");
+      const infoStart = Math.max(0, Math.floor((avatarLines.length - info.length) / 2));
+      const merged: string[] = [];
+      for (let i = 0; i < avatarLines.length; i++) {
+        const left = avatarLines[i];
+        const pad = " ".repeat(Math.max(0, avatarWidth - visLen(left)));
+        const right = info[i - infoStart] ?? "";
+        merged.push(`${left}${pad}  ${right}`);
+      }
+      return { output: merged.join("\n"), lineCount: avatarLines.length };
+    }
+
+    // Draw first frame (end with \n so cursor is on line below)
+    const first = renderMergedFrame(1);
+    process.stdout.write(first.output + "\n");
+    const frameLineCount = first.lineCount;
+
+    const drawFrame = () => {
+      tick++;
+      waveFrame = (tick % 2) + 1;
+      const frame = renderMergedFrame(waveFrame);
+      // Move up from blank line below avatar to first avatar line
+      process.stdout.write(`\x1b[${frameLineCount}A`);
+      process.stdout.write(frame.output + "\n");
+    };
+
+    const interval = setInterval(drawFrame, 400);
+
+    // Ask for approval
+    const answer = await prompt(`\n${RESET}Keep this avatar? ${DIM}(Y)es / (r)eroll / (q)uit${RESET} `);
+    clearInterval(interval);
+    process.stdout.write("\x1b[?25h"); // show cursor
+
+    const a = answer.toLowerCase();
+    if (a === "q" || a === "quit") {
+      console.log("Cancelled.");
+      process.exit(0);
+    }
+    if (a === "r" || a === "reroll") {
+      dna = generateRandomDNA();
+      continue;
+    }
+    // Accept (enter, y, yes)
+    break;
+  }
+
   const resolved: Record<string, string> = {
-    AGENT_NAME: vars["AGENT_NAME"] || "My Agent",
+    AGENT_NAME: agentName,
     AGENT_PURPOSE: vars["AGENT_PURPOSE"] || "A personal agent that helps with tasks using workflows and skills.",
-    OWNER_NAME: vars["OWNER_NAME"] || await detectOwnerName(),
+    OWNER_NAME: ownerName,
     AGENT_DNA: dna,
   };
 
-  console.log("Spawning agent...");
+  console.log("\nSpawning agent...");
   const tmpDir = await downloadTemplate();
   const extractDir = join(tmpDir, "out");
 
@@ -198,32 +291,8 @@ async function createAgent(dest: string, vars: Record<string, string>): Promise<
     // Generate avatar SVG
     await writeFile(join(dest, "avatar.svg"), renderSVG(dna, 10, 0, null));
 
-    const BOLD = "\x1b[1m";
-    const DIM = "\x1b[2m";
-    const RESET = "\x1b[0m";
-    const agentName = vars["AGENT_NAME"] || "Agent";
-    const avatar = renderTerminal(dna);
-    const avatarLines = avatar.split("\n");
-    const info = [
-      `${BOLD}${agentName}${RESET}`,
-      vars["AGENT_PURPOSE"] ? `${DIM}${vars["AGENT_PURPOSE"]}${RESET}` : "",
-      `${DIM}dna: ${dna}${RESET}`,
-      `${DIM}${join(dest, "avatar.svg")}${RESET}`,
-    ].filter(Boolean);
-    const avatarWidth = 18;
-    const visLen = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "").length;
-    const infoStart = Math.max(0, Math.floor((avatarLines.length - info.length) / 2));
-    const merged: string[] = [];
-    for (let i = 0; i < avatarLines.length; i++) {
-      const left = avatarLines[i];
-      const pad = " ".repeat(Math.max(0, avatarWidth - visLen(left)));
-      const right = info[i - infoStart] ?? "";
-      merged.push(`${left}${pad}  ${right}`);
-    }
-    console.log("");
-    console.log(merged.join("\n"));
-    console.log("");
-    console.log(`Created in ${dest}`);
+    console.log(`\nCreated in ${dest}`);
+    console.log(`  avatar.svg (dna: ${dna})`);
   } finally {
     await rm(tmpDir, { recursive: true, force: true });
   }
@@ -304,4 +373,162 @@ async function generateAvatarSVGs(dir: string): Promise<void> {
   console.log(renderTerminal(dna));
   console.log("");
   console.log(`Avatar saved to ${outPath} (dna: ${dna})`);
+}
+
+// --- demo ---
+
+async function animateTermling(input: string | undefined, flags: Set<string>): Promise<void> {
+  // Resolve DNA
+  let dna: string;
+  if (!input || input.startsWith("--")) {
+    // Try to read from AGENTS.md in cwd
+    try {
+      const content = await readFile(join(process.cwd(), "AGENTS.md"), "utf-8");
+      const found = extractDNA(content);
+      if (found) {
+        dna = found;
+      } else {
+        dna = generateRandomDNA();
+      }
+    } catch {
+      dna = generateRandomDNA();
+    }
+  } else if (/^[0-9a-f]{6,7}$/i.test(input)) {
+    dna = input;
+  } else {
+    dna = encodeDNA(traitsFromName(input));
+    console.log(`"${input}" → dna: ${dna}`);
+  }
+
+  const walking = flags.has("walk") || (!flags.has("talk") && !flags.has("wave"));
+  const talking = flags.has("talk");
+  const waving = flags.has("wave");
+  const compact = flags.has("compact");
+
+  const traits = decodeDNA(dna);
+  const legFrameCount = LEGS[traits.legs].length;
+  const faceRgb = hslToRgb(traits.faceHue * 30, 0.5, 0.5);
+  const darkRgb = hslToRgb(traits.faceHue * 30, 0.5, 0.28);
+  const hatRgb = hslToRgb(traits.hatHue * 30, 0.5, 0.5);
+
+  const DIM = "\x1b[2m";
+  const RESET = "\x1b[0m";
+  console.log(`${DIM}dna: ${dna}  (Ctrl+C to exit)${RESET}\n`);
+
+  let walkFrame = 0;
+  let talkFrame = 0;
+  let waveFrame = 0;
+  let tick = 0;
+
+  // Hide cursor
+  process.stdout.write("\x1b[?25l");
+
+  function cleanup() {
+    process.stdout.write("\x1b[?25h\n");
+    process.exit(0);
+  }
+  process.on("SIGINT", cleanup);
+  process.on("SIGTERM", cleanup);
+
+  // Draw first frame (always end with \n so cursor is on line below)
+  const firstOutput = compact
+    ? renderTerminalSmallFromGrid(generateGrid(traits, 0, 0, 0), faceRgb, darkRgb, hatRgb)
+    : renderTerminalFromGrid(generateGrid(traits, 0, 0, 0), faceRgb, darkRgb, hatRgb);
+  const lineCount = firstOutput.split("\n").length;
+  process.stdout.write(firstOutput + "\n");
+
+  await new Promise<void>(() => {
+    const interval = setInterval(() => {
+      tick++;
+      if (walking) walkFrame = tick % legFrameCount;
+      if (talking) talkFrame = tick % 2;
+      if (waving) waveFrame = (tick % 2) + 1;
+
+      const grid = generateGrid(traits, walkFrame, talkFrame, waveFrame);
+      const output = compact
+        ? renderTerminalSmallFromGrid(grid, faceRgb, darkRgb, hatRgb)
+        : renderTerminalFromGrid(grid, faceRgb, darkRgb, hatRgb);
+
+      // Move up lineCount lines (cursor is on blank line below avatar)
+      process.stdout.write(`\x1b[${lineCount}A`);
+      process.stdout.write(output + "\n");
+    }, 300);
+
+    process.on("SIGINT", () => {
+      clearInterval(interval);
+      cleanup();
+    });
+  });
+}
+
+function renderTerminalFromGrid(
+  grid: Pixel[][],
+  faceRgb: [number, number, number],
+  darkRgb: [number, number, number],
+  hatRgb: [number, number, number],
+): string {
+  const faceAnsi = `\x1b[38;2;${faceRgb[0]};${faceRgb[1]};${faceRgb[2]}m`;
+  const darkAnsi = `\x1b[38;2;${darkRgb[0]};${darkRgb[1]};${darkRgb[2]}m`;
+  const hatAnsi = `\x1b[38;2;${hatRgb[0]};${hatRgb[1]};${hatRgb[2]}m`;
+  const reset = "\x1b[0m";
+  const faceBg = `\x1b[48;2;${faceRgb[0]};${faceRgb[1]};${faceRgb[2]}m`;
+
+  const lines: string[] = [];
+  for (const row of grid) {
+    let line = "";
+    for (const cell of row) {
+      if (cell === "_") line += "  ";
+      else if (cell === "f") line += `${faceAnsi}██${reset}`;
+      else if (cell === "l") line += `${faceAnsi}▌${reset} `;
+      else if (cell === "e" || cell === "d") line += `${darkAnsi}██${reset}`;
+      else if (cell === "s") line += `${darkAnsi}${faceBg}▄▄${reset}`;
+      else if (cell === "n") line += `${darkAnsi}${faceBg}▐▌${reset}`;
+      else if (cell === "m") line += `${darkAnsi}${faceBg}▀▀${reset}`;
+      else if (cell === "q") line += `${darkAnsi}${faceBg} ▗${reset}`;
+      else if (cell === "r") line += `${darkAnsi}${faceBg}▖ ${reset}`;
+      else if (cell === "a") line += `${faceAnsi}▄▄${reset}`;
+      else if (cell === "h") line += `${hatAnsi}██${reset}`;
+      else if (cell === "k") line += `${hatAnsi}▐▌${reset}`;
+    }
+    lines.push(line);
+  }
+  return lines.join("\n");
+}
+
+function renderTerminalSmallFromGrid(
+  grid: Pixel[][],
+  faceRgb: [number, number, number],
+  darkRgb: [number, number, number],
+  hatRgb: [number, number, number],
+): string {
+  const reset = "\x1b[0m";
+
+  function cellRgb(cell: Pixel): [number, number, number] | null {
+    if (cell === "f" || cell === "l" || cell === "a" || cell === "q" || cell === "r") return faceRgb;
+    if (cell === "e" || cell === "s" || cell === "n" || cell === "d" || cell === "m") return darkRgb;
+    if (cell === "h" || cell === "k") return hatRgb;
+    return null;
+  }
+
+  const lines: string[] = [];
+  for (let r = 0; r < grid.length; r += 2) {
+    const topRow = grid[r];
+    const botRow = r + 1 < grid.length ? grid[r + 1] : null;
+    let line = "";
+    for (let c = 0; c < topRow.length; c++) {
+      const top = cellRgb(topRow[c]);
+      const bot = botRow ? cellRgb(botRow[c]) : null;
+      if (top && bot) {
+        line += `\x1b[38;2;${top[0]};${top[1]};${top[2]}m\x1b[48;2;${bot[0]};${bot[1]};${bot[2]}m▀${reset}`;
+      } else if (top) {
+        line += `\x1b[38;2;${top[0]};${top[1]};${top[2]}m▀${reset}`;
+      } else if (bot) {
+        line += `\x1b[38;2;${bot[0]};${bot[1]};${bot[2]}m▄${reset}`;
+      } else {
+        line += " ";
+      }
+    }
+    lines.push(line);
+  }
+  return lines.join("\n");
 }

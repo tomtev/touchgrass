@@ -45,7 +45,7 @@ export default function TermlingsOG({ tw, image }) {
           fontSize: 28,
         }}
       >
-        Pixel art avatars for the web and terminal.
+        Cute pixel creatures for web and terminal.
       </p>
     </div>
   );

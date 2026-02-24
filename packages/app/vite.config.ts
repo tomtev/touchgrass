@@ -11,4 +11,7 @@ export default defineConfig({
   ssr: {
     noExternal: ['termlings']
   },
+  optimizeDeps: {
+    exclude: ['termlings']
+  },
 })

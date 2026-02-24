@@ -20,11 +20,12 @@ Supported channels:
 
 ```
 packages/
-  avatar/   — termlings: shared avatar DNA library (encode/decode, grid, render)
   cli/      — @touchgrass/cli: CLI + daemon (the core product)
   web/      — @touchgrass/web: touchgrass.sh website (SvelteKit on Cloudflare)
   app/      — @touchgrass/app: Tauri v2 desktop app (Rust + Svelte 5)
 ```
+
+The `termlings` avatar library is a separate open source package: https://github.com/tomtev/termlings (npm: `termlings`)
 
 ## CLI
 
