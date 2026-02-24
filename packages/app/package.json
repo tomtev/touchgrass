@@ -1,5 +1,5 @@
 {
-  "name": "touchgrass-app",
+  "name": "@touchgrass/app",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -24,6 +24,7 @@
   },
   "dependencies": {
     "@knadh/oat": "^0.3.0",
+    "@touchgrass/avatar": "workspace:*",
     "@tauri-apps/api": "^2.10.1",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-web-links": "^0.12.0",

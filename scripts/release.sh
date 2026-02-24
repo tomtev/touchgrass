@@ -5,10 +5,13 @@ set -euo pipefail
 # Usage: ./scripts/release.sh [version]
 # Example: ./scripts/release.sh v0.1.0
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
 VERSION="${1:-}"
 if [ -z "$VERSION" ]; then
-  # Read from package.json
-  VERSION="v$(grep '"version"' package.json | sed -E 's/.*"([^"]+)".*/\1/')"
+  # Read from CLI package.json
+  VERSION="v$(grep '"version"' "$REPO_ROOT/packages/cli/package.json" | sed -E 's/.*"([^"]+)".*/\1/')"
 fi
 
 echo "Building release ${VERSION}..."
@@ -29,7 +32,7 @@ for entry in "${TARGETS[@]}"; do
   TARGET="${entry%%:*}"
   OUTPUT="${entry##*:}"
   echo "  Building ${OUTPUT} (${TARGET})..."
-  bun build src/main.ts --compile --target="$TARGET" --outfile "${DIST_DIR}/${OUTPUT}" 2>&1 | tail -1
+  bun build "$REPO_ROOT/packages/cli/src/main.ts" --compile --target="$TARGET" --outfile "${DIST_DIR}/${OUTPUT}" 2>&1 | tail -1
 done
 
 echo ""

@@ -8,4 +8,7 @@ export default defineConfig({
     port: 5199,
     strictPort: true,
   },
+  ssr: {
+    noExternal: ['@touchgrass/avatar']
+  },
 })
