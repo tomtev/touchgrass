@@ -16,15 +16,28 @@
   let walkFrame = $state(0);
   let talkFrame = $state(0);
   let waveFrame = $state(0);
+  let visible = $state(false);
+  let el: HTMLDivElement | undefined = $state();
+
+  // Only run animations when the avatar is visible in the viewport
+  $effect(() => {
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => { visible = entry.isIntersecting; },
+      { rootMargin: '100px' }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  });
 
   $effect(() => {
-    if (!walking) { walkFrame = 0; return; }
+    if (!walking || !visible) { walkFrame = 0; return; }
     const id = setInterval(() => { walkFrame = (walkFrame + 1) % 6; }, 400);
     return () => clearInterval(id);
   });
 
   $effect(() => {
-    if (!talking) { talkFrame = 0; return; }
+    if (!talking || !visible) { talkFrame = 0; return; }
     let timeout: ReturnType<typeof setTimeout>;
     function tick() {
       talkFrame = (talkFrame + 1) % 2;
@@ -35,7 +48,7 @@
   });
 
   $effect(() => {
-    if (!waving) { waveFrame = 0; return; }
+    if (!waving || !visible) { waveFrame = 0; return; }
     waveFrame = 1;
     const id = setInterval(() => { waveFrame = waveFrame === 1 ? 2 : 1; }, 600);
     return () => clearInterval(id);
@@ -73,6 +86,7 @@
 <div
   class="avatar"
   class:sm={size === 'sm'}
+  bind:this={el}
 >
   <div
     class="grid"

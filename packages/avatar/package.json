@@ -5,6 +5,9 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./svelte": "./src/svelte/index.ts"
+    "./svelte": "./src/svelte/index.ts",
+    "./react": "./src/react/index.ts",
+    "./vue": "./src/vue/index.ts",
+    "./ink": "./src/ink/index.ts"
   }
 }
