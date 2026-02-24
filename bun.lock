@@ -4,6 +4,11 @@
   "workspaces": {
     "": {
       "name": "touchgrass",
+      "devDependencies": {
+        "@opentui/core-darwin-x64": "^0.1.81",
+        "@opentui/core-linux-arm64": "^0.1.81",
+        "@opentui/core-linux-x64": "^0.1.81",
+      },
     },
     "packages/app": {
       "name": "@touchgrass/app",
@@ -33,7 +38,7 @@
     },
     "packages/cli": {
       "name": "@touchgrass/cli",
-      "version": "0.1.113",
+      "version": "0.1.114",
       "dependencies": {
         "@opentui/core": "^0.1.81",
         "playwright": "^1.58.2",

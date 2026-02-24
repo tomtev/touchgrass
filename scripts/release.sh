@@ -32,7 +32,7 @@ for entry in "${TARGETS[@]}"; do
   TARGET="${entry%%:*}"
   OUTPUT="${entry##*:}"
   echo "  Building ${OUTPUT} (${TARGET})..."
-  bun build "$REPO_ROOT/packages/cli/src/main.ts" --compile --target="$TARGET" --outfile "${DIST_DIR}/${OUTPUT}" 2>&1 | tail -1
+  bun build "$REPO_ROOT/packages/cli/src/main.ts" --compile --target="$TARGET" --external "@opentui/*" --outfile "${DIST_DIR}/${OUTPUT}" 2>&1 | tail -1
 done
 
 echo ""
