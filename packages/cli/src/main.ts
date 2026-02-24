@@ -77,11 +77,6 @@ async function main() {
       await runResume();
       break;
     }
-    case "office": {
-      const { runOffice } = await import("./cli/office");
-      await runOffice();
-      break;
-    }
     case "agent": {
       const { runAgent } = await import("./cli/agent");
       await runAgent();
@@ -131,7 +126,6 @@ Options (for claude/codex/pi/kimi/resume):
   --channel <value>      Skip channel picker (use "dm", a chatId, or title substring)
   --last                 Skip session picker, resume most recent (resume only)
 
-  office   Mission control TUI — live dashboard of all agents
   sessions List active sessions (alias: ls)
   channels List available channels (DM, groups, topics) with busy status
   write    Write text into a session's terminal (tg write <id> "text" | tg write <id> --file <path>)
