@@ -109,8 +109,7 @@ tg kimi           # Moonshot Kimi
 
 # pass any flags through to the underlying tool
 tg claude --dangerously-skip-permissions
-tg codex --full-auto
-tg claude -p "refactor auth module"</code></pre>
+tg codex --full-auto</code></pre>
           </div>
         </article>
 
