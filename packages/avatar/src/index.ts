@@ -589,8 +589,8 @@ export function renderTerminalSmall(dna: string, frame = 0): string {
   const hatRgb = hslToRgb(hatHueDeg, 0.5, 0.5);
 
   function cellRgb(cell: Pixel): [number, number, number] | null {
-    if (cell === "f" || cell === "l" || cell === "a" || cell === "q" || cell === "r" || cell === "m") return faceRgb;
-    if (cell === "e" || cell === "s" || cell === "n" || cell === "d") return darkRgb;
+    if (cell === "f" || cell === "l" || cell === "a" || cell === "q" || cell === "r") return faceRgb;
+    if (cell === "e" || cell === "s" || cell === "n" || cell === "d" || cell === "m") return darkRgb;
     if (cell === "h" || cell === "k") return hatRgb;
     return null; // transparent
   }
