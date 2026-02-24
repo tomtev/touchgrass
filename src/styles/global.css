@@ -1,0 +1,181 @@
+/* App layout variables */
+:root {
+  --sidebar-width: 240px;
+  --sidebar-collapsed-width: 52px;
+  --titlebar-height: 38px;
+  --tab-height: 36px;
+  --bottom-bar-height: 35px;
+}
+
+html, body, #app {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  background: var(--background);
+  color: var(--foreground);
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--secondary);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--muted-foreground);
+}
+
+/* Color scheme: Coffee (dark) */
+[data-color-scheme="coffee"][data-theme="dark"] {
+  --background: #1a1410;
+  --foreground: #e8ddd0;
+  --card: #231e18;
+  --card-foreground: #e8ddd0;
+  --popover: #231e18;
+  --popover-foreground: #e8ddd0;
+  --primary: #c4a882;
+  --primary-foreground: #1a1410;
+  --secondary: #2e2620;
+  --secondary-foreground: #e8ddd0;
+  --muted: #2e2620;
+  --muted-foreground: #a0917f;
+  --accent: #3a3028;
+  --accent-foreground: #e8ddd0;
+  --destructive: #b45044;
+  --destructive-foreground: #e8ddd0;
+  --border: #4a3f35;
+  --input: #4a3f35;
+  --ring: #c4a882;
+}
+
+/* Color scheme: Coffee (light) */
+[data-color-scheme="coffee"][data-theme="light"] {
+  --background: #f5f0e8;
+  --foreground: #2c2218;
+  --card: #efe8dd;
+  --card-foreground: #2c2218;
+  --popover: #efe8dd;
+  --popover-foreground: #2c2218;
+  --primary: #7a5c3a;
+  --primary-foreground: #f5f0e8;
+  --secondary: #e5dcd0;
+  --secondary-foreground: #2c2218;
+  --muted: #e5dcd0;
+  --muted-foreground: #7a6b5a;
+  --accent: #ddd2c2;
+  --accent-foreground: #2c2218;
+  --destructive: #b34040;
+  --destructive-foreground: #f5f0e8;
+  --border: #d4c8b8;
+  --input: #d4c8b8;
+  --ring: #7a5c3a;
+}
+
+/* Color scheme: Outdoor (dark) */
+[data-color-scheme="outdoor"][data-theme="dark"] {
+  --background: #04090a;
+  --foreground: #ecfdf5;
+  --card: #0a1612;
+  --card-foreground: #ecfdf5;
+  --popover: #0a1612;
+  --popover-foreground: #ecfdf5;
+  --primary: #6ee7b7;
+  --primary-foreground: #04090a;
+  --secondary: #0d1f17;
+  --secondary-foreground: #d1fae5;
+  --muted: #0d1f17;
+  --muted-foreground: #a7f3d0;
+  --accent: #143026;
+  --accent-foreground: #ecfdf5;
+  --destructive: #b45044;
+  --destructive-foreground: #ecfdf5;
+  --border: #1a3a2a;
+  --input: #1a3a2a;
+  --ring: #6ee7b7;
+}
+
+/* Color scheme: Outdoor (light) */
+[data-color-scheme="outdoor"][data-theme="light"] {
+  --background: #f0faf4;
+  --foreground: #04090a;
+  --card: #e6f5ec;
+  --card-foreground: #04090a;
+  --popover: #e6f5ec;
+  --popover-foreground: #04090a;
+  --primary: #0d9463;
+  --primary-foreground: #f0faf4;
+  --secondary: #d1f0e0;
+  --secondary-foreground: #04090a;
+  --muted: #d1f0e0;
+  --muted-foreground: #3a7a5a;
+  --accent: #c0e8d2;
+  --accent-foreground: #04090a;
+  --destructive: #b34040;
+  --destructive-foreground: #f0faf4;
+  --border: #a8d8bc;
+  --input: #a8d8bc;
+  --ring: #0d9463;
+}
+
+/* Dropdown open animation */
+@keyframes dropdown-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+[data-dropdown] {
+  animation: dropdown-enter 0.15s ease-out;
+}
+
+@keyframes modal-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+[data-modal-backdrop] {
+  animation: fade-in 0.15s ease-out;
+}
+
+[data-modal] {
+  animation: modal-enter 0.15s ease-out;
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Portal tooltip (appended to body, not clipped by overflow) */
+.portal-tooltip {
+  position: fixed;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-small);
+  padding: 4px 8px;
+  font-size: 12px;
+  color: var(--foreground);
+  white-space: nowrap;
+  z-index: 9999;
+  pointer-events: none;
+  box-shadow: var(--shadow-medium);
+}
