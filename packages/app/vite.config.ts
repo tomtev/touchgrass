@@ -9,6 +9,6 @@ export default defineConfig({
     strictPort: true,
   },
   ssr: {
-    noExternal: ['@touchgrass/avatar']
+    noExternal: ['termlings']
   },
 })

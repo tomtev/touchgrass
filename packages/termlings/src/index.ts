@@ -155,19 +155,9 @@ export const HATS: Pixel[][][] = [
     ["_", "k", "h", "h", "h", "h", "h", "k", "_"],
   ],
   [
-    // spiky thin
-    ["_", "k", "_", "k", "_", "k", "_", "k", "_"],
-    ["_", "h", "h", "h", "h", "h", "h", "h", "_"],
-  ],
-  [
     // side sweep
     ["_", "_", "_", "_", "h", "h", "h", "k", "_"],
     ["_", "h", "h", "h", "h", "h", "h", "h", "_"],
-  ],
-  [
-    // tiara
-    ["_", "_", "_", "h", "_", "h", "_", "_", "_"],
-    ["_", "f", "h", "h", "h", "h", "h", "f", "_"],
   ],
   [
     // cowboy hat
@@ -449,7 +439,7 @@ export function hslToRgb(h: number, s: number, l: number): [number, number, numb
  * Render a DNA string as an SVG string with transparent background.
  * Each pixel is rendered as a square rect. 1-cell padding around the grid.
  */
-export function renderSVG(dna: string, pixelSize = 10, frame = 0): string {
+export function renderSVG(dna: string, pixelSize = 10, frame = 0, background: string | null = '#000'): string {
   const traits = decodeDNA(dna);
   const grid = generateGrid(traits, frame);
 
@@ -517,7 +507,8 @@ export function renderSVG(dna: string, pixelSize = 10, frame = 0): string {
     }
   }
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" shape-rendering="crispEdges">\n${rects.join("\n")}\n</svg>`;
+  const bg = background ? `<rect width="${w}" height="${h}" fill="${background}"/>\n` : '';
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" shape-rendering="crispEdges">\n${bg}${rects.join("\n")}\n</svg>`;
 }
 
 /**

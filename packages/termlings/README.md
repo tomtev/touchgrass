@@ -1,13 +1,13 @@
-# @touchgrass/avatar
+# termlings
 
 Pixel-art avatar system for [touchgrass.sh](https://touchgrass.sh). Each avatar is encoded as a **7-character hex DNA string** (~32M combinations) that deterministically renders a unique character with hat, eyes, mouth, body, legs, and two independent color hues.
 
 ## Install
 
 ```bash
-npm install @touchgrass/avatar
+npm install termlings
 # or
-bun add @touchgrass/avatar
+bun add termlings
 ```
 
 ## Usage
@@ -27,7 +27,7 @@ import {
   hslToRgb,
   SLOTS,
   EYES, MOUTHS, HATS, BODIES, LEGS,
-} from '@touchgrass/avatar';
+} from 'termlings';
 ```
 
 #### Generate a random avatar
@@ -82,7 +82,7 @@ const grid = generateGrid(traits, walkFrame, talkFrame, waveFrame);
 
 ```svelte
 <script>
-  import { Avatar } from '@touchgrass/avatar/svelte';
+  import { Avatar } from 'termlings/svelte';
 </script>
 
 <!-- From DNA string -->
@@ -170,8 +170,8 @@ The grid generator supports three animation types via frame parameters:
 ## Exports
 
 ```
-@touchgrass/avatar          — Core TypeScript (DNA, grid, SVG, terminal, colors)
-@touchgrass/avatar/svelte   — Svelte 5 component (Avatar)
+termlings          — Core TypeScript (DNA, grid, SVG, terminal, colors)
+termlings/svelte   — Svelte 5 component (Avatar)
 ```
 
 ## License

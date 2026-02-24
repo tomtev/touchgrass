@@ -20,6 +20,6 @@
   },
   "dependencies": {
     "@knadh/oat": "^0.3.0",
-    "@touchgrass/avatar": "workspace:*"
+    "termlings": "workspace:*"
   }
 }

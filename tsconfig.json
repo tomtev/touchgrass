@@ -1,7 +1,7 @@
 {
   "files": [],
   "references": [
-    { "path": "packages/avatar" },
+    { "path": "packages/termlings" },
     { "path": "packages/cli" }
   ]
 }

@@ -1,10 +1,10 @@
 <script>
-  import { Avatar } from '@touchgrass/avatar/svelte';
+  import { Avatar } from 'termlings/svelte';
   import CopyButton from '$lib/CopyButton.svelte';
   import CodeBlock from '$lib/CodeBlock.svelte';
-  import { encodeDNA, decodeDNA, generateRandomDNA, traitsFromName, SLOTS, EYES, MOUTHS, HATS, BODIES, LEGS } from '@touchgrass/avatar';
+  import { encodeDNA, decodeDNA, generateRandomDNA, traitsFromName, SLOTS, EYES, MOUTHS, HATS, BODIES, LEGS } from 'termlings';
 
-  const installCommand = 'npm install @touchgrass/avatar';
+  const installCommand = 'npm install termlings';
   const heroDNA = '0a3f201';
   const showcaseDNAs = [
     '03b8e10', '0c47a25', '0912d4f', '00f1a32', '05d4c81',
@@ -26,7 +26,7 @@
   // Trait name arrays
   const EYES_NAMES = ['normal','wide','close','normal-alt','big','big-close','squint','squint-wide','narrow','narrow-wide','narrow-close'];
   const MOUTHS_NAMES = ['smile','smirk-left','smirk-right','narrow','wide-smile','wide-smirk-left','wide-smirk-right'];
-  const HATS_NAMES = ['none','tophat','beanie','crown','cap','horns','mohawk','antenna','halo','bandage','wide-brim','unicorn','ears','spikes','party-hat','flat-top','afro','spiky-thin','side-sweep','tiara','cowboy','knitted','clown-hair','stovepipe'];
+  const HATS_NAMES = ['none','tophat','beanie','crown','cap','horns','mohawk','antenna','halo','bandage','wide-brim','unicorn','ears','spikes','party-hat','flat-top','afro','side-sweep','cowboy','knitted','clown-hair','stovepipe'];
   const BODIES_NAMES = ['normal','normal-arms','narrow','narrow-arms','tapered','tapered-arms'];
   const LEGS_NAMES = ['biped','outer','tentacles','thin-biped','wide-stance','thin-narrow'];
   const HUE_NAMES = ['red','orange','yellow','lime','green','teal','cyan','azure','blue','purple','magenta','rose'];
@@ -49,27 +49,27 @@
 
 
   // Code examples
-  const coreExample = `import { generateRandomDNA, renderSVG } from '@touchgrass/avatar';
+  const coreExample = `import { generateRandomDNA, renderSVG } from 'termlings';
 
 const dna = generateRandomDNA();  // "0a3f201"
 const svg = renderSVG(dna);       // complete <svg> string
 
 document.body.innerHTML = svg;`;
 
-  const nameExample = `import { traitsFromName, encodeDNA } from '@touchgrass/avatar';
+  const nameExample = `import { traitsFromName, encodeDNA } from 'termlings';
 
 const traits = traitsFromName('my-agent');
 const dna = encodeDNA(traits);
 // Same name always produces the same avatar`;
 
-  const decodeExample = `import { decodeDNA, encodeDNA } from '@touchgrass/avatar';
+  const decodeExample = `import { decodeDNA, encodeDNA } from 'termlings';
 
 const traits = decodeDNA('0a3f201');
 traits.hat = 3;  // switch to crown
 const newDna = encodeDNA(traits);`;
 
   const svelteExample = `<script>
-  import { Avatar } from '@touchgrass/avatar/svelte';
+  import { Avatar } from 'termlings/svelte';
 <\/script>
 
 <!-- From DNA -->
@@ -86,7 +86,7 @@ const newDna = encodeDNA(traits);`;
 <Avatar dna="0a3f201" talking />
 <Avatar dna="0a3f201" waving />`;
 
-  const reactExample = `import { Avatar } from '@touchgrass/avatar/react';
+  const reactExample = `import { Avatar } from 'termlings/react';
 
 function App() {
   return (
@@ -101,7 +101,7 @@ function App() {
 }`;
 
   const vueExample = `<script setup>
-  import { Avatar } from '@touchgrass/avatar/vue';
+  import { Avatar } from 'termlings/vue';
 <\/script>
 
 <template>
@@ -112,14 +112,14 @@ function App() {
   <Avatar dna="0a3f201" waving />
 </template>`;
 
-  const terminalExample = `import { renderTerminal, renderTerminalSmall } from '@touchgrass/avatar';
+  const terminalExample = `import { renderTerminal, renderTerminalSmall } from 'termlings';
 
 // ANSI 24-bit color output
 console.log(renderTerminal('0a3f201'));      // full size (██ blocks)
 console.log(renderTerminalSmall('0a3f201')); // compact (▀▄ half-blocks)`;
 
   const inkExample = `import { render } from 'ink';
-import { Avatar } from '@touchgrass/avatar/ink';
+import { Avatar } from 'termlings/ink';
 
 // Full-size (██ blocks)
 render(<Avatar dna="0a3f201" />);
@@ -131,7 +131,7 @@ render(<Avatar dna="0a3f201" compact />);
 render(<Avatar dna="0a3f201" walking />);
 render(<Avatar dna="0a3f201" talking />);`;
 
-  const svgExample = `import { renderSVG } from '@touchgrass/avatar';
+  const svgExample = `import { renderSVG } from 'termlings';
 
 const svg = renderSVG('0a3f201');           // 10px per pixel
 const big = renderSVG('0a3f201', 20);       // 20px per pixel
@@ -148,21 +148,27 @@ const uri = \`data:image/svg+xml,\${encodeURIComponent(svg)}\`;`;
 </script>
 
 <svelte:head>
-  <title>Avatar - Open Source Pixel Art Avatars | touchgrass.sh</title>
+  <title>Termlings - Open Source Pixel Art Avatars | touchgrass.sh</title>
   <meta name="description" content="Open source pixel art avatar system. 32M+ unique characters from a 7-character DNA string. Svelte, React, Vue, and terminal." />
-  <meta property="og:title" content="touchgrass avatar - Pixel Art Identity System" />
+  <meta property="og:title" content="Termlings - Pixel Art Identity System" />
   <meta property="og:description" content="Open source pixel art avatars. 32M+ unique characters from a 7-char hex DNA." />
 </svelte:head>
 
 <main class="av-page">
   <div class="av-content">
 
+    <nav class="av-top-nav">
+      <a href="/" class="av-top-nav-link">touchgrass.sh</a>
+      <span class="av-top-nav-sep">/</span>
+      <span class="av-top-nav-current">termlings</span>
+    </nav>
+
     <!-- Hero -->
     <article class="card">
       <div class="card-header">
         <div class="av-hero-row">
-          {#each showcaseDNAs.slice(0, 7) as dna}
-            <Avatar {dna} size="lg" />
+          {#each showcaseDNAs.slice(0, 7) as dna, i}
+            <Avatar {dna} size="lg" walking={i % 3 === 0} talking={i % 3 === 1} waving={i % 4 === 2} />
           {/each}
         </div>
         <h1 class="card-title">Pixel art avatars for the web and terminal.</h1>
@@ -179,7 +185,7 @@ const uri = \`data:image/svg+xml,\${encodeURIComponent(svg)}\`;`;
         <code class="install-code">{installCommand}</code>
         <CopyButton command={installCommand} />
         <a
-          href="https://github.com/tomtev/touchgrass/tree/main/packages/avatar"
+          href="https://github.com/tomtev/touchgrass/tree/main/packages/termlings"
           target="_blank"
           rel="noreferrer"
           aria-label="View on GitHub"
@@ -196,7 +202,7 @@ const uri = \`data:image/svg+xml,\${encodeURIComponent(svg)}\`;`;
     <div class="feature-grid cols-3">
       <article class="card">
         <div class="card-body feature-card-inner">
-          <Avatar dna={showcaseDNAs[0]} size="sm" />
+          <Avatar dna={showcaseDNAs[0]} size="lg" />
           <div>
             <p class="feature-title">7-char DNA</p>
             <p class="feature-desc">Each avatar is a hex string like <code>0a3f201</code>. Store it, share it, render it anywhere.</p>
@@ -205,7 +211,7 @@ const uri = \`data:image/svg+xml,\${encodeURIComponent(svg)}\`;`;
       </article>
       <article class="card">
         <div class="card-body feature-card-inner">
-          <Avatar dna={showcaseDNAs[1]} size="sm" />
+          <Avatar dna={showcaseDNAs[1]} size="lg" />
           <div>
             <p class="feature-title">32M combinations</p>
             <p class="feature-desc">7 traits: eyes, mouth, hat, body, legs, and two color hues. All deterministic.</p>
@@ -214,7 +220,7 @@ const uri = \`data:image/svg+xml,\${encodeURIComponent(svg)}\`;`;
       </article>
       <article class="card">
         <div class="card-body feature-card-inner">
-          <Avatar dna={showcaseDNAs[2]} size="sm" />
+          <Avatar dna={showcaseDNAs[2]} size="lg" />
           <div>
             <p class="feature-title">Web + Terminal</p>
             <p class="feature-desc">SVG, Svelte, React, Vue, or ANSI terminal art. Same DNA everywhere.</p>
@@ -434,11 +440,11 @@ const uri = \`data:image/svg+xml,\${encodeURIComponent(svg)}\`;`;
     <article class="card">
       <div class="card-body-lg">
         <p class="code-section-title">Exports</p>
-        <CodeBlock code={`@touchgrass/avatar          Core TypeScript (DNA, grid, SVG, terminal, colors)
-@touchgrass/avatar/svelte   Svelte 5 component
-@touchgrass/avatar/react    React component
-@touchgrass/avatar/vue      Vue 3 component
-@touchgrass/avatar/ink      Ink component (React for terminals)`} lang="bash" />
+        <CodeBlock code={`termlings          Core TypeScript (DNA, grid, SVG, terminal, colors)
+termlings/svelte   Svelte 5 component
+termlings/react    React component
+termlings/vue      Vue 3 component
+termlings/ink      Ink component (React for terminals)`} lang="bash" />
       </div>
     </article>
 
@@ -580,7 +586,7 @@ const uri = \`data:image/svg+xml,\${encodeURIComponent(svg)}\`;`;
 
     <!-- Links -->
     <a
-      href="https://github.com/tomtev/touchgrass/tree/main/packages/avatar"
+      href="https://github.com/tomtev/touchgrass/tree/main/packages/termlings"
       target="_blank"
       rel="noreferrer"
       class="docs-link"
@@ -618,6 +624,32 @@ const uri = \`data:image/svg+xml,\${encodeURIComponent(svg)}\`;`;
     .av-content {
       padding: 3rem 2rem;
     }
+  }
+
+  .av-top-nav {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    font-family: var(--font-mono);
+    font-size: 0.875rem;
+  }
+
+  .av-top-nav-link {
+    color: rgba(209, 250, 229, 0.5);
+    text-decoration: none;
+    transition: color 0.15s;
+  }
+
+  .av-top-nav-link:hover {
+    color: rgb(110, 231, 183);
+  }
+
+  .av-top-nav-sep {
+    color: rgba(209, 250, 229, 0.25);
+  }
+
+  .av-top-nav-current {
+    color: rgba(209, 250, 229, 0.8);
   }
 
   .av-hero-row {

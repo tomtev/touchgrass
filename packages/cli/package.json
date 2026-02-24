@@ -1,6 +1,6 @@
 {
   "name": "@touchgrass/cli",
-  "version": "0.1.112",
+  "version": "0.1.113",
   "description": "touchgrass.sh — remote control your terminal AI CLIs from chat",
   "private": true,
   "type": "module",
@@ -11,7 +11,7 @@
     "test": "rm -rf .touchgrass-test && TOUCHGRASS_HOME=.touchgrass-test bun test"
   },
   "dependencies": {
-    "@touchgrass/avatar": "workspace:*",
+    "termlings": "workspace:*",
     "playwright": "^1.58.2"
   },
   "devDependencies": {

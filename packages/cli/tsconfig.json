@@ -5,7 +5,7 @@
     "outDir": "dist",
     "types": ["bun"],
     "paths": {
-      "@touchgrass/avatar": ["../avatar/src/index.ts"]
+      "termlings": ["../termlings/src/index.ts"]
     }
   },
   "include": ["src/**/*.ts"]

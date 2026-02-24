@@ -1,7 +1,7 @@
 <script>
   import GrassHero from '$lib/GrassHero.svelte';
   import CopyButton from '$lib/CopyButton.svelte';
-  import { Avatar } from '@touchgrass/avatar/svelte';
+  import { Avatar } from 'termlings/svelte';
 
   const installCommand = 'curl -fsSL https://touchgrass.sh/install.sh | bash';
 

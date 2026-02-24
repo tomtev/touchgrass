@@ -1,6 +1,6 @@
 <script>
-  import { Avatar } from '@touchgrass/avatar/svelte';
-  import { encodeDNA, SLOTS, EYES, MOUTHS, HATS, BODIES, LEGS } from '@touchgrass/avatar';
+  import { Avatar } from 'termlings/svelte';
+  import { encodeDNA, SLOTS, EYES, MOUTHS, HATS, BODIES, LEGS } from 'termlings';
 
   const EYES_NAMES = [
     'normal', 'wide', 'close', 'normal-alt', 'big', 'big-close',

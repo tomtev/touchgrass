@@ -65,6 +65,7 @@
   let setupComplete = $state(false);
   let setupChecking = $state(true);
   let lastSession = $state<LastSession | null>(null);
+  let avatarHovered = $state(false);
 
   async function initApp() {
     loadTheme();
@@ -312,7 +313,14 @@
           {#if $currentSessions.length === 0}
             <div class="no-sessions">
               {#if $agentSoul}
-                <AgentFace name={$activeProject.name} size="lg" dna={$agentSoul?.dna} />
+                <!-- svelte-ignore a11y_no_static_element_interactions -->
+                <div
+                  onmouseenter={() => avatarHovered = true}
+                  onmouseleave={() => avatarHovered = false}
+                  style="display:inline-block;cursor:pointer"
+                >
+                  <AgentFace name={$activeProject.name} size="lg" dna={$agentSoul?.dna} waving={avatarHovered} />
+                </div>
                 <p class="agent-greeting">Hi, I'm {$agentSoul.name}.</p>
                 {#if $agentSoul.description}
                   <p class="agent-desc">{$agentSoul.description}</p>

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Avatar } from '@touchgrass/avatar/svelte';
+  import { Avatar } from 'termlings/svelte';
 
   interface Props {
     name?: string;

@@ -1,7 +1,7 @@
 import { join, resolve } from "path";
 import { mkdtemp, readdir, readFile, rm, unlink, writeFile } from "fs/promises";
 import { tmpdir } from "os";
-import { generateRandomDNA, renderTerminal, renderSVG } from "@touchgrass/avatar";
+import { generateRandomDNA, renderTerminal, renderSVG } from "termlings";
 
 const REPO = "tomtev/touchgrass";
 const BRANCH = "main";
@@ -196,7 +196,7 @@ async function createAgent(dest: string, vars: Record<string, string>): Promise<
     }
 
     // Generate avatar SVG
-    await writeFile(join(dest, "avatar.svg"), renderSVG(dna));
+    await writeFile(join(dest, "avatar.svg"), renderSVG(dna, 10, 0, null));
 
     const BOLD = "\x1b[1m";
     const DIM = "\x1b[2m";
@@ -299,7 +299,7 @@ async function generateAvatarSVGs(dir: string): Promise<void> {
   }
 
   const outPath = join(dir, "avatar.svg");
-  await writeFile(outPath, renderSVG(dna));
+  await writeFile(outPath, renderSVG(dna, 10, 0, null));
 
   console.log(renderTerminal(dna));
   console.log("");

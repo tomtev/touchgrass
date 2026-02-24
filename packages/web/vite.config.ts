@@ -5,6 +5,6 @@ export default defineConfig({
 	plugins: [sveltekit()],
 	ssr: {
 		// Process workspace packages through Vite (raw .ts source, no pre-build)
-		noExternal: ['@touchgrass/avatar']
+		noExternal: ['termlings']
 	}
 });

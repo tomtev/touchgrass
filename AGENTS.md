@@ -20,7 +20,7 @@ Supported channels:
 
 ```
 packages/
-  avatar/   — @touchgrass/avatar: shared avatar DNA library (encode/decode, grid, render)
+  avatar/   — termlings: shared avatar DNA library (encode/decode, grid, render)
   cli/      — @touchgrass/cli: CLI + daemon (the core product)
   web/      — @touchgrass/web: touchgrass.sh website (SvelteKit on Cloudflare)
   app/      — @touchgrass/app: Tauri v2 desktop app (Rust + Svelte 5)
@@ -74,7 +74,7 @@ Telegram chat shorthands:
 
 ## Important Files
 
-- `packages/avatar/src/index.ts` - shared avatar DNA system (encode/decode, grid generation, SVG/terminal render)
+- `packages/termlings/src/index.ts` - shared avatar DNA system (encode/decode, grid generation, SVG/terminal render)
 - `packages/cli/src/main.ts` - command entrypoint and help
 - `packages/cli/src/cli/run.ts` - PTY/session bridge runtime
 - `packages/cli/src/cli/agent.ts` - agent create command (generates DNA, renders terminal avatar)
@@ -135,7 +135,7 @@ All config, runtime state, and session data lives in `~/.touchgrass/`. This dire
 
 Each agent has a unique visual identity encoded as a **7-character hex DNA string** (e.g., `0a3f201`). DNA is generated during `tg agent create` and stored in the `<agent-soul>` block of `AGENTS.md`. Legacy 6-char DNAs are still supported (parsed identically via `parseInt`).
 
-The avatar system lives in `packages/avatar/` and is shared across CLI, website, and desktop app via the `@touchgrass/avatar` workspace package.
+The avatar system lives in `packages/termlings/` and is shared across CLI, website, and desktop app via the `termlings` workspace package.
 
 ### Pixel grid
 
