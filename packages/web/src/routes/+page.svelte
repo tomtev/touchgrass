@@ -101,36 +101,16 @@
             <pre class="code-block"><code>curl -fsSL https://touchgrass.sh/install.sh | bash
 tg setup          # connect your Telegram bot
 tg pair           # pair from chat
-tg claude         # start a bridged session</code></pre>
-          </div>
-        </article>
 
-        <article class="card">
-          <div class="card-body-lg">
-            <p class="code-section-title">Supported tools</p>
-            <pre class="code-block"><code>tg claude         # Claude Code
+tg claude         # Claude Code
 tg codex          # OpenAI Codex
 tg pi             # Inflection Pi
-tg kimi           # Moonshot Kimi</code></pre>
-          </div>
-        </article>
+tg kimi           # Moonshot Kimi
 
-        <article class="card">
-          <div class="card-body-lg">
-            <p class="code-section-title">Session management</p>
-            <pre class="code-block"><code>tg sessions       # list active sessions
-tg peek &lt;id&gt;      # view session output
-tg stop &lt;id&gt;      # gracefully stop a session
-tg channels       # show connected channels</code></pre>
-          </div>
-        </article>
-
-        <article class="card">
-          <div class="card-body-lg">
-            <p class="code-section-title">Send from terminal</p>
-            <pre class="code-block"><code>tg write &lt;id&gt; "fix the auth bug"    # write into session
-tg send &lt;id&gt; "deployed to staging"  # send message to chat
-tg send &lt;id&gt; --file screenshot.png  # share a file</code></pre>
+# pass any flags through to the underlying tool
+tg claude --dangerously-skip-permissions
+tg codex --full-auto
+tg claude -p "refactor auth module"</code></pre>
           </div>
         </article>
 
