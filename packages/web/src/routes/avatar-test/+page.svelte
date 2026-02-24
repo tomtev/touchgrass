@@ -1,5 +1,6 @@
 <script>
   import AgentFace from '$lib/AgentFace.svelte';
+  import { encodeDNA, SLOTS, EYES, MOUTHS, HATS, BODIES, LEGS } from '@touchgrass/avatar';
 
   const EYES_NAMES = [
     'normal', 'wide', 'close', 'normal-alt', 'big', 'big-close',
@@ -22,19 +23,7 @@
     'biped', 'quad', 'tentacles', 'thin-biped', 'wide-stance', 'thin-narrow'
   ];
 
-  const SLOTS = { eyes: 12, mouths: 12, hats: 24, bodies: 8, legs: 8, hues: 12 };
   const TOTAL = SLOTS.eyes * SLOTS.mouths * SLOTS.hats * SLOTS.bodies * SLOTS.legs * SLOTS.hues * SLOTS.hues;
-
-  function encodeDNA(traits) {
-    let n = traits.hatHue;
-    n += traits.faceHue * SLOTS.hues;
-    n += traits.legs * SLOTS.hues * SLOTS.hues;
-    n += traits.body * SLOTS.legs * SLOTS.hues * SLOTS.hues;
-    n += traits.hat * SLOTS.bodies * SLOTS.legs * SLOTS.hues * SLOTS.hues;
-    n += traits.mouth * SLOTS.hats * SLOTS.bodies * SLOTS.legs * SLOTS.hues * SLOTS.hues;
-    n += traits.eyes * SLOTS.mouths * SLOTS.hats * SLOTS.bodies * SLOTS.legs * SLOTS.hues * SLOTS.hues;
-    return n.toString(16).padStart(7, '0');
-  }
 
   const base = { eyes: 0, mouth: 0, hat: 0, body: 0, legs: 0, faceHue: 8, hatHue: 16 };
 

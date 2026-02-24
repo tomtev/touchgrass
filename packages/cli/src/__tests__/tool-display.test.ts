@@ -160,7 +160,7 @@ describe("tool display formatting", () => {
     expect(wait).toContain("120000ms");
   });
 
-  it("suppresses Claude Task results in simple mode", () => {
+  it("formats Claude Task results in simple mode", () => {
     const started = formatSimpleToolResult(
       fmt,
       "Task",
@@ -174,8 +174,10 @@ describe("tool display formatting", () => {
       false
     );
 
-    expect(started).toBeNull();
-    expect(completed).toBeNull();
+    expect(started).toContain("sub-agent launched");
+    expect(started).toContain("af65706");
+    expect(completed).toContain("sub-agent completed");
+    expect(completed).toContain("a4f7269");
   });
 
   it("formats codex sub-agent tool results in simple mode", () => {

@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "types": ["bun"],
+    "paths": {
+      "@touchgrass/avatar": ["../avatar/src/index.ts"]
+    }
+  },
+  "include": ["src/**/*.ts"]
+}

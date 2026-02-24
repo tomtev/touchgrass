@@ -1,7 +1,7 @@
 import { join, resolve } from "path";
 import { mkdtemp, readdir, readFile, rm, unlink, writeFile } from "fs/promises";
 import { tmpdir } from "os";
-import { generateRandomDNA, renderTerminal, renderSVG } from "../lib/avatar";
+import { generateRandomDNA, renderTerminal, renderSVG } from "@touchgrass/avatar";
 
 const REPO = "tomtev/touchgrass";
 const BRANCH = "main";

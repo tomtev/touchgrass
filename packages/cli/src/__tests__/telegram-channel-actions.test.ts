@@ -116,7 +116,7 @@ describe("Telegram command menus", () => {
       isGroup: false,
       isLinkedGroup: false,
       hasActiveSession: true,
-    }))).toEqual(["session", "files", "resume", "output_mode", "thinking", "background_jobs"]);
+    }))).toEqual(["session", "files", "resume", "output_mode", "thinking", "background_jobs", "skills"]);
 
     expect(names(__telegramChannelTestUtils.buildCommandMenu({
       isPaired: true,
@@ -144,7 +144,7 @@ describe("Telegram command menus", () => {
       isGroup: true,
       isLinkedGroup: true,
       hasActiveSession: true,
-    }))).toEqual(["session", "files", "resume", "output_mode", "thinking", "background_jobs", "link", "unlink"]);
+    }))).toEqual(["session", "files", "resume", "output_mode", "thinking", "background_jobs", "skills", "link", "unlink"]);
   });
 
   it("syncs chat-member command menu and skips duplicate updates", async () => {
@@ -204,7 +204,7 @@ describe("Telegram command menus", () => {
     });
 
     expect(calls).toHaveLength(2);
-    expect(calls[1]?.commands).toEqual(["session", "files", "resume", "output_mode", "thinking", "background_jobs", "link", "unlink"]);
+    expect(calls[1]?.commands).toEqual(["session", "files", "resume", "output_mode", "thinking", "background_jobs", "skills", "link", "unlink"]);
   });
 
   it("uses chat scope for DM command menu sync", async () => {

@@ -1772,7 +1772,7 @@ export async function runRun(): Promise<void> {
       const BOLD = "\x1b[1m";
       const DIM = "\x1b[2m";
       const RESET = "\x1b[0m";
-      const { renderTerminal, encodeDNA, EYES, MOUTHS, HATS, BODIES, LEGS } = await import("../lib/avatar");
+      const { renderTerminal, encodeDNA, EYES, MOUTHS, HATS, BODIES, LEGS } = await import("@touchgrass/avatar");
       // Use explicit DNA or derive a deterministic one from the agent name
       let dna = soul.dna;
       if (!dna) {

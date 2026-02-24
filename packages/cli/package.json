@@ -1,0 +1,21 @@
+{
+  "name": "@touchgrass/cli",
+  "version": "0.1.111",
+  "description": "touchgrass.sh — remote control your terminal AI CLIs from chat",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun run src/main.ts",
+    "build": "bun build src/main.ts --compile --outfile tg",
+    "typecheck": "tsc --noEmit",
+    "test": "rm -rf .touchgrass-test && TOUCHGRASS_HOME=.touchgrass-test bun test"
+  },
+  "dependencies": {
+    "@touchgrass/avatar": "workspace:*",
+    "playwright": "^1.58.2"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.7.0"
+  }
+}

@@ -1,7 +1,10 @@
 import { describe, expect, it } from "bun:test";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
+import { join, resolve } from "path";
+
+// install.sh lives at the repo root (two levels up from packages/cli)
+const REPO_ROOT = resolve(import.meta.dir, "../../../..");
 
 function isPidAlive(pid: number): boolean {
   if (!Number.isFinite(pid) || pid <= 0) return false;
@@ -75,8 +78,8 @@ printf "200"
     );
 
     try {
-      const proc = Bun.spawn(["bash", "install.sh"], {
-        cwd: process.cwd(),
+      const proc = Bun.spawn(["bash", join(REPO_ROOT, "install.sh")], {
+        cwd: REPO_ROOT,
         env: {
           ...process.env,
           HOME: homeDir,
