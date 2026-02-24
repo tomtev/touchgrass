@@ -329,6 +329,26 @@ export function decodeDNA(hex: string): DecodedDNA {
 }
 
 /**
+ * Derive deterministic traits from a name string (hash-based fallback when no DNA is set).
+ */
+export function traitsFromName(name: string): DecodedDNA {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const h = Math.abs(hash);
+  return {
+    eyes:    h % EYES.length,
+    mouth:   (h >>> 4) % MOUTHS.length,
+    hat:     (h >>> 8) % HATS.length,
+    body:    (h >>> 14) % BODIES.length,
+    legs:    (h >>> 18) % LEGS.length,
+    faceHue: (h >>> 22) % 12,
+    hatHue:  (h >>> 26) % 12,
+  };
+}
+
+/**
  * Generate a random valid DNA string.
  */
 export function generateRandomDNA(): string {
