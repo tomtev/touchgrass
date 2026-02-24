@@ -5,24 +5,19 @@ import type { RouterContext } from "../command-router";
 function buildHelpText(fmt: Formatter): string {
   return `${fmt.bold(`${fmt.escape("⛳")} touchgrass.sh`)}
 
-${fmt.bold("Sessions:")}
 Any text you send goes to the connected session.
 
 ${fmt.bold("Commands:")}
-/files ${fmt.escape("or")} ${fmt.code("tg files [query]")} ${fmt.escape("—")} Pick one or more repo paths (files/folders) for next message
-${fmt.code("@?query")} ${fmt.escape("—")} Shorthand for file picker (same as /files query)
-${fmt.code("@?query - prompt")} ${fmt.escape("—")} Resolve top path and send as @path - prompt
-/session ${fmt.escape("or")} ${fmt.code("tg session")} ${fmt.escape("—")} Show the current session ID and resume commands
-/resume ${fmt.escape("or")} ${fmt.code("tg resume")} ${fmt.escape("—")} Pick a previous session and restart this tool on it
-/output_mode ${fmt.escape("or")} ${fmt.code("tg output_mode simple|verbose")} ${fmt.escape("—")} Set bridge output style for this chat
-/thinking ${fmt.escape("or")} ${fmt.code("tg thinking on|off|toggle")} ${fmt.escape("—")} Toggle thinking previews for this chat
-/background_jobs ${fmt.escape("or")} ${fmt.code("/background-jobs")} ${fmt.escape("or")} ${fmt.code("tg background-jobs")} ${fmt.escape("—")} Show currently running background jobs
-/skills ${fmt.escape("or")} ${fmt.code("tg skills")} ${fmt.escape("—")} List available agent skills
-/link ${fmt.escape("or")} ${fmt.code("tg link")} ${fmt.escape("—")} Add this chat as a channel
-/unlink ${fmt.escape("or")} ${fmt.code("tg unlink")} ${fmt.escape("—")} Remove this chat as a channel
-/pair ${fmt.escape("<code> or")} ${fmt.code("tg pair <code>")} ${fmt.escape("—")} Pair with a pairing code
-
-Run ${fmt.code(`tg pair`)} on the server to generate a code.`;
+/start_remote_control ${fmt.escape("—")} Connect a running session to this chat
+/change_session ${fmt.escape("—")} Switch to a different session
+/stop_remote_control ${fmt.escape("—")} Disconnect session from this chat
+/session ${fmt.escape("—")} Show current session info
+/files ${fmt.escape("—")} Pick repo paths for next message
+/output_mode ${fmt.escape("—")} Set output style (simple/verbose)
+/thinking ${fmt.escape("—")} Toggle thinking previews
+/background_jobs ${fmt.escape("—")} List running background jobs
+/link ${fmt.escape("—")} Add this chat as a channel
+/pair ${fmt.escape("—")} Pair with a pairing code`;
 }
 
 export async function handleHelp(

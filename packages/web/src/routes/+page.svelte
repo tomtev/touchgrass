@@ -95,38 +95,6 @@
           </article>
         </div>
 
-        <article class="card video-card">
-          <div class="card-body">
-            <div class="video-wrap">
-              <video
-                src="/mov.mov"
-                autoplay
-                muted
-                loop
-                playsinline
-                preload="metadata"
-              >
-                Your browser does not support HTML5 video.
-              </video>
-            </div>
-          </div>
-        </article>
-
-        <div class="feature-grid cols-2">
-          <article class="card">
-            <div class="card-body">
-              <p class="feature-title">Works from anywhere</p>
-              <p class="feature-desc">Send prompts, approve tool calls, share files, and reply with context — all from Telegram on your phone.</p>
-            </div>
-          </article>
-          <article class="card">
-            <div class="card-body">
-              <p class="feature-title">Lightweight</p>
-              <p class="feature-desc">Just a PTY bridge and daemon. Auto-starts when you run a session, auto-stops when idle. No background services.</p>
-            </div>
-          </article>
-        </div>
-
         <article class="card">
           <div class="card-body-lg">
             <p class="code-section-title">Get started in 60 seconds</p>
