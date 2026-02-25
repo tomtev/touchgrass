@@ -1638,7 +1638,7 @@ export async function startDaemon(): Promise<void> {
           const manifest = manifests.get(recentPoll.sessionId);
           if (manifest?.jsonlFile) {
             const raw = require("fs").readFileSync(manifest.jsonlFile, "utf-8") as string;
-            const entries = collectEntriesFromRaw(raw, 5);
+            const entries = collectEntriesFromRaw(raw, 10);
             if (entries.length > 0) {
               const fmt = getFormatterForChat(recentPoll.chatId);
               const lines = entries.map((e: DisplayEntry) => {
@@ -2052,7 +2052,7 @@ export async function startDaemon(): Promise<void> {
       if (!remote) return { ok: false, error: "Session not found" };
 
       const targets = new Set<ChannelChatId>();
-      const targetChat = sessionManager.getBoundChat(sessionId) || remote.chatId;
+      const targetChat = sessionManager.getBoundChat(sessionId);
       if (targetChat) targets.add(targetChat);
       for (const groupChatId of sessionManager.getSubscribedGroups(sessionId)) {
         targets.add(groupChatId);
@@ -2102,7 +2102,7 @@ export async function startDaemon(): Promise<void> {
       }
 
       const targets = new Set<ChannelChatId>();
-      const targetChat = sessionManager.getBoundChat(sessionId) || remote.chatId;
+      const targetChat = sessionManager.getBoundChat(sessionId);
       if (targetChat) targets.add(targetChat);
       for (const groupChatId of sessionManager.getSubscribedGroups(sessionId)) {
         targets.add(groupChatId);
@@ -2158,7 +2158,7 @@ export async function startDaemon(): Promise<void> {
       const remote = sessionManager.getRemote(sessionId);
       if (!remote) return;
       const targets = new Set<ChannelChatId>();
-      const targetChat = sessionManager.getBoundChat(sessionId) || remote.chatId;
+      const targetChat = sessionManager.getBoundChat(sessionId);
       if (targetChat) targets.add(targetChat);
       for (const groupChatId of sessionManager.getSubscribedGroups(sessionId)) {
         targets.add(groupChatId);
@@ -2182,7 +2182,7 @@ export async function startDaemon(): Promise<void> {
       if (!remote) return;
 
       const targets = new Set<ChannelChatId>();
-      const targetChat = sessionManager.getBoundChat(sessionId) || remote.chatId;
+      const targetChat = sessionManager.getBoundChat(sessionId);
       if (targetChat) targets.add(targetChat);
       for (const groupChatId of sessionManager.getSubscribedGroups(sessionId)) {
         targets.add(groupChatId);
@@ -2238,7 +2238,7 @@ export async function startDaemon(): Promise<void> {
       const remote = sessionManager.getRemote(sessionId);
       if (!remote) return;
       const targets = new Set<ChannelChatId>();
-      const targetChat = sessionManager.getBoundChat(sessionId) || remote.chatId;
+      const targetChat = sessionManager.getBoundChat(sessionId);
       if (targetChat) targets.add(targetChat);
       for (const groupChatId of sessionManager.getSubscribedGroups(sessionId)) {
         targets.add(groupChatId);
@@ -2264,7 +2264,7 @@ export async function startDaemon(): Promise<void> {
       if (!remote) return;
 
       const targets = new Set<ChannelChatId>();
-      const targetChat = sessionManager.getBoundChat(sessionId) || remote.chatId;
+      const targetChat = sessionManager.getBoundChat(sessionId);
       if (targetChat) targets.add(targetChat);
       for (const groupChatId of sessionManager.getSubscribedGroups(sessionId)) {
         targets.add(groupChatId);
@@ -2285,7 +2285,7 @@ export async function startDaemon(): Promise<void> {
       const remote = sessionManager.getRemote(sessionId);
       if (!remote) return;
       const targets = new Set<ChannelChatId>();
-      const targetChat = sessionManager.getBoundChat(sessionId) || remote.chatId;
+      const targetChat = sessionManager.getBoundChat(sessionId);
       if (targetChat) targets.add(targetChat);
       for (const groupChatId of sessionManager.getSubscribedGroups(sessionId)) {
         targets.add(groupChatId);
@@ -2382,7 +2382,7 @@ export async function startDaemon(): Promise<void> {
           multiSelect: (raw.multiSelect as boolean) || false,
         };
       });
-      const targetChat = sessionManager.getBoundChat(sessionId) || remote.chatId;
+      const targetChat = sessionManager.getBoundChat(sessionId);
       sessionManager.setPendingQuestions(sessionId, parsed, targetChat);
       sendNextPoll(sessionId);
     },

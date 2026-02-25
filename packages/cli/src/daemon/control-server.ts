@@ -289,6 +289,11 @@ export async function startControlServer(ctx: DaemonContext): Promise<void> {
 
         if (eventName === "PermissionRequest") {
           const toolName = (body.tool_name as string) || "unknown";
+          // AskUserQuestion is handled via JSONL parsing, not as a permission request.
+          // Auto-approve it so the user only sees the actual question poll.
+          if (toolName === "AskUserQuestion") {
+            return Response.json({ ok: true });
+          }
           const toolInput = (body.tool_input as Record<string, unknown>) || {};
           // Build human-readable prompt text from tool name and input
           let promptText = `Allow ${toolName}`;

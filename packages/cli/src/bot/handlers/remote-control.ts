@@ -152,6 +152,7 @@ export async function handleStopRemoteControl(
     return;
   }
 
+  ctx.channel.setTyping(chatId, false);
   ctx.sessionManager.detach(chatId);
   await ctx.channel.send(chatId, `${fmt.escape("⛳️")} Remote control disconnected.`);
 }

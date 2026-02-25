@@ -214,6 +214,14 @@ export async function routeMessage(
   // /stop_remote_control — disconnect session from this chat
   if (text === "/stop_remote_control" || text === "/stop-remote-control") {
     await handleStopRemoteControl({ ...msg, text }, ctx);
+    syncCommandMenuAsync(ctx, {
+      userId,
+      chatId,
+      isPaired: paired,
+      isGroup,
+      isLinkedGroup: linked,
+      hasActiveSession: !!ctx.sessionManager.getAttachedRemote(chatId),
+    });
     return;
   }
 

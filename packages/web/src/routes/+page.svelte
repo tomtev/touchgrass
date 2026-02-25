@@ -31,20 +31,18 @@
   <GrassHero>
     <div class="hero-content">
       <div class="hero-inner">
-        <article class="card">
-          <div class="card-header">
-            <div class="brand">
-              <span class="brand-icon" aria-hidden="true">⛳️</span>
-              <p class="brand-name">touchgrass.sh</p>
-            </div>
-            <h1 class="card-title">
-              Remote control Claude Code, Codex, Pi and more with Telegram.
-            </h1>
-            <p class="card-subtitle">
-              Manage your code projects and long-running sessions from your phone.
-            </p>
+        <div class="card-header">
+          <div class="brand">
+            <span class="brand-icon" aria-hidden="true">⛳️</span>
+            <p class="brand-name">touchgrass.sh</p>
           </div>
-        </article>
+          <h1 class="card-title">
+            Remote control Claude Code, Codex, Pi and more with Telegram.
+          </h1>
+          <p class="card-subtitle">
+            Manage your code projects and long-running sessions from your phone.
+          </p>
+        </div>
 
         <div class="feature-grid cols-3">
           <article class="card">
