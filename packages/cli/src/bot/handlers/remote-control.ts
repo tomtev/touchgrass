@@ -46,7 +46,7 @@ function relativeTime(ms: number): string {
   return `${days}d ago`;
 }
 
-async function buildSessionLabel(remote: RemoteSession, manifest: SessionManifest | null): Promise<string> {
+async function buildSessionLabel(remote: RemoteSession): Promise<string> {
   const tool = remote.command.split(" ")[0];
   const folder = remote.cwd.split("/").pop() || "";
   let name = tool;
@@ -63,14 +63,8 @@ async function buildSessionLabel(remote: RemoteSession, manifest: SessionManifes
   if (folder) headerParts.push(`(${folder})`);
   const header = headerParts.join(" — ");
 
-  // Add relative start time at the front
-  let timePrefix = "";
-  if (manifest?.startedAt) {
-    const startMs = Date.parse(manifest.startedAt);
-    if (!Number.isNaN(startMs)) {
-      timePrefix = `${relativeTime(Date.now() - startMs)} · `;
-    }
-  }
+  // Add relative time of last activity at the front
+  const timePrefix = `${relativeTime(Date.now() - remote.lastSeenAt)} · `;
 
   return `${timePrefix}${header}`;
 }
@@ -97,14 +91,8 @@ export async function handleStartRemoteControl(
     return;
   }
 
-  const manifests = readManifests();
-
-  // Sort by most recent first (startedAt from manifest, fallback to lastSeenAt)
-  userSessions.sort((a, b) => {
-    const aMs = Date.parse(manifests.get(a.id)?.startedAt || "") || a.lastSeenAt;
-    const bMs = Date.parse(manifests.get(b.id)?.startedAt || "") || b.lastSeenAt;
-    return bMs - aMs;
-  });
+  // Sort by most recent activity first
+  userSessions.sort((a, b) => b.lastSeenAt - a.lastSeenAt);
 
   // Build options
   const options: RemoteControlPickerOption[] = [];
@@ -114,8 +102,7 @@ export async function handleStartRemoteControl(
 
   // List all user sessions
   for (const remote of userSessions.slice(0, RC_BUTTON_LIMIT)) {
-    const manifest = manifests.get(remote.id);
-    const label = await buildSessionLabel(remote, manifest || null);
+    const label = await buildSessionLabel(remote);
     const isAttached = attached?.id === remote.id;
     const displayLabel = isAttached ? `${label} (connected)` : label;
     // Ensure we don't exceed Telegram's 100-char poll option limit
