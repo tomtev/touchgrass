@@ -44,8 +44,7 @@ function parseDaemonPidsFromPs(psOutput: string): DaemonProcess[] {
     if (!command.includes("__daemon__")) continue;
 
     const isTouchgrassDaemon =
-      /(^|[\/\s])tg(?:\.exe)?\s+__daemon__(\s|$)/i.test(command) ||
-      /\btouchgrass\b/i.test(command);
+      /(^|[\/\s])(?:touchgrass|tg)(?:\.exe)?\s+__daemon__(\s|$)/i.test(command);
     if (!isTouchgrassDaemon) continue;
     const eqMatch = command.match(/--tg-home=([^\s]+)/);
     const valueMatch = command.match(/--tg-home\s+([^\s]+)/);

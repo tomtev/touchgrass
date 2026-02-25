@@ -81,7 +81,7 @@ export async function handleStartRemoteControl(
   if (userSessions.length === 0) {
     await ctx.channel.send(
       chatId,
-      `No active sessions. Start one with ${fmt.code("tg claude")}, ${fmt.code("tg codex")}, ${fmt.code("tg pi")}, or ${fmt.code("tg kimi")}.`
+      `No active sessions. Start one with ${fmt.code("touchgrass claude")}, ${fmt.code("touchgrass codex")}, ${fmt.code("touchgrass pi")}, or ${fmt.code("touchgrass kimi")}.`
     );
     return;
   }

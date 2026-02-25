@@ -45,6 +45,6 @@ export async function handlePair(
   notifyApp({ type: "user-paired", username: username || undefined });
   await ctx.channel.send(
     chatId,
-    `Paired successfully! Welcome${username ? `, @${username}` : ""}.\n\nSend ${fmt.code(`tg ${fmt.escape("<command>")}`)} to run a command.\nSend /start to see available commands.`
+    `Paired successfully! Welcome${username ? `, @${username}` : ""}.\n\nSend ${fmt.code(`touchgrass ${fmt.escape("<command>")}`)} to run a command.\nSend /start to see available commands.`
   );
 }

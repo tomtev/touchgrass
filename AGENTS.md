@@ -29,39 +29,41 @@ The `termlings` avatar library is a separate open source package: https://github
 
 ## CLI
 
-For local development, use the `tg` shell alias (defined in `~/.zshrc`) which maps to `bun run /Users/tommyvedvik/Dev/touchgrass/packages/cli/src/main.ts`. This avoids needing an installed binary and prevents double-daemon conflicts.
+For local development, use the `tg` shell alias (defined in `~/.zshrc`) which maps to `bun run /Users/tommyvedvik/Dev/touchgrass/packages/cli/src/main.ts`. This avoids needing an installed binary and prevents double-daemon conflicts. The installed binary is `touchgrass` with `tg` as a symlink alias.
 
 ```bash
-tg setup      # configure channel credentials (init alias exists)
-tg pair       # generate pairing code
+touchgrass setup      # configure channel credentials (init alias exists)
+touchgrass pair       # generate pairing code
 
-tg claude
-tg codex
-tg pi
-tg kimi
+touchgrass claude
+touchgrass codex
+touchgrass pi
+touchgrass kimi
 
-tg write <session_id> "text"       # write into terminal (PTY stdin)
-tg write <session_id> --file <path> # write file path into terminal
-tg send <session_id> "text"         # send message to channel(s)
-tg send <session_id> --file <path>  # send file to channel(s)
+touchgrass write <session_id> "text"       # write into terminal (PTY stdin)
+touchgrass write <session_id> --file <path> # write file path into terminal
+touchgrass send <session_id> "text"         # send message to channel(s)
+touchgrass send <session_id> --file <path>  # send file to channel(s)
 
-tg sessions              # alias: tg ls
-tg channels
-tg links
-tg peek <id>
-tg stop <id>
-tg kill <id>
+touchgrass sessions              # alias: touchgrass ls
+touchgrass channels
+touchgrass links
+touchgrass peek <id>
+touchgrass stop <id>
+touchgrass kill <id>
 ```
 
+> **Note:** `tg` works as a shorthand alias for `touchgrass` everywhere.
+
 Telegram chat shorthands:
-- `/files` or `tg files <query>` opens the file picker (`.gitignore` aware when in a git repo)
+- `/files` or `touchgrass files <query>` opens the file picker (`.gitignore` aware when in a git repo)
 - `@?<query>` is shorthand for the same picker
 - `@?<query> - <prompt>` auto-resolves top fuzzy match and sends `@path - prompt`
-- `/resume` or `tg resume` opens a picker of recent local sessions and restarts the same tool on the selected session
+- `/resume` or `touchgrass resume` opens a picker of recent local sessions and restarts the same tool on the selected session
 
 ## Architecture
 
-1. CLI process (`tg claude/codex/pi/kimi`):
+1. CLI process (`touchgrass claude/codex/pi/kimi`):
 - spawns PTY
 - watches JSONL outputs
 - bridges tool output to chat
@@ -134,7 +136,7 @@ All config, runtime state, and session data lives in `~/.touchgrass/`. This dire
 
 ## Agent DNA Avatar System
 
-Each agent has a unique visual identity encoded as a **7-character hex DNA string** (e.g., `0a3f201`). DNA is generated during `tg agent create` and stored in the `<agent-soul>` block of `AGENTS.md`. Legacy 6-char DNAs are still supported (parsed identically via `parseInt`).
+Each agent has a unique visual identity encoded as a **7-character hex DNA string** (e.g., `0a3f201`). DNA is generated during `touchgrass agent create` and stored in the `<agent-soul>` block of `AGENTS.md`. Legacy 6-char DNAs are still supported (parsed identically via `parseInt`).
 
 The avatar system lives in `packages/termlings/` and is shared across CLI, website, and desktop app via the `termlings` workspace package.
 
@@ -187,5 +189,5 @@ old_pid=$(cat ~/.touchgrass/daemon.pid 2>/dev/null || true)
 tg channels
 ```
 - Session IDs are tagged and partial matching is supported in several CLI commands.
-- Use `tg stop` first and `tg kill` only if needed.
+- Use `touchgrass stop` first and `touchgrass kill` only if needed.
 - Keep routing changes covered by tests in `packages/cli/src/__tests__/`.

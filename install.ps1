@@ -3,7 +3,7 @@ $ErrorActionPreference = "Stop"
 $Repo = "tomtev/touchgrass"
 $DefaultInstallDir = Join-Path $HOME ".touchgrass\bin"
 $InstallDir = if ($env:TG_INSTALL_DIR) { $env:TG_INSTALL_DIR } else { $DefaultInstallDir }
-$BinaryName = "tg.exe"
+$BinaryName = "touchgrass.exe"
 
 function Write-Info([string]$Message) {
   Write-Host "  $Message" -ForegroundColor DarkGray
@@ -48,7 +48,7 @@ if (-not $latest) {
 }
 Write-Info "Version: $latest"
 
-$downloadUrl = "https://github.com/$Repo/releases/download/$latest/tg-$target"
+$downloadUrl = "https://github.com/$Repo/releases/download/$latest/touchgrass-$target"
 $tmpFile = Join-Path ([System.IO.Path]::GetTempPath()) ("tg-install-" + [guid]::NewGuid().ToString() + ".exe")
 
 try {
@@ -58,10 +58,13 @@ try {
     Fail "Failed to download binary for $target."
   }
 
-  $existingInstall = (Test-Path (Join-Path $InstallDir $BinaryName)) -or (Get-Command tg -ErrorAction SilentlyContinue)
+  $existingInstall = (Test-Path (Join-Path $InstallDir $BinaryName)) -or (Get-Command touchgrass -ErrorAction SilentlyContinue) -or (Get-Command tg -ErrorAction SilentlyContinue)
 
   New-Item -Path $InstallDir -ItemType Directory -Force | Out-Null
   Move-Item -Path $tmpFile -Destination (Join-Path $InstallDir $BinaryName) -Force
+
+  # Create tg.exe alias for backwards compatibility
+  Copy-Item -Path (Join-Path $InstallDir $BinaryName) -Destination (Join-Path $InstallDir "tg.exe") -Force
 
   # Try restarting daemon if a pid file exists (best effort).
   $daemonPidFile = Join-Path $HOME ".touchgrass\daemon.pid"
@@ -103,14 +106,14 @@ try {
   if ($existingInstall) {
     Write-Success "Updated touchgrass.sh to $latest"
   } else {
-    Write-Success "Installed tg to $(Join-Path $InstallDir $BinaryName)"
+    Write-Success "Installed touchgrass to $(Join-Path $InstallDir $BinaryName)"
     if (-not $installDirInPath) {
       Write-Host ""
       Write-Info "PATH updated for your user account."
       Write-Info "Open a new terminal to pick up changes."
     }
     Write-Host ""
-    Write-Success "Run 'tg init' to get started."
+    Write-Success "Run 'touchgrass init' to get started. (tg also works as alias)"
   }
   Write-Host ""
 }

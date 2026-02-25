@@ -20,7 +20,7 @@ function scanAllTools(cwd: string): ToolSession[] {
 }
 
 function launchTool(tool: ResumeTool, sessionRef: string, channelFlag: string | null): void {
-  const argv = ["bun", "tg", tool];
+  const argv = ["bun", "touchgrass", tool];
   if (channelFlag) argv.push("--channel", channelFlag);
 
   if (tool === "claude") {

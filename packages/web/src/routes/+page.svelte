@@ -50,7 +50,7 @@
               <Avatar dna={featureDNAs[0]} size="lg" />
               <div>
                 <p class="feature-title">Zero config</p>
-                <p class="feature-desc">Wraps your existing CLI. Just prefix with <code>tg</code> and you're live.</p>
+                <p class="feature-desc">Wraps your existing CLI. Just prefix with <code>touchgrass</code> and you're live.</p>
               </div>
             </div>
           </article>
@@ -105,8 +105,8 @@
               <div class="step-body">
                 <p class="step-title">Setup channel</p>
                 <p class="step-desc">Create a Telegram bot via <strong>@BotFather</strong> (<code>/newbot</code>), then:</p>
-                <pre class="code-block"><code>tg setup --telegram &lt;bot-token&gt;</code></pre>
-                <p class="step-desc">Pair from Telegram by DMing your bot: <code>/pair &lt;code&gt;</code> (the code is printed by <code>tg setup</code>).</p>
+                <pre class="code-block"><code>touchgrass setup --telegram &lt;bot-token&gt;</code></pre>
+                <p class="step-desc">Pair from Telegram by DMing your bot: <code>/pair &lt;code&gt;</code> (the code is printed by <code>touchgrass setup</code>). <em>Tip: <code>tg</code> works as shorthand.</em></p>
               </div>
             </div>
 
@@ -114,10 +114,10 @@
               <span class="step-num">3</span>
               <div class="step-body">
                 <p class="step-title">Start a CLI session</p>
-                <pre class="code-block"><code>tg claude         # Claude Code
-tg codex          # OpenAI Codex
-tg pi             # Inflection Pi
-tg kimi           # Moonshot Kimi</code></pre>
+                <pre class="code-block"><code>touchgrass claude         # Claude Code
+touchgrass codex          # OpenAI Codex
+touchgrass pi             # Inflection Pi
+touchgrass kimi           # Moonshot Kimi</code></pre>
                 <p class="step-desc">You'll see a banner confirming the session is touchgrass-wrapped:</p>
                 <pre class="code-block"><code>⛳ touchgrass · /start_remote_control to connect from Telegram</code></pre>
               </div>

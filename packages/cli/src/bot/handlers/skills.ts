@@ -12,7 +12,7 @@ export async function handleSkillsCommand(
   // Find the cwd of the active session for this chat
   const remote = ctx.sessionManager.getAttachedRemote(chatId);
   if (!remote) {
-    await ctx.channel.send(chatId, `No active session. Start one with ${fmt.code("tg claude")} or ${fmt.code("tg codex")}.`);
+    await ctx.channel.send(chatId, `No active session. Start one with ${fmt.code("touchgrass claude")} or ${fmt.code("touchgrass codex")}.`);
     return;
   }
 

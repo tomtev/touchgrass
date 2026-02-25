@@ -46,7 +46,7 @@ describe("setup arg parsing", () => {
 
   it("throws on unknown option", () => {
     expect(() => __initTestUtils.parseSetupArgs(["--unknown"]))
-      .toThrow("Unknown option for tg setup: --unknown");
+      .toThrow("Unknown option for touchgrass setup: --unknown");
   });
 
   it("throws when --channel value is missing", () => {

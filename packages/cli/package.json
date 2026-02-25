@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "bun run src/main.ts",
-    "build": "bun build src/main.ts --compile --outfile tg",
+    "build": "bun build src/main.ts --compile --outfile touchgrass",
     "typecheck": "tsc --noEmit",
     "test": "rm -rf .touchgrass-test && TOUCHGRASS_HOME=.touchgrass-test bun test"
   },

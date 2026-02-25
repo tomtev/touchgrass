@@ -44,7 +44,7 @@ function parseRestartArgs(argv: string[]): RestartCliArgs {
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg.startsWith("--")) {
-      throw new Error(`Unknown option for tg restart: ${arg}`);
+      throw new Error(`Unknown option for touchgrass restart: ${arg}`);
     }
     if (sessionIdPartial) {
       throw new Error("Only one session ID may be provided.");
@@ -88,7 +88,7 @@ export async function runRestart(): Promise<void> {
     parsed = parseRestartArgs(process.argv.slice(3));
   } catch (e) {
     console.error((e as Error).message);
-    console.error("Usage: tg restart [tg_session_id]");
+    console.error("Usage: touchgrass restart [tg_session_id]");
     process.exit(1);
     return;
   }
@@ -106,13 +106,13 @@ export async function runRestart(): Promise<void> {
 
   if (!sessionRef) {
     console.error(
-      "Could not infer a tool session ID from the current command. Run tg resume first, then tg restart."
+      "Could not infer a tool session ID from the current command. Run touchgrass resume first, then touchgrass restart."
     );
     process.exit(1);
   }
 
   await daemonRequest(`/session/${target.id}/restart`, "POST");
-  console.log(`Requested restart for tg session ${target.id} using tool session ${sessionRef}`);
+  console.log(`Requested restart for touchgrass session ${target.id} using tool session ${sessionRef}`);
 }
 
 export const __restartTestUtils = {

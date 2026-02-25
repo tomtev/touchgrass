@@ -386,7 +386,7 @@ export async function handleResumeCommand(
   if (!remote) {
     await ctx.channel.send(
       chatId,
-      `No connected session for this chat. Start with ${fmt.code("tg claude")} (or ${fmt.code("tg codex")}, ${fmt.code("tg pi")}, ${fmt.code("tg kimi")}) and connect this channel first.`
+      `No connected session for this chat. Start with ${fmt.code("touchgrass claude")} (or ${fmt.code("touchgrass codex")}, ${fmt.code("touchgrass pi")}, ${fmt.code("touchgrass kimi")}) and connect this channel first.`
     );
     return;
   }

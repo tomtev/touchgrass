@@ -99,7 +99,7 @@ function validateRunSetupPreflight(config: TgConfig): RunSetupPreflight {
     return {
       ok: false,
       message: "Telegram setup is incomplete.",
-      details: "Run `tg setup` to configure your bot token before starting sessions.",
+      details: "Run `touchgrass setup` to configure your bot token before starting sessions.",
     };
   }
 
@@ -108,7 +108,7 @@ function validateRunSetupPreflight(config: TgConfig): RunSetupPreflight {
     return {
       ok: false,
       message: "No paired owner found.",
-      details: "Run `tg pair` and send `/pair <code>` to your bot.",
+      details: "Run `touchgrass pair` and send `/pair <code>` to your bot.",
     };
   }
 
@@ -1180,7 +1180,7 @@ function resolveChannelFlag(
 
   // No match found
   console.error(`Channel not found: "${value}"`);
-  console.error(`Run \`tg channels\` to see available channels.`);
+  console.error(`Run \`touchgrass channels\` to see available channels.`);
   process.exit(1);
 }
 
@@ -1516,12 +1516,12 @@ function buildResumeCommandArgs(
 }
 
 export async function runRun(): Promise<void> {
-  // Determine command: `tg claude [args]`, `tg codex [args]`, `tg pi [args]`, or `tg kimi [args]`
+  // Determine command: `touchgrass claude [args]`, `touchgrass codex [args]`, `touchgrass pi [args]`, or `touchgrass kimi [args]`
   const initialCmdName = process.argv[2] as SupportedCommand | undefined;
   let cmdArgs = process.argv.slice(3);
 
   if (!initialCmdName || !SUPPORTED_COMMANDS[initialCmdName]) {
-    console.error(`Usage: tg claude [args...], tg codex [args...], tg pi [args...], or tg kimi [args...]`);
+    console.error(`Usage: touchgrass claude [args...], touchgrass codex [args...], touchgrass pi [args...], or touchgrass kimi [args...]`);
     process.exit(1);
   }
   let currentTool: SupportedCommand = initialCmdName;
@@ -1583,7 +1583,7 @@ export async function runRun(): Promise<void> {
       const daemonChannels = (channelRes.channels as Array<{ chatId: string; title: string; type: string; busy: boolean; busyLabel?: string | null }>) || [];
       if (daemonChannels.length === 0) {
         console.error("No channels available.");
-        console.error("Run `tg setup` and `tg pair`, then verify with `tg channels`.");
+        console.error("Run `touchgrass setup` and `touchgrass pair`, then verify with `touchgrass channels`.");
         process.exit(1);
       }
       const pickerOptions = buildChannelPickerOptions(daemonChannels);
@@ -1610,7 +1610,7 @@ export async function runRun(): Promise<void> {
       }
     } catch (e) {
       console.error("Failed to load channels from daemon.");
-      console.error("Run `tg setup` and `tg pair`, then verify with `tg channels`.");
+      console.error("Run `touchgrass setup` and `touchgrass pair`, then verify with `touchgrass channels`.");
       console.error(`Details: ${(e as Error).message}`);
       process.exit(1);
     }
@@ -1648,7 +1648,7 @@ export async function runRun(): Promise<void> {
       });
       if (!res.ok || !res.sessionId) {
         console.error("Failed to register remote session.");
-        console.error("Run `tg setup` and `tg pair`, then verify with `tg channels`.");
+        console.error("Run `touchgrass setup` and `touchgrass pair`, then verify with `touchgrass channels`.");
         process.exit(1);
       }
 
@@ -1683,7 +1683,7 @@ export async function runRun(): Promise<void> {
       }
     } catch (e) {
       console.error("Failed to register session with daemon.");
-      console.error("Run `tg setup` and `tg pair`, then verify with `tg channels`.");
+      console.error("Run `touchgrass setup` and `touchgrass pair`, then verify with `touchgrass channels`.");
       console.error(`Details: ${(e as Error).message}`);
       process.exit(1);
     }
@@ -1692,7 +1692,7 @@ export async function runRun(): Promise<void> {
     channel = createChannel(resolvedChannelName, resolvedChannelConfig);
   } catch (e) {
     console.error("Failed to load touchgrass config.");
-    console.error(`Run \`tg setup\` first. Config path: ${paths.config}`);
+    console.error(`Run \`touchgrass setup\` first. Config path: ${paths.config}`);
     console.error(`Details: ${(e as Error).message}`);
     process.exit(1);
   }

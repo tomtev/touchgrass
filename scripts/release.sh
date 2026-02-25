@@ -22,10 +22,10 @@ mkdir -p "$DIST_DIR"
 
 # Build for each target
 TARGETS=(
-  "bun-darwin-arm64:tg-darwin-arm64"
-  "bun-darwin-x64:tg-darwin-x64"
-  "bun-linux-arm64:tg-linux-arm64"
-  "bun-linux-x64:tg-linux-x64"
+  "bun-darwin-arm64:touchgrass-darwin-arm64"
+  "bun-darwin-x64:touchgrass-darwin-x64"
+  "bun-linux-arm64:touchgrass-linux-arm64"
+  "bun-linux-x64:touchgrass-linux-x64"
 )
 
 for entry in "${TARGETS[@]}"; do
@@ -54,7 +54,7 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
   gh release create "$VERSION" \
     --title "$VERSION" \
     --generate-notes \
-    "${DIST_DIR}"/tg-*
+    "${DIST_DIR}"/touchgrass-*
 
   echo ""
   echo "Release created: https://github.com/$(gh repo view --json nameWithOwner -q .nameWithOwner)/releases/tag/${VERSION}"

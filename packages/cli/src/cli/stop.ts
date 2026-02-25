@@ -29,8 +29,8 @@ export async function runStopOrKill(): Promise<void> {
   const sessionArg = (process.argv[3] || "").trim();
 
   if ((action !== "stop" && action !== "kill") || !sessionArg) {
-    console.error("Usage: tg stop <session_id>");
-    console.error("       tg kill <session_id>");
+    console.error("Usage: touchgrass stop <session_id>");
+    console.error("       touchgrass kill <session_id>");
     process.exit(1);
   }
 

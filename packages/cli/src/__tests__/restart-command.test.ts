@@ -21,7 +21,7 @@ describe("restart command arg parsing", () => {
   it("rejects unknown options", () => {
     expect(() =>
       __restartTestUtils.parseRestartArgs(["--unknown"])
-    ).toThrow("Unknown option for tg restart: --unknown");
+    ).toThrow("Unknown option for touchgrass restart: --unknown");
   });
 
   it("rejects multiple session ids", () => {

@@ -75,7 +75,7 @@ export async function runAgent(): Promise<void> {
       break;
     }
     default: {
-      console.log(`Usage: tg agent <command>
+      console.log(`Usage: touchgrass agent <command>
 
 Commands:
   create [folder]   Scaffold a new agent

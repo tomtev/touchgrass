@@ -73,7 +73,7 @@ export async function handleStdinInput(
     } else {
       await ctx.channel.send(
         chatId,
-        `No session assigned to this channel. In your terminal, run ${fmt.code("tg claude")} (or ${fmt.code("tg codex")}, ${fmt.code("tg pi")}, ${fmt.code("tg kimi")}) to connect.`
+        `No session assigned to this channel. In your terminal, run ${fmt.code("touchgrass claude")} (or ${fmt.code("touchgrass codex")}, ${fmt.code("touchgrass pi")}, ${fmt.code("touchgrass kimi")}) to connect.`
       );
     }
     return;
@@ -81,6 +81,6 @@ export async function handleStdinInput(
 
   await ctx.channel.send(
     chatId,
-    `No active session. Run ${fmt.code("tg claude")}, ${fmt.code("tg codex")}, ${fmt.code("tg pi")}, or ${fmt.code("tg kimi")} in your terminal.`
+    `No active session. Run ${fmt.code("touchgrass claude")}, ${fmt.code("touchgrass codex")}, ${fmt.code("touchgrass pi")}, or ${fmt.code("touchgrass kimi")} in your terminal.`
   );
 }

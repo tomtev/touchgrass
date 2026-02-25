@@ -13,7 +13,7 @@ export async function runChannels(): Promise<void> {
   try {
     await ensureDaemon();
   } catch {
-    console.error("Daemon is not running. Start a session first (e.g. `tg claude` or `tg kimi`).");
+    console.error("Daemon is not running. Start a session first (e.g. `touchgrass claude` or `touchgrass kimi`).");
     process.exit(1);
   }
 
@@ -27,7 +27,7 @@ export async function runChannels(): Promise<void> {
   }
 
   if (channels.length === 0) {
-    console.log("No channels available. Run `tg setup` and `tg pair` first.");
+    console.log("No channels available. Run `touchgrass setup` and `touchgrass pair` first.");
     process.exit(0);
   }
 

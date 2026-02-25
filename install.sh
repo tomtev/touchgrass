@@ -3,7 +3,7 @@ set -euo pipefail
 
 REPO="tomtev/touchgrass"
 INSTALL_DIR="${TG_INSTALL_DIR:-$HOME/.local/bin}"
-BINARY_NAME="tg"
+BINARY_NAME="touchgrass"
 WINDOWS_OS=false
 
 # Colors
@@ -18,7 +18,7 @@ warn() { echo -e "  ${DIM}⚠ $1${NC}"; }
 error() { echo -e "  ❌ ${BOLD}$1${NC}" >&2; exit 1; }
 
 EXISTING_INSTALL=false
-if [ -x "${INSTALL_DIR}/${BINARY_NAME}" ] || command -v tg &>/dev/null || command -v tg.exe &>/dev/null; then
+if [ -x "${INSTALL_DIR}/${BINARY_NAME}" ] || command -v touchgrass &>/dev/null || command -v tg &>/dev/null || command -v tg.exe &>/dev/null; then
   EXISTING_INSTALL=true
 fi
 
@@ -35,7 +35,7 @@ case "$OS" in
   CYGWIN*|MINGW*|MSYS*)
     OS="windows"
     WINDOWS_OS=true
-    BINARY_NAME="tg.exe"
+    BINARY_NAME="touchgrass.exe"
     INSTALL_DIR="${TG_INSTALL_DIR:-$HOME/.touchgrass/bin}"
     ;;
   *)      error "Unsupported OS: $OS" ;;
@@ -68,7 +68,7 @@ fi
 info "Version: ${LATEST}"
 
 # Download binary
-DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${LATEST}/tg-${TARGET}"
+DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${LATEST}/touchgrass-${TARGET}"
 info "Downloading..."
 
 TMPFILE=$(mktemp)
@@ -83,6 +83,13 @@ fi
 mkdir -p "$INSTALL_DIR"
 mv "$TMPFILE" "${INSTALL_DIR}/${BINARY_NAME}"
 chmod +x "${INSTALL_DIR}/${BINARY_NAME}"
+
+# Create tg symlink/copy for backwards compatibility
+if [ "$WINDOWS_OS" = true ]; then
+  cp -f "${INSTALL_DIR}/${BINARY_NAME}" "${INSTALL_DIR}/tg.exe"
+else
+  ln -sf "${BINARY_NAME}" "${INSTALL_DIR}/tg"
+fi
 
 # Probe daemon compatibility with the new binary without forcing a restart.
 if [ -f "$HOME/.touchgrass/daemon.pid" ]; then
@@ -107,7 +114,7 @@ echo ""
 if [ "$EXISTING_INSTALL" = true ]; then
   success "✅ touchgrass.sh updated to ${LATEST}"
 else
-  success "✅ Installed tg to ${INSTALL_DIR}/${BINARY_NAME}"
+  success "✅ Installed touchgrass to ${INSTALL_DIR}/${BINARY_NAME}"
 
   # Check if INSTALL_DIR is in PATH
   if ! echo "$PATH" | tr ':' '\n' | grep -qx "$INSTALL_DIR"; then
@@ -128,6 +135,6 @@ else
   fi
 
   echo ""
-  success "Run 'tg init' to get started."
+  success "Run 'touchgrass init' to get started. (tg also works as alias)"
 fi
 echo ""

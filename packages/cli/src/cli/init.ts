@@ -16,7 +16,7 @@ interface SetupCliOptions {
 }
 
 function printSetupUsage(): void {
-  console.log(`Usage: tg setup [options]
+  console.log(`Usage: touchgrass setup [options]
 
 Options:
   --telegram <token>    Configure Telegram bot token non-interactively
@@ -77,7 +77,7 @@ function parseSetupArgs(argv: string[]): SetupCliOptions {
       opts.showChannel = true;
       continue;
     }
-    throw new Error(`Unknown option for tg setup: ${arg}`);
+    throw new Error(`Unknown option for touchgrass setup: ${arg}`);
   }
 
   const channelName = opts.channelName.trim();
@@ -198,7 +198,7 @@ async function ensureDaemonUsesLatestSetup(tokenUpdated: boolean): Promise<{ ok:
         const suffix = activeSessions === 1 ? "" : "s";
         return {
           ok: false,
-          warning: `Daemon has ${activeSessions} active session${suffix}. Finish/stop them, then run \`tg pair\`.`,
+          warning: `Daemon has ${activeSessions} active session${suffix}. Finish/stop them, then run \`touchgrass pair\`.`,
         };
       }
       await daemonRequest("/shutdown", "POST");
@@ -245,7 +245,7 @@ async function printChannelList(config: TgConfig): Promise<void> {
   const entries = sortChannels(getTelegramChannelEntries(config));
   if (entries.length === 0) {
     console.log("No Telegram channels configured yet.");
-    console.log("Run `tg setup --telegram <token>` to add one.");
+    console.log("Run `touchgrass setup --telegram <token>` to add one.");
     return;
   }
 
@@ -280,16 +280,16 @@ async function printChannelList(config: TgConfig): Promise<void> {
   }
 
   console.log("\nInspect one:");
-  console.log("  tg setup --channel <name> --show");
+  console.log("  touchgrass setup --channel <name> --show");
   console.log("Configure one:");
-  console.log("  tg setup --channel <name>");
+  console.log("  touchgrass setup --channel <name>");
 }
 
 function printChannelDetails(config: TgConfig, channelName: string): void {
   const channel = config.channels[channelName];
   if (!channel || channel.type !== "telegram") {
     console.log(`Telegram channel '${channelName}' is not configured.`);
-    console.log(`Run: tg setup --channel ${channelName}`);
+    console.log(`Run: touchgrass setup --channel ${channelName}`);
     return;
   }
 
@@ -450,7 +450,7 @@ export async function runInit(): Promise<void> {
       } else {
         pairingCode = await generatePairingCodeFromDaemon();
         if (!pairingCode) {
-          autoPairWarning = "Could not auto-generate pairing code. Run `tg pair` manually.";
+          autoPairWarning = "Could not auto-generate pairing code. Run `touchgrass pair` manually.";
         }
       }
     }
@@ -467,13 +467,13 @@ export async function runInit(): Promise<void> {
     if (pairingCode) {
       console.log("  1. Send /pair <code> to your bot in Telegram DM");
       console.log("  2. (Optional) In Telegram groups/topics, send /link");
-      console.log("  3. tg claude    (or tg codex, tg pi, tg kimi) Start with chat bridge");
-      console.log("  4. tg pair      Generate another pairing code later if needed");
+      console.log("  3. touchgrass claude    (or touchgrass codex, touchgrass pi, touchgrass kimi) Start with chat bridge");
+      console.log("  4. touchgrass pair      Generate another pairing code later if needed");
     } else {
-      console.log("  1. tg pair      Generate a pairing code");
+      console.log("  1. touchgrass pair      Generate a pairing code");
       console.log("  2. Send /pair <code> to your bot in Telegram DM");
       console.log("  3. (Optional) In Telegram groups/topics, send /link");
-      console.log("  4. tg claude    (or tg codex, tg pi, tg kimi) Start with chat bridge");
+      console.log("  4. touchgrass claude    (or touchgrass codex, touchgrass pi, touchgrass kimi) Start with chat bridge");
     }
   } finally {
     rl.close();

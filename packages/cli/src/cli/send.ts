@@ -51,12 +51,12 @@ export async function runSend(): Promise<void> {
   const args = process.argv.slice(3);
 
   if (args.length < 2) {
-    console.error('Usage: tg send <session_id> "text"');
-    console.error('       tg send <session_id> --file <path> ["caption"]');
+    console.error('Usage: touchgrass send <session_id> "text"');
+    console.error('       touchgrass send <session_id> --file <path> ["caption"]');
     console.error('Examples:');
-    console.error('  tg send r-abc123 "hello world"');
-    console.error('  tg send r-abc123 --file ./report.pdf');
-    console.error('  tg send r-abc123 --file ./img.png "here is the screenshot"');
+    console.error('  touchgrass send r-abc123 "hello world"');
+    console.error('  touchgrass send r-abc123 --file ./report.pdf');
+    console.error('  touchgrass send r-abc123 --file ./img.png "here is the screenshot"');
     process.exit(1);
   }
 
@@ -67,7 +67,7 @@ export async function runSend(): Promise<void> {
   // Parse: <session> --file <path> ["caption"] or <session> "text"
   if (args[1] === "--file") {
     if (args.length < 3) {
-      console.error('Usage: tg send <session_id> --file <path> ["caption"]');
+      console.error('Usage: touchgrass send <session_id> --file <path> ["caption"]');
       process.exit(1);
     }
     filePath = args[2];
@@ -104,11 +104,11 @@ export async function runWrite(): Promise<void> {
   const args = process.argv.slice(3);
 
   if (args.length < 2) {
-    console.error('Usage: tg write <session_id> "text"');
-    console.error('       tg write <session_id> --file <path>');
+    console.error('Usage: touchgrass write <session_id> "text"');
+    console.error('       touchgrass write <session_id> --file <path>');
     console.error('Examples:');
-    console.error('  tg write r-abc123 "do the thing"');
-    console.error('  tg write r-abc123 --file ./notes.md');
+    console.error('  touchgrass write r-abc123 "do the thing"');
+    console.error('  touchgrass write r-abc123 --file ./notes.md');
     process.exit(1);
   }
 
@@ -118,7 +118,7 @@ export async function runWrite(): Promise<void> {
 
   if (args[1] === "--file") {
     if (args.length < 3) {
-      console.error('Usage: tg write <session_id> --file <path>');
+      console.error('Usage: touchgrass write <session_id> --file <path>');
       process.exit(1);
     }
     filePath = args[2];

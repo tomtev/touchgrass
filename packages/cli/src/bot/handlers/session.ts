@@ -40,15 +40,15 @@ function extractResumeRef(tool: SessionTool, command: string): string | null {
 }
 
 function resumeTemplate(tool: SessionTool): string {
-  if (tool === "pi") return "tg pi --session <pi_session_id>";
-  if (tool === "kimi") return "tg kimi --session <kimi_session_id>";
-  if (tool === "claude") return "tg claude resume <claude_session_id>";
-  return "tg codex resume <codex_session_id>";
+  if (tool === "pi") return "touchgrass pi --session <pi_session_id>";
+  if (tool === "kimi") return "touchgrass kimi --session <kimi_session_id>";
+  if (tool === "claude") return "touchgrass claude resume <claude_session_id>";
+  return "touchgrass codex resume <codex_session_id>";
 }
 
 function resumeCommand(tool: SessionTool, sessionRef: string): string {
-  if (tool === "pi" || tool === "kimi") return `tg ${tool} --session ${sessionRef}`;
-  return `tg ${tool} resume ${sessionRef}`;
+  if (tool === "pi" || tool === "kimi") return `touchgrass ${tool} --session ${sessionRef}`;
+  return `touchgrass ${tool} resume ${sessionRef}`;
 }
 
 export async function handleSessionCommand(
@@ -60,7 +60,7 @@ export async function handleSessionCommand(
   if (!remote) {
     await ctx.channel.send(
       msg.chatId,
-      `No connected touchgrass session for this chat. Start with ${fmt.code("tg claude")} (or ${fmt.code("tg codex")}, ${fmt.code("tg pi")}, ${fmt.code("tg kimi")}) and connect this channel first.`
+      `No connected touchgrass session for this chat. Start with ${fmt.code("touchgrass claude")} (or ${fmt.code("touchgrass codex")}, ${fmt.code("touchgrass pi")}, ${fmt.code("touchgrass kimi")}) and connect this channel first.`
     );
     return;
   }
@@ -68,7 +68,7 @@ export async function handleSessionCommand(
   const tool = detectTool(remote.command);
   const lines: string[] = [
     `${fmt.escape("⛳️")} ${fmt.bold(fmt.escape("Current touchgrass session"))}`,
-    `${fmt.escape("tg session ID:")} ${fmt.code(fmt.escape(remote.id))}`,
+    `${fmt.escape("touchgrass session ID:")} ${fmt.code(fmt.escape(remote.id))}`,
   ];
 
   if (tool) {
@@ -78,18 +78,18 @@ export async function handleSessionCommand(
     lines.push(`${fmt.escape("Project:")} ${fmt.code(fmt.escape(remote.cwd))}`);
   }
 
-  lines.push(`${fmt.escape("Resume picker:")} ${fmt.code("/resume")} ${fmt.escape("or")} ${fmt.code("tg resume")}`);
+  lines.push(`${fmt.escape("Resume picker:")} ${fmt.code("/resume")} ${fmt.escape("or")} ${fmt.code("touchgrass resume")}`);
 
   if (tool) {
     const ref = extractResumeRef(tool, remote.command);
     if (ref) {
       lines.push(`${fmt.escape("Tool session ID:")} ${fmt.code(fmt.escape(ref))}`);
       lines.push(`${fmt.escape("Direct tool resume:")} ${fmt.code(fmt.escape(resumeCommand(tool, ref)))}`);
-      lines.push(`${fmt.escape("Restart wrapper on same tool session:")} ${fmt.code(fmt.escape(`tg restart ${remote.id}`))}`);
+      lines.push(`${fmt.escape("Restart wrapper on same tool session:")} ${fmt.code(fmt.escape(`touchgrass restart ${remote.id}`))}`);
     } else {
       lines.push(`${fmt.escape("Tool session ID:")} ${fmt.escape("not detected from current command")}`);
       lines.push(`${fmt.escape("Tool resume command:")} ${fmt.code(fmt.escape(resumeTemplate(tool)))}`);
-      lines.push(`${fmt.escape("Restart wrapper command:")} ${fmt.code(fmt.escape(`tg restart ${remote.id}`))}`);
+      lines.push(`${fmt.escape("Restart wrapper command:")} ${fmt.code(fmt.escape(`touchgrass restart ${remote.id}`))}`);
       lines.push(`${fmt.escape("If restart cannot infer a tool session, use")} ${fmt.code("/resume")} ${fmt.escape("first.")}`);
     }
   }

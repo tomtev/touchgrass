@@ -102,8 +102,8 @@ async function main() {
       break;
     default: {
       console.error(`Unknown command: ${command}`);
-      console.error("Supported commands: tg setup, tg claude, tg codex, tg pi, tg kimi, tg write, tg send, tg stop, tg kill, tg restart");
-      console.error(`Run "tg help" for more information.`);
+      console.error("Supported commands: touchgrass setup, touchgrass claude, touchgrass codex, touchgrass pi, touchgrass kimi, touchgrass write, touchgrass send, touchgrass stop, touchgrass kill, touchgrass restart");
+      console.error(`Run "touchgrass help" for more information.`);
       process.exit(1);
     }
   }
@@ -113,7 +113,7 @@ function printHelp() {
   console.log(`⛳ touchgrass.sh — remote control your terminal tools from your phone
    https://touchgrass.sh
 
-Usage: tg <command>
+Usage: touchgrass <command>  (alias: tg)
 
 Commands:
   claude   Run Claude Code with chat bridge
@@ -128,14 +128,14 @@ Options (for claude/codex/pi/kimi/resume):
 
   sessions List active sessions (alias: ls)
   channels List available channels (DM, groups, topics) with busy status
-  write    Write text into a session's terminal (tg write <id> "text" | tg write <id> --file <path>)
-  send     Send a message or file to a session's channel(s) (tg send <id> "text" | tg send <id> --file <path>)
-  peek     Peek at last messages from session(s) (tg peek <id>|--all [count])
+  write    Write text into a session's terminal (touchgrass write <id> "text" | touchgrass write <id> --file <path>)
+  send     Send a message or file to a session's channel(s) (touchgrass send <id> "text" | touchgrass send <id> --file <path>)
+  peek     Peek at last messages from session(s) (touchgrass peek <id>|--all [count])
   stop     Stop a session (SIGTERM / remote stop request)
   kill     Kill a session (SIGKILL / remote kill request)
-  restart  Restart a tg session wrapper on its current tool session (tg restart [tg_session_id])
+  restart  Restart a touchgrass session wrapper on its current tool session (touchgrass restart [session_id])
   links    List and manage linked groups/topics
-  agent    Create or update agents (tg agent create | tg agent update)
+  agent    Create or update agents (touchgrass agent create | touchgrass agent update)
   setup    Set up Telegram credentials (supports --telegram <token>, --channel <name>, --list-channels, --show)
   init     Alias for setup
   pair     Generate a pairing code

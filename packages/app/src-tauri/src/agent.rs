@@ -19,7 +19,7 @@ pub fn create_agent(
             .map_err(|e| format!("Failed to create directory: {e}"))?;
     }
 
-    // Build the tg agent create command
+    // Build the touchgrass agent create command
     let (program, base_args) = if let Some(bin) = daemon::find_tg_binary() {
         (bin.to_string_lossy().to_string(), vec![])
     } else if let Some((bun, main_ts)) = daemon::find_tg_dev() {
@@ -28,7 +28,7 @@ pub fn create_agent(
             vec!["run".to_string(), main_ts.to_string_lossy().to_string()],
         )
     } else {
-        return Err("Cannot find touchgrass binary. Install it or ensure 'tg' is in PATH.".to_string());
+        return Err("Cannot find touchgrass binary. Install it or ensure 'touchgrass' (or 'tg') is in PATH.".to_string());
     };
 
     let mut args = base_args;

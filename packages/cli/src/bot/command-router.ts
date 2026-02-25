@@ -67,20 +67,25 @@ export async function routeMessage(
   text = text.replace(/^\/([a-z0-9_]+)@[^\s]+(?=\s|$)/i, "/$1");
 
   // Channel-agnostic command aliases for platforms where slash commands are not practical.
-  if (text === "tg files" || text.startsWith("tg files ")) text = `/files${text.slice("tg files".length)}`;
-  else if (text === "tg session") text = "/session";
-  else if (text === "tg change_session" || text === "tg change-session") text = "/change_session";
-  else if (text === "tg output_mode" || text.startsWith("tg output_mode ")) text = `/output_mode${text.slice("tg output_mode".length)}`;
-  else if (text === "tg output-mode" || text.startsWith("tg output-mode ")) text = `/output_mode${text.slice("tg output-mode".length)}`;
-  else if (text === "tg thinking" || text.startsWith("tg thinking ")) text = `/thinking${text.slice("tg thinking".length)}`;
-  else if (text === "tg background_jobs" || text.startsWith("tg background_jobs ")) text = "/background_jobs";
-  else if (text === "tg background-jobs" || text.startsWith("tg background-jobs ")) text = "/background-jobs";
-  else if (text === "tg skills") text = "/skills";
-  else if (text === "tg link" || text.startsWith("tg link ")) text = `/link${text.slice("tg link".length)}`;
-  else if (text === "tg unlink") text = "/unlink";
-  else if (text === "tg rc") text = "/start_remote_control";
-  else if (text === "tg rc stop") text = "/stop_remote_control";
-  else if (text === "tg pair" || text.startsWith("tg pair ")) text = `/pair${text.slice("tg pair".length)}`;
+  // Accept both "touchgrass <cmd>" and "tg <cmd>" for backwards compatibility.
+  const cmdPrefix = text.startsWith("touchgrass ") ? "touchgrass" : text.startsWith("tg ") ? "tg" : null;
+  if (cmdPrefix) {
+    const rest = text.slice(cmdPrefix.length);
+    if (rest === " files" || rest.startsWith(" files ")) text = `/files${rest.slice(" files".length)}`;
+    else if (rest === " session") text = "/session";
+    else if (rest === " change_session" || rest === " change-session") text = "/change_session";
+    else if (rest === " output_mode" || rest.startsWith(" output_mode ")) text = `/output_mode${rest.slice(" output_mode".length)}`;
+    else if (rest === " output-mode" || rest.startsWith(" output-mode ")) text = `/output_mode${rest.slice(" output-mode".length)}`;
+    else if (rest === " thinking" || rest.startsWith(" thinking ")) text = `/thinking${rest.slice(" thinking".length)}`;
+    else if (rest === " background_jobs" || rest.startsWith(" background_jobs ")) text = "/background_jobs";
+    else if (rest === " background-jobs" || rest.startsWith(" background-jobs ")) text = "/background-jobs";
+    else if (rest === " skills") text = "/skills";
+    else if (rest === " link" || rest.startsWith(" link ")) text = `/link${rest.slice(" link".length)}`;
+    else if (rest === " unlink") text = "/unlink";
+    else if (rest === " rc") text = "/start_remote_control";
+    else if (rest === " rc stop") text = "/stop_remote_control";
+    else if (rest === " pair" || rest.startsWith(" pair ")) text = `/pair${rest.slice(" pair".length)}`;
+  }
 
   const userId = msg.userId;
   const chatId = msg.chatId;
@@ -142,14 +147,14 @@ export async function routeMessage(
   }
 
   if (text === "/sessions") {
-    await ctx.channel.send(chatId, `The ${fmt.code("/sessions")} command was removed. Use ${fmt.code("tg ls")} in your terminal.`);
+    await ctx.channel.send(chatId, `The ${fmt.code("/sessions")} command was removed. Use ${fmt.code("touchgrass ls")} in your terminal.`);
     return;
   }
 
   if (text === "/mute" || text === "/unmute" || text === "/stop" || text === "/kill" || text === "/new" || text === "/start" || text.startsWith("/start ") || text.startsWith("/new ")) {
     await ctx.channel.send(
       chatId,
-      `${fmt.escape("⛳️ Chat-side session start/stop was removed. Start sessions from your terminal with")} ${fmt.code("tg claude")}, ${fmt.code("tg codex")}, ${fmt.code("tg pi")}, ${fmt.code("tg kimi")} ${fmt.escape("and use")} ${fmt.code("tg stop <id>")} ${fmt.escape("or")} ${fmt.code("tg kill <id>")} ${fmt.escape("from terminal when needed.")}`
+      `${fmt.escape("⛳️ Chat-side session start/stop was removed. Start sessions from your terminal with")} ${fmt.code("touchgrass claude")}, ${fmt.code("touchgrass codex")}, ${fmt.code("touchgrass pi")}, ${fmt.code("touchgrass kimi")} ${fmt.escape("and use")} ${fmt.code("touchgrass stop <id>")} ${fmt.escape("or")} ${fmt.code("touchgrass kill <id>")} ${fmt.escape("from terminal when needed.")}`
     );
     return;
   }
@@ -344,9 +349,10 @@ export async function routeMessage(
     return;
   }
 
-  // tg <command> - session management
-  if (text.startsWith("tg ")) {
-    const args = text.slice(3).trim();
+  // touchgrass <command> / tg <command> - session management
+  const mgmtPrefix = text.startsWith("touchgrass ") ? "touchgrass " : text.startsWith("tg ") ? "tg " : null;
+  if (mgmtPrefix) {
+    const args = text.slice(mgmtPrefix.length).trim();
 
     // Session management commands
     if (["ls", "attach", "detach", "stop", "kill", "restart", "session"].some((cmd) => args.startsWith(cmd))) {
@@ -356,7 +362,7 @@ export async function routeMessage(
 
       await ctx.channel.send(
       chatId,
-      `Unknown command. Use ${fmt.code("tg files [query]")}, ${fmt.code("tg session")}, ${fmt.code("tg resume")}, ${fmt.code("tg output_mode simple|verbose")}, ${fmt.code("tg thinking on|off|toggle")}, ${fmt.code("tg background-jobs")}, ${fmt.code("tg attach <id>")}, ${fmt.code("tg detach")}, ${fmt.code("tg stop <id>")}, ${fmt.code("tg kill <id>")}, or ${fmt.code("tg restart [tg_session_id]")}. Start sessions from your terminal with ${fmt.code("tg claude")}, ${fmt.code("tg codex")}, ${fmt.code("tg pi")}, or ${fmt.code("tg kimi")}.`
+      `Unknown command. Use ${fmt.code("touchgrass files [query]")}, ${fmt.code("touchgrass session")}, ${fmt.code("touchgrass resume")}, ${fmt.code("touchgrass output_mode simple|verbose")}, ${fmt.code("touchgrass thinking on|off|toggle")}, ${fmt.code("touchgrass background-jobs")}, ${fmt.code("touchgrass attach <id>")}, ${fmt.code("touchgrass detach")}, ${fmt.code("touchgrass stop <id>")}, ${fmt.code("touchgrass kill <id>")}, or ${fmt.code("touchgrass restart [session_id]")}. Start sessions from your terminal with ${fmt.code("touchgrass claude")}, ${fmt.code("touchgrass codex")}, ${fmt.code("touchgrass pi")}, or ${fmt.code("touchgrass kimi")}.`
     );
     return;
   }

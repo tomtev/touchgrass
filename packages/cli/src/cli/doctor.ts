@@ -24,7 +24,7 @@ export async function runDoctor(): Promise<void> {
       checks.push({
         name: "Config",
         status: "warn",
-        detail: "No channels configured. Run `tg setup`",
+        detail: "No channels configured. Run `touchgrass setup`",
       });
     }
 
@@ -34,7 +34,7 @@ export async function runDoctor(): Promise<void> {
       checks.push({
         name: "Channel telegram",
         status: "warn",
-        detail: "Telegram channel not configured. Run `tg setup`",
+        detail: "Telegram channel not configured. Run `touchgrass setup`",
       });
     } else {
       for (const [name, channel] of telegramChannels) {

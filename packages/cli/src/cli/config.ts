@@ -29,7 +29,7 @@ export async function runConfig(): Promise<void> {
     const key = args[1];
     const value = args[2];
     if (!key || value === undefined) {
-      console.error("Usage: tg config set <key> <value>");
+      console.error("Usage: touchgrass config set <key> <value>");
       console.error("Keys: outputBatchMinMs, outputBatchMaxMs, outputBufferMaxChars, maxSessions, defaultShell");
       process.exit(1);
     }
@@ -64,6 +64,6 @@ export async function runConfig(): Promise<void> {
     return;
   }
 
-  console.error("Usage: tg config [show|set <key> <value>|path]");
+  console.error("Usage: touchgrass config [show|set <key> <value>|path]");
   process.exit(1);
 }

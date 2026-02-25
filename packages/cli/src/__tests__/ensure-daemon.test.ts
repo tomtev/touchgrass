@@ -57,10 +57,10 @@ describe("ensure-daemon version restart policy", () => {
 
   it("parses only touchgrass daemon pids from ps output", () => {
     const output = [
-      "61093 /Users/tommyvedvik/.local/bin/tg __daemon__ --tg-home /srv/tg/bot-a",
-      "61024 /Users/tommyvedvik/.local/bin/tg __daemon__ --tg-home /srv/tg/bot-b",
+      "61093 /Users/tommyvedvik/.local/bin/touchgrass __daemon__ --tg-home /srv/tg/bot-a",
+      "61024 /Users/tommyvedvik/.local/bin/touchgrass __daemon__ --tg-home /srv/tg/bot-b",
       "70000 /usr/bin/python some_daemon.py",
-      "80000 /usr/local/bin/tg codex",
+      "80000 /usr/local/bin/touchgrass codex",
       "90000 /tmp/other __daemon__",
     ].join("\n");
 

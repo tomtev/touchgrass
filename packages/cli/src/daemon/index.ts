@@ -127,8 +127,8 @@ export async function startDaemon(): Promise<void> {
   }
 
   if (channels.length === 0) {
-    await logger.error("No channels configured. Run `tg setup` first.");
-    console.error("No channels configured. Run `tg setup` first.");
+    await logger.error("No channels configured. Run `touchgrass setup` first.");
+    console.error("No channels configured. Run `touchgrass setup` first.");
     process.exit(1);
   }
 

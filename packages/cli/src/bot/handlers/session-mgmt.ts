@@ -53,12 +53,12 @@ function resolveTargetRemote(
 function parseRestartArgs(parts: string[]): { sessionId: string | null; error?: string } {
   if (parts.length === 0) return { sessionId: null };
   if (parts.length > 1) {
-    return { sessionId: null, error: "Usage: tg restart [<tg_session_id>]" };
+    return { sessionId: null, error: "Usage: touchgrass restart [<tg_session_id>]" };
   }
 
   const arg = parts[0];
   if (!arg || arg.startsWith("--")) {
-    return { sessionId: null, error: "Usage: tg restart [<tg_session_id>]" };
+    return { sessionId: null, error: "Usage: touchgrass restart [<tg_session_id>]" };
   }
   return { sessionId: arg };
 }
@@ -101,7 +101,7 @@ export async function handleSessionMgmt(
 
     case "attach": {
       if (!sessionId) {
-        await ctx.channel.send(chatId, `Usage: ${fmt.code(`tg attach ${fmt.escape("<id>")}`)}`);
+        await ctx.channel.send(chatId, `Usage: ${fmt.code(`touchgrass attach ${fmt.escape("<id>")}`)}`);
         return;
       }
       if (!ctx.sessionManager.canUserAccessSession(userId, sessionId)) {
@@ -127,7 +127,7 @@ export async function handleSessionMgmt(
 
     case "stop": {
       if (!sessionId) {
-        await ctx.channel.send(chatId, `Usage: ${fmt.code(`tg stop ${fmt.escape("<id>")}`)}`);
+        await ctx.channel.send(chatId, `Usage: ${fmt.code(`touchgrass stop ${fmt.escape("<id>")}`)}`);
         return;
       }
       if (!ctx.sessionManager.canUserAccessSession(userId, sessionId)) {
@@ -144,7 +144,7 @@ export async function handleSessionMgmt(
 
     case "kill": {
       if (!sessionId) {
-        await ctx.channel.send(chatId, `Usage: ${fmt.code(`tg kill ${fmt.escape("<id>")}`)}`);
+        await ctx.channel.send(chatId, `Usage: ${fmt.code(`touchgrass kill ${fmt.escape("<id>")}`)}`);
         return;
       }
       if (!ctx.sessionManager.canUserAccessSession(userId, sessionId)) {
@@ -188,7 +188,7 @@ export async function handleSessionMgmt(
       if (!sessionRef) {
         await ctx.channel.send(
           chatId,
-          `Could not infer a tool session ID from the current command. Use ${fmt.code("/resume")} first, then ${fmt.code(`tg restart ${fmt.escape(target.id)}`)}.`
+          `Could not infer a tool session ID from the current command. Use ${fmt.code("/resume")} first, then ${fmt.code(`touchgrass restart ${fmt.escape(target.id)}`)}.`
         );
         return;
       }
@@ -200,7 +200,7 @@ export async function handleSessionMgmt(
 
       await ctx.channel.send(
         chatId,
-        `Requested restart for tg session ${fmt.code(fmt.escape(target.id))} using tool session ${fmt.code(fmt.escape(sessionRef))}.`
+        `Requested restart for touchgrass session ${fmt.code(fmt.escape(target.id))} using tool session ${fmt.code(fmt.escape(sessionRef))}.`
       );
       return;
     }

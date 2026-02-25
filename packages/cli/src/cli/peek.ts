@@ -261,7 +261,7 @@ export function collectEntriesFromRaw(raw: string, count: number): DisplayEntry[
 }
 
 function printUsage(): void {
-  console.error("Usage: tg peek <session_id> [count]");
+  console.error("Usage: touchgrass peek <session_id> [count]");
   console.error("   or: tg peek --all [count]");
   console.error("Example: tg peek r-abc123 20");
   console.error("Example: tg peek --all 1");

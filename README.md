@@ -37,18 +37,20 @@ irm https://touchgrass.sh/install.ps1 | iex
 Create a Telegram bot via [@BotFather](https://t.me/BotFather) (`/newbot`), then:
 
 ```bash
-tg setup --telegram <bot-token>
+touchgrass setup --telegram <bot-token>
 ```
 
-Pair from Telegram by DMing your bot: `/pair <code>` (the code is printed by `tg setup`).
+Pair from Telegram by DMing your bot: `/pair <code>` (the code is printed by `touchgrass setup`).
+
+> **Note:** `tg` works as a shorthand alias for `touchgrass` everywhere.
 
 ### 2. Start a CLI session
 
 ```bash
-tg claude
-tg codex
-tg pi
-tg kimi
+touchgrass claude
+touchgrass codex
+touchgrass pi
+touchgrass kimi
 ```
 
 You'll see a banner confirming the session is touchgrass-wrapped:
@@ -68,27 +70,27 @@ For groups: add your bot and disable BotFather group privacy (`/setprivacy` -> D
 Claude (permission modes + tool/path controls):
 
 ```bash
-tg claude --dangerously-skip-permissions
-tg claude --permission-mode default
-tg claude --permission-mode acceptEdits
-tg claude --add-dir ../shared-lib
-tg claude --allowed-tools "Read,Edit,Bash(git:*)"
-tg claude --disallowed-tools "Bash(rm:*)"
+touchgrass claude --dangerously-skip-permissions
+touchgrass claude --permission-mode default
+touchgrass claude --permission-mode acceptEdits
+touchgrass claude --add-dir ../shared-lib
+touchgrass claude --allowed-tools "Read,Edit,Bash(git:*)"
+touchgrass claude --disallowed-tools "Bash(rm:*)"
 ```
 
 Codex (sandbox + approval policy):
 
 ```bash
-tg codex --dangerously-bypass-approvals-and-sandbox
-tg codex --sandbox workspace-write --ask-for-approval on-request
-tg codex --sandbox workspace-write --ask-for-approval untrusted
+touchgrass codex --dangerously-bypass-approvals-and-sandbox
+touchgrass codex --sandbox workspace-write --ask-for-approval on-request
+touchgrass codex --sandbox workspace-write --ask-for-approval untrusted
 ```
 
 ## How it works
 
 Two processes cooperate:
 
-1. CLI process (`tg claude` / `tg codex` / `tg pi` / `tg kimi`):
+1. CLI process (`touchgrass claude` / `touchgrass codex` / `touchgrass pi` / `touchgrass kimi`):
 - starts PTY
 - watches tool JSONL output (the session files for the CLIs)
 - sends output to selected chat destination
@@ -101,12 +103,12 @@ Two processes cooperate:
 
 ### Channels vs sessions
 
-- **Configured channel entry (bot config)**: a Telegram bot definition in `config.json` (token, paired users, linked chats).  
-  Use: `tg setup --list-channels`, `tg setup --channel <name> --show`, `tg setup --channel <name>`.
-- **Runtime chat channel**: a concrete DM/group/topic the daemon can route to right now.  
-  Use: `tg channels`.
-- **Session**: a running bridged CLI process (`tg claude`, `tg codex`, `tg pi`, `tg kimi`) with an `r-...` id.  
-  Use: `tg ls`, `tg stop <id>`, `tg kill <id>`, `tg send <id> ...`.
+- **Configured channel entry (bot config)**: a Telegram bot definition in `config.json` (token, paired users, linked chats).
+  Use: `touchgrass setup --list-channels`, `touchgrass setup --channel <name> --show`, `touchgrass setup --channel <name>`.
+- **Runtime chat channel**: a concrete DM/group/topic the daemon can route to right now.
+  Use: `touchgrass channels`.
+- **Session**: a running bridged CLI process (`touchgrass claude`, `touchgrass codex`, `touchgrass pi`, `touchgrass kimi`) with an `r-...` id.
+  Use: `touchgrass ls`, `touchgrass stop <id>`, `touchgrass kill <id>`, `touchgrass send <id> ...`.
 
 ### Telegram commands
 
@@ -124,66 +126,66 @@ Two processes cooperate:
 ### Bridge sessions
 
 ```bash
-tg claude [args]
-tg codex [args]
-tg pi [args]
-tg kimi [args]
+touchgrass claude [args]
+touchgrass codex [args]
+touchgrass pi [args]
+touchgrass kimi [args]
 ```
 
-- `tg claude [args]`: run Claude Code with touchgrass bridge.
-- `tg codex [args]`: run Codex with touchgrass bridge.
-- `tg pi [args]`: run PI with touchgrass bridge.
-- `tg kimi [args]`: run Kimi with touchgrass bridge.
+- `touchgrass claude [args]`: run Claude Code with touchgrass bridge.
+- `touchgrass codex [args]`: run Codex with touchgrass bridge.
+- `touchgrass pi [args]`: run PI with touchgrass bridge.
+- `touchgrass kimi [args]`: run Kimi with touchgrass bridge.
 
 ### Setup and health
 
 ```bash
-tg setup
-tg init
-tg pair
-tg doctor
-tg config
-tg logs
+touchgrass setup
+touchgrass init
+touchgrass pair
+touchgrass doctor
+touchgrass config
+touchgrass logs
 ```
 
-- `tg setup`: interactive setup for channel credentials (Telegram token, etc.).
-- `tg setup --telegram <token>`: non-interactive setup; validates token, saves config, and prints a pairing code.
-- `tg setup --telegram <token> --channel <name>`: add/update a named Telegram bot config entry.
-- `tg setup --list-channels`: show configured Telegram channel entries.
-- `tg setup --channel <name> --show`: show details for one Telegram channel entry.
-- `tg init`: alias for `tg setup`.
-- `tg pair`: generate a one-time code to pair your Telegram account in bot DM.
-- `tg doctor`: diagnostics for CLI/channel/daemon state.
-- `tg config`: print current config paths and resolved settings.
-- `tg logs`: show daemon logs.
+- `touchgrass setup`: interactive setup for channel credentials (Telegram token, etc.).
+- `touchgrass setup --telegram <token>`: non-interactive setup; validates token, saves config, and prints a pairing code.
+- `touchgrass setup --telegram <token> --channel <name>`: add/update a named Telegram bot config entry.
+- `touchgrass setup --list-channels`: show configured Telegram channel entries.
+- `touchgrass setup --channel <name> --show`: show details for one Telegram channel entry.
+- `touchgrass init`: alias for `touchgrass setup`.
+- `touchgrass pair`: generate a one-time code to pair your Telegram account in bot DM.
+- `touchgrass doctor`: diagnostics for CLI/channel/daemon state.
+- `touchgrass config`: print current config paths and resolved settings.
+- `touchgrass logs`: show daemon logs.
 
 ### Session operations
 
 ```bash
-tg ls
-tg channels
-tg links
-tg peek <id> [count]
-tg stop <id>
-tg kill <id>
+touchgrass ls
+touchgrass channels
+touchgrass links
+touchgrass peek <id> [count]
+touchgrass stop <id>
+touchgrass kill <id>
 ```
 
-- `tg ls`: list active bridge sessions.
-- `tg channels`: list runtime chat channels (DM/groups/topics) available via the daemon.
-- `tg links`: list chat link mappings.
-- `tg peek <id> [count]`: show latest output chunks for a session.
-- `tg stop <id>`: request graceful stop for a session.
-- `tg kill <id>`: force-kill a stuck session.
+- `touchgrass ls`: list active bridge sessions.
+- `touchgrass channels`: list runtime chat channels (DM/groups/topics) available via the daemon.
+- `touchgrass links`: list chat link mappings.
+- `touchgrass peek <id> [count]`: show latest output chunks for a session.
+- `touchgrass stop <id>`: request graceful stop for a session.
+- `touchgrass kill <id>`: force-kill a stuck session.
 
 ### Sending input and files
 
 ```bash
-tg send <id> "continue"
-tg send --file <id> ./notes.md
+touchgrass send <id> "continue"
+touchgrass send --file <id> ./notes.md
 ```
 
-- `tg send <id> "text"`: inject text input into a running session.
-- `tg send --file <id> <path>`: send a local file to the linked channel for that session.
+- `touchgrass send <id> "text"`: inject text input into a running session.
+- `touchgrass send --file <id> <path>`: send a local file to the linked channel for that session.
 
 ## FAQ
 
