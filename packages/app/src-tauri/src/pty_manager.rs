@@ -53,13 +53,13 @@ pub fn spawn_session(
         })
         .map_err(|e| format!("Failed to open PTY: {}", e))?;
 
-    // Always wrap the command with the tg binary for session management
+    // Always wrap the command with the touchgrass binary for session management
     let tg_path = if let Some(bin) = daemon::find_tg_binary() {
         bin.to_string_lossy().to_string()
     } else if let Some((bun, main_ts)) = daemon::find_tg_dev() {
         format!("{} run {}", bun.to_string_lossy(), main_ts.to_string_lossy())
     } else {
-        return Err("Cannot find touchgrass binary (tg)".to_string());
+        return Err("Cannot find touchgrass binary".to_string());
     };
     let effective_command = if let Some(ref ch) = channel {
         // Strip "type:" prefix (e.g. "telegram:Dev2" → "Dev2") for the CLI --channel flag
@@ -233,7 +233,7 @@ pub fn kill_session(
 ) -> Result<(), String> {
     let mut mgr = pty_mgr.lock().unwrap();
     if let Some(mut session) = mgr.sessions.remove(&session_id) {
-        // Send SIGTERM to the process group so tg can cleanly exit
+        // Send SIGTERM to the process group so touchgrass can cleanly exit
         // and call /remote/{id}/exit on the daemon
         if let Some(pid) = session.child.process_id() {
             if pid > 1 {

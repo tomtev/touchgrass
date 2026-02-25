@@ -35,7 +35,7 @@ fn which(name: &str) -> Option<String> {
 
 #[tauri::command]
 pub fn check_dependencies() -> DependencyReport {
-    // Check tg: reuse daemon's lookup
+    // Check touchgrass CLI: reuse daemon's lookup
     let tg_path = daemon::find_tg_binary()
         .map(|p| p.to_string_lossy().to_string())
         .or_else(|| {
@@ -49,7 +49,7 @@ pub fn check_dependencies() -> DependencyReport {
         });
 
     let tg = DepStatus {
-        name: "tg".into(),
+        name: "touchgrass".into(),
         installed: tg_path.is_some(),
         path: tg_path,
     };

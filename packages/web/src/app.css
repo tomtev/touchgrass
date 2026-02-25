@@ -500,3 +500,8 @@ pre, code {
   padding: 0.5rem 0;
 }
 
+/* ── Custom pixel-art cursors ── */
+html, html * {
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32'%3E%3Cpath fill='%236ee7b7' d='M4 0h8v8H4zM4 8h16v4H4zM0 12h20v8H0zM4 20h12v4H4z'/%3E%3C/svg%3E") 8 1, pointer;
+}
+

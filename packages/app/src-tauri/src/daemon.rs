@@ -415,7 +415,7 @@ pub fn daemon_restart() -> Result<SimpleResponse, String> {
             .spawn()
             .map_err(|e| format!("Failed to start daemon (dev): {e}"))?;
     } else {
-        return Err("Cannot find touchgrass binary. Install it or ensure 'tg' is in PATH.".to_string());
+        return Err("Cannot find touchgrass binary. Install it or ensure 'touchgrass' is in PATH.".to_string());
     }
 
     // Wait for daemon to become healthy (up to 5 seconds)
@@ -582,16 +582,21 @@ pub fn daemon_set_agent_soul(
 }
 
 pub(crate) fn find_tg_binary() -> Option<std::path::PathBuf> {
-    // Check ~/.touchgrass/bin/tg first (installed binary)
+    // Check ~/.touchgrass/bin/touchgrass first (installed binary)
     if let Some(home) = home_dir() {
-        let local_bin = home.join(".touchgrass").join("bin").join("tg");
+        let local_bin = home.join(".touchgrass").join("bin").join("touchgrass");
         if local_bin.exists() {
             return Some(local_bin);
         }
+        // Fallback to legacy tg symlink
+        let legacy_bin = home.join(".touchgrass").join("bin").join("tg");
+        if legacy_bin.exists() {
+            return Some(legacy_bin);
+        }
     }
 
-    // PATH lookup for `tg`
-    if let Ok(output) = std::process::Command::new("which").arg("tg").output() {
+    // PATH lookup for `touchgrass`
+    if let Ok(output) = std::process::Command::new("which").arg("touchgrass").output() {
         if output.status.success() {
             let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
             if !path.is_empty() {
@@ -600,8 +605,8 @@ pub(crate) fn find_tg_binary() -> Option<std::path::PathBuf> {
         }
     }
 
-    // PATH lookup for `touchgrass`
-    if let Ok(output) = std::process::Command::new("which").arg("touchgrass").output() {
+    // Fallback: PATH lookup for `tg`
+    if let Ok(output) = std::process::Command::new("which").arg("tg").output() {
         if output.status.success() {
             let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
             if !path.is_empty() {

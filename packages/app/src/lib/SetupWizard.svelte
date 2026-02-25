@@ -88,7 +88,7 @@
         <div class="loading">Checking dependencies...</div>
       {:else if report}
         <div class="deps-list">
-          <!-- tg (required) -->
+          <!-- touchgrass CLI (required) -->
           <div class="dep-item" class:installed={report.tg.installed}>
             <div class="dep-info">
               <span class="dep-name">touchgrass CLI</span>
