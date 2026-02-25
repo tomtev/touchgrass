@@ -46,25 +46,6 @@
           </div>
         </article>
 
-        <div class="install-wrap">
-          <div class="install-bar">
-            <span class="install-label">INSTALL:</span>
-            <code class="install-code">{installCommand}</code>
-            <CopyButton command={installCommand} />
-            <a
-              href="https://github.com/tomtev/touchgrass"
-              target="_blank"
-              rel="noreferrer"
-              aria-label="Open touchgrass on GitHub"
-              class="btn-ghost btn-icon"
-            >
-              <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-                <path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38v-1.5c-2.23.48-2.7-1.07-2.7-1.07-.36-.92-.89-1.17-.89-1.17-.73-.5.06-.49.06-.49.8.06 1.23.82 1.23.82.72 1.21 1.87.86 2.33.66.07-.52.28-.86.51-1.06-1.78-.2-3.65-.89-3.65-3.97 0-.88.31-1.6.82-2.17-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.64 7.64 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.57.82 1.29.82 2.17 0 3.09-1.88 3.76-3.67 3.96.29.25.54.74.54 1.49v2.2c0 .21.14.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8z" />
-              </svg>
-            </a>
-          </div>
-        </div>
-
         <div class="feature-grid cols-3">
           <article class="card">
             <div class="card-body feature-card-inner">
@@ -96,20 +77,62 @@
         </div>
 
         <article class="card">
-          <div class="card-body-lg">
-            <p class="code-section-title">Get started in 60 seconds</p>
-            <pre class="code-block"><code>curl -fsSL https://touchgrass.sh/install.sh | bash
-tg setup          # connect your Telegram bot
-tg pair           # pair from chat
+          <div class="card-body-lg steps">
+            <p class="code-section-title">Get started</p>
 
-tg claude         # Claude Code
+            <div class="step">
+              <span class="step-num">1</span>
+              <div class="step-body">
+                <p class="step-title">Install</p>
+                <div class="install-bar">
+                  <code class="install-code">{installCommand}</code>
+                  <CopyButton command={installCommand} />
+                  <a
+                    href="https://github.com/tomtev/touchgrass"
+                    target="_blank"
+                    rel="noreferrer"
+                    aria-label="Open touchgrass on GitHub"
+                    class="btn-ghost btn-icon"
+                  >
+                    <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                      <path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38v-1.5c-2.23.48-2.7-1.07-2.7-1.07-.36-.92-.89-1.17-.89-1.17-.73-.5.06-.49.06-.49.8.06 1.23.82 1.23.82.72 1.21 1.87.86 2.33.66.07-.52.28-.86.51-1.06-1.78-.2-3.65-.89-3.65-3.97 0-.88.31-1.6.82-2.17-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.64 7.64 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.57.82 1.29.82 2.17 0 3.09-1.88 3.76-3.67 3.96.29.25.54.74.54 1.49v2.2c0 .21.14.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8z" />
+                    </svg>
+                  </a>
+                </div>
+              </div>
+            </div>
+
+            <div class="step">
+              <span class="step-num">2</span>
+              <div class="step-body">
+                <p class="step-title">Setup channel</p>
+                <p class="step-desc">Create a Telegram bot via <strong>@BotFather</strong> (<code>/newbot</code>), then:</p>
+                <pre class="code-block"><code>tg setup --telegram &lt;bot-token&gt;</code></pre>
+                <p class="step-desc">Pair from Telegram by DMing your bot: <code>/pair &lt;code&gt;</code> (the code is printed by <code>tg setup</code>).</p>
+              </div>
+            </div>
+
+            <div class="step">
+              <span class="step-num">3</span>
+              <div class="step-body">
+                <p class="step-title">Start a CLI session</p>
+                <pre class="code-block"><code>tg claude         # Claude Code
 tg codex          # OpenAI Codex
 tg pi             # Inflection Pi
-tg kimi           # Moonshot Kimi
+tg kimi           # Moonshot Kimi</code></pre>
+                <p class="step-desc">You'll see a banner confirming the session is touchgrass-wrapped:</p>
+                <pre class="code-block"><code>⛳ touchgrass · /start_remote_control to connect from Telegram</code></pre>
+              </div>
+            </div>
 
-# pass any flags through to the underlying tool
-tg claude --dangerously-skip-permissions
-tg codex --full-auto</code></pre>
+            <div class="step">
+              <span class="step-num">4</span>
+              <div class="step-body">
+                <p class="step-title">Remote control from channel</p>
+                <p class="step-desc">From any Telegram chat where your bot is present (DM or group), run <code>/start_remote_control</code> to pick a session and connect.</p>
+                <p class="step-desc">For groups: add your bot and disable BotFather group privacy (<code>/setprivacy</code> &rarr; Disable) so it can see messages.</p>
+              </div>
+            </div>
           </div>
         </article>
 

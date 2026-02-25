@@ -190,7 +190,7 @@ pre, code {
 
 .card-title {
   font-family: "Geist Mono", "SFMono-Regular", Menlo, Monaco, Consolas, monospace;
-  font-size: 2.25rem;
+  font-size: 1.5rem;
   font-weight: 600;
   line-height: 1.25;
   letter-spacing: -0.025em;
@@ -223,10 +223,6 @@ pre, code {
 }
 
 /* ── Install Bar ── */
-.install-wrap {
-  padding-bottom: 0.5rem;
-}
-
 .install-bar {
   display: flex;
   width: 100%;
@@ -243,15 +239,6 @@ pre, code {
   .install-bar {
     flex-wrap: nowrap;
   }
-}
-
-.install-label {
-  flex-shrink: 0;
-  padding: 0 0.5rem;
-  font-size: 0.875rem;
-  font-weight: 600;
-  letter-spacing: 0.025em;
-  color: rgba(209, 250, 229, 0.9);
 }
 
 .install-code {
@@ -362,6 +349,73 @@ pre, code {
   }
 }
 
+/* ── Steps ── */
+.steps {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.step {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.step-num {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 50%;
+  border: 1px solid rgba(167, 243, 208, 0.4);
+  font-family: "Geist Mono", monospace;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: rgb(110, 231, 183);
+}
+
+.step-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.step-title {
+  font-family: "Geist Mono", monospace;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: rgb(110, 231, 183);
+  margin-bottom: 0.35rem;
+}
+
+.step-desc {
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: rgba(209, 250, 229, 0.8);
+}
+
+.step-desc + .code-block {
+  margin-top: 0.5rem;
+}
+
+.step-desc code,
+.step-title code {
+  color: rgb(167, 243, 208);
+  background: none;
+  padding: 0;
+  border: none;
+}
+
+.step-desc strong {
+  color: rgba(209, 250, 229, 0.95);
+  font-weight: 600;
+}
+
+.code-block + .step-desc {
+  margin-top: 0.5rem;
+}
+
 /* ── Code Blocks ── */
 .code-section-title {
   font-family: "Geist Mono", monospace;
@@ -445,3 +499,4 @@ pre, code {
   flex-wrap: wrap;
   padding: 0.5rem 0;
 }
+

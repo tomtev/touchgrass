@@ -137,14 +137,14 @@ describe("Telegram command menus", () => {
       isGroup: true,
       isLinkedGroup: true,
       hasActiveSession: false,
-    }))).toEqual(["start_remote_control", "link", "unlink"]);
+    }))).toEqual(["start_remote_control"]);
 
     expect(names(__telegramChannelTestUtils.buildCommandMenu({
       isPaired: true,
       isGroup: true,
       isLinkedGroup: true,
       hasActiveSession: true,
-    }))).toEqual(["stop_remote_control", "change_session", "session", "files", "output_mode", "thinking", "background_jobs", "skills", "link", "unlink"]);
+    }))).toEqual(["stop_remote_control", "change_session", "session", "files", "output_mode", "thinking", "background_jobs", "skills"]);
   });
 
   it("syncs chat-member command menu and skips duplicate updates", async () => {
@@ -204,7 +204,7 @@ describe("Telegram command menus", () => {
     });
 
     expect(calls).toHaveLength(2);
-    expect(calls[1]?.commands).toEqual(["stop_remote_control", "change_session", "session", "files", "output_mode", "thinking", "background_jobs", "skills", "link", "unlink"]);
+    expect(calls[1]?.commands).toEqual(["stop_remote_control", "change_session", "session", "files", "output_mode", "thinking", "background_jobs", "skills"]);
   });
 
   it("uses chat scope for DM command menu sync", async () => {
