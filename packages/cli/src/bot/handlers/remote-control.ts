@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from "fs";
+import { readdirSync, readFileSync, statSync } from "fs";
 import { join } from "path";
 import type { InboundMessage } from "../../channel/types";
 import type { RouterContext } from "../command-router";
@@ -46,11 +46,23 @@ function relativeTime(ms: number): string {
   return `${days}d ago`;
 }
 
-async function buildSessionLabel(remote: RemoteSession): Promise<string> {
+/** Get the mtime of a session's JSONL output file (last terminal activity). */
+function getJsonlMtime(sessionId: string): number | null {
+  try {
+    const manifestPath = join(paths.sessionsDir, `${sessionId}.json`);
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf-8")) as SessionManifest;
+    if (manifest.jsonlFile) {
+      return statSync(manifest.jsonlFile).mtimeMs;
+    }
+  } catch {}
+  return null;
+}
+
+async function buildSessionLabel(remote: RemoteSession, lastActivityMs: number): Promise<string> {
   const tool = remote.command.split(" ")[0];
   const folder = remote.cwd.split("/").pop() || "";
-  let name = tool;
-  if (remote.cwd) {
+  let name = remote.name || tool;
+  if (!remote.name && remote.cwd) {
     try {
       const soul = await readAgentSoul(remote.cwd);
       if (soul?.name) name = soul.name;
@@ -63,8 +75,8 @@ async function buildSessionLabel(remote: RemoteSession): Promise<string> {
   if (folder) headerParts.push(`(${folder})`);
   const header = headerParts.join(" — ");
 
-  // Add relative time of last activity at the front
-  const timePrefix = `${relativeTime(Date.now() - remote.lastSeenAt)} · `;
+  // Add relative time of last terminal output at the front
+  const timePrefix = `${relativeTime(Date.now() - lastActivityMs)} · `;
 
   return `${timePrefix}${header}`;
 }
@@ -91,8 +103,15 @@ export async function handleStartRemoteControl(
     return;
   }
 
-  // Sort by most recent activity first
-  userSessions.sort((a, b) => b.lastSeenAt - a.lastSeenAt);
+  // Get JSONL mtime for each session (last terminal output time)
+  const activityMap = new Map<string, number>();
+  for (const remote of userSessions) {
+    const mtime = getJsonlMtime(remote.id);
+    activityMap.set(remote.id, mtime ?? remote.lastSeenAt);
+  }
+
+  // Sort by most recent terminal activity first
+  userSessions.sort((a, b) => (activityMap.get(b.id) ?? 0) - (activityMap.get(a.id) ?? 0));
 
   // Build options
   const options: RemoteControlPickerOption[] = [];
@@ -102,7 +121,8 @@ export async function handleStartRemoteControl(
 
   // List all user sessions
   for (const remote of userSessions.slice(0, RC_BUTTON_LIMIT)) {
-    const label = await buildSessionLabel(remote);
+    const lastActivity = activityMap.get(remote.id) ?? Date.now();
+    const label = await buildSessionLabel(remote, lastActivity);
     const isAttached = attached?.id === remote.id;
     const displayLabel = isAttached ? `${label} (connected)` : label;
     // Ensure we don't exceed Telegram's 100-char poll option limit

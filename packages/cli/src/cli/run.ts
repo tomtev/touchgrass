@@ -94,12 +94,17 @@ interface RunSetupPreflight {
 }
 
 function validateRunSetupPreflight(config: TgConfig): RunSetupPreflight {
-  const token = getTelegramBotToken(config).trim();
-  if (!token) {
+  // Check for any configured channel with credentials (not just Telegram)
+  const hasAnyChannel = Object.values(config.channels).some((ch) => {
+    if (ch.type === "telegram") return !!((ch.credentials as { botToken?: string }).botToken || "").trim();
+    if (ch.type === "slack") return !!((ch.credentials as { botToken?: string }).botToken || "").trim();
+    return false;
+  });
+  if (!hasAnyChannel) {
     return {
       ok: false,
-      message: "Telegram setup is incomplete.",
-      details: "Run `touchgrass setup` to configure your bot token before starting sessions.",
+      message: "No channel setup found.",
+      details: "Run `touchgrass setup` to configure a bot token before starting sessions.",
     };
   }
 
@@ -229,6 +234,7 @@ interface SessionManifest {
   id: string;
   command: string;
   cwd: string;
+  name?: string;
   pid: number;
   jsonlFile: string | null;
   startedAt: string;
@@ -1536,6 +1542,17 @@ export async function runRun(): Promise<void> {
     channelFlag = cmdArgs[channelIdx + 1];
     cmdArgs = [...cmdArgs.slice(0, channelIdx), ...cmdArgs.slice(channelIdx + 2)];
   }
+
+  let nameFlag: string | undefined;
+  const nameIdx = cmdArgs.indexOf("--name");
+  if (nameIdx !== -1) {
+    if (nameIdx + 1 >= cmdArgs.length) {
+      console.error("--name requires a value (e.g. --name \"auth work\")");
+      process.exit(1);
+    }
+    nameFlag = cmdArgs[nameIdx + 1];
+    cmdArgs = [...cmdArgs.slice(0, nameIdx), ...cmdArgs.slice(nameIdx + 2)];
+  }
   const preferredChannelTypeFromFlag = channelFlag && channelFlag.includes(":")
     ? getChannelType(channelFlag)
     : undefined;
@@ -1645,6 +1662,7 @@ export async function runRun(): Promise<void> {
         chatId,
         ownerUserId,
         cwd: process.cwd(),
+        ...(nameFlag ? { name: nameFlag } : {}),
       });
       if (!res.ok || !res.sessionId) {
         console.error("Failed to register remote session.");
@@ -1755,6 +1773,7 @@ export async function runRun(): Promise<void> {
         id: remoteId,
         command: fullCommand,
         cwd: process.cwd(),
+        name: nameFlag,
         pid: process.pid,
         jsonlFile: null,
         startedAt: new Date().toISOString(),

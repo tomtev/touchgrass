@@ -46,8 +46,9 @@ import { basename, join, resolve } from "path";
 
 const DAEMON_STARTED_AT = Date.now();
 
-/** Format a session label for messages: "claude (myproject)" or just "claude" */
-function sessionLabel(command: string, cwd: string): string {
+/** Format a session label for messages: "my session" or "claude (myproject)" or just "claude" */
+function sessionLabel(command: string, cwd: string, name?: string): string {
+  if (name) return name;
   const tool = command.split(" ")[0];
   const folder = cwd.split("/").pop();
   return folder ? `${tool} (${folder})` : tool;
@@ -160,8 +161,17 @@ export async function startDaemon(): Promise<void> {
     const channel = getChannelForChat(chatId);
     if (!channel?.syncCommandMenu) return;
     void (async () => {
-      const rootChatId = getRootChatIdNumber(chatId);
-      const isGroup = typeof rootChatId === "number" && Number.isFinite(rootChatId) && rootChatId < 0;
+      // Detect group chats: Telegram uses negative numeric IDs, Slack uses C/G prefixed strings.
+      // Fall back to checking linkedGroups if we can't determine from the ID format.
+      const channelType = getChannelType(chatId);
+      let isGroup: boolean;
+      if (channelType === "telegram") {
+        const rootChatId = getRootChatIdNumber(chatId);
+        isGroup = typeof rootChatId === "number" && Number.isFinite(rootChatId) && rootChatId < 0;
+      } else {
+        // For Slack and other non-numeric ID channels, check if it's a linked group
+        isGroup = isLinkedGroup(config, chatId);
+      }
       await channel.syncCommandMenu?.({
         userId,
         chatId,
@@ -1604,7 +1614,7 @@ export async function startDaemon(): Promise<void> {
       closePollForChat(
         rcPicker.chatId,
         rcPicker.messageId,
-        `${pickerFmt.escape("⛳️")} ${pickerFmt.bold(pickerFmt.escape(sessionLabel(remote.command, remote.cwd)))} connected`
+        `${pickerFmt.escape("⛳️")} ${pickerFmt.bold(pickerFmt.escape(sessionLabel(remote.command, remote.cwd, remote.name)))} connected`
       );
 
       // Offer to load recent messages
@@ -1752,7 +1762,7 @@ export async function startDaemon(): Promise<void> {
       await clearBackgroundBoards(remote.id);
       await logger.info("Reaped stale remote session", { id: remote.id, command: remote.command });
       const fmt = getFormatterForChat(remote.chatId);
-      const msg = `${fmt.escape("⛳️")} ${fmt.bold(fmt.escape(sessionLabel(remote.command, remote.cwd)))} disconnected (CLI stopped responding)`;
+      const msg = `${fmt.escape("⛳️")} ${fmt.bold(fmt.escape(sessionLabel(remote.command, remote.cwd, remote.name)))} disconnected (CLI stopped responding)`;
       sendToChat(remote.chatId, msg);
       syncCommandMenuForChat(remote.chatId, remote.ownerUserId);
       if (remote.boundChatId && remote.boundChatId !== remote.chatId) {
@@ -1787,6 +1797,7 @@ export async function startDaemon(): Promise<void> {
         sessions: sessionManager.list().map((s) => ({
           id: s.id,
           command: s.command,
+          name: s.name,
           state: s.state,
           createdAt: s.createdAt,
         })),
@@ -1834,7 +1845,7 @@ export async function startDaemon(): Promise<void> {
           title,
           type: "dm",
           busy: !!bound,
-          busyLabel: bound ? sessionLabel(bound.command, bound.cwd) : null,
+          busyLabel: bound ? sessionLabel(bound.command, bound.cwd, bound.name) : null,
         });
       }
 
@@ -1848,16 +1859,16 @@ export async function startDaemon(): Promise<void> {
           title: g.title || g.chatId,
           type: isTopic ? "topic" : "group",
           busy: !!bound,
-          busyLabel: bound ? sessionLabel(bound.command, bound.cwd) : null,
+          busyLabel: bound ? sessionLabel(bound.command, bound.cwd, bound.name) : null,
         });
       }
 
       return results;
     },
-    async registerRemote(command: string, chatId: ChannelChatId, ownerUserId: ChannelUserId, cwd: string, existingId?: string, subscribedGroups?: string[]): Promise<{ sessionId: string; dmBusy: boolean; dmBusyLabel?: string; linkedGroups: Array<{ chatId: string; title?: string }>; allLinkedGroups: Array<{ chatId: string; title?: string; busyLabel?: string }> }> {
+    async registerRemote(command: string, chatId: ChannelChatId, ownerUserId: ChannelUserId, cwd: string, existingId?: string, subscribedGroups?: string[], name?: string): Promise<{ sessionId: string; dmBusy: boolean; dmBusyLabel?: string; linkedGroups: Array<{ chatId: string; title?: string }>; allLinkedGroups: Array<{ chatId: string; title?: string; busyLabel?: string }> }> {
       cancelAutoStop();
       const isReconnect = !!existingId && !sessionManager.getRemote(existingId);
-      const remote = sessionManager.registerRemote(command, chatId, ownerUserId, cwd, existingId);
+      const remote = sessionManager.registerRemote(command, chatId, ownerUserId, cwd, existingId, name);
       const remoteAddress = parseChannelAddress(remote.chatId);
       const remoteType = remoteAddress.type;
       const remoteChannelName = remoteAddress.channelName;
@@ -1874,7 +1885,7 @@ export async function startDaemon(): Promise<void> {
         const lastNoticeAt = reconnectNoticeBySession.get(remote.id) ?? 0;
         if (now - lastNoticeAt >= RECONNECT_NOTICE_COOLDOWN_MS) {
           reconnectNoticeBySession.set(remote.id, now);
-          const label = sessionLabel(command, cwd);
+          const label = sessionLabel(command, cwd, name);
           const fmt = getFormatterForChat(chatId);
           sendToChat(chatId, `${fmt.escape("⛳️")} ${fmt.bold(fmt.escape(label))} reconnected after daemon restart. Messages sent during restart may have been lost.`);
         }
@@ -1882,7 +1893,7 @@ export async function startDaemon(): Promise<void> {
 
       const existingBound = sessionManager.getAttachedRemote(chatId);
       const dmBusy = !!existingBound && existingBound.id !== remote.id;
-      const dmBusyLabel = dmBusy && existingBound ? sessionLabel(existingBound.command, existingBound.cwd) : undefined;
+      const dmBusyLabel = dmBusy && existingBound ? sessionLabel(existingBound.command, existingBound.cwd, existingBound.name) : undefined;
 
       await refreshConfig();
       const rawGroups = getAllLinkedGroups(config).filter((g) => {
@@ -1914,7 +1925,7 @@ export async function startDaemon(): Promise<void> {
 
       const allLinkedGroups = validGroups.map((g) => {
         const bound = sessionManager.getAttachedRemote(g.chatId);
-        const busyLabel = bound && bound.id !== remote.id ? sessionLabel(bound.command, bound.cwd) : undefined;
+        const busyLabel = bound && bound.id !== remote.id ? sessionLabel(bound.command, bound.cwd, bound.name) : undefined;
         return { chatId: g.chatId, title: g.title, busyLabel };
       });
       const linkedGroups = allLinkedGroups.filter((g) => !g.busyLabel);
@@ -1948,7 +1959,7 @@ export async function startDaemon(): Promise<void> {
         sessionManager.detach(chatId);
         syncCommandMenuForChat(chatId, oldRemote.ownerUserId);
         const fmt = getFormatterForChat(chatId);
-        sendToChat(chatId, `${fmt.escape("🔄")} ${fmt.bold(fmt.escape(sessionLabel(oldRemote.command, oldRemote.cwd)))} disconnected`);
+        sendToChat(chatId, `${fmt.escape("🔄")} ${fmt.bold(fmt.escape(sessionLabel(oldRemote.command, oldRemote.cwd, oldRemote.name)))} disconnected`);
       }
 
       // Remove auto-attached DM if binding to a different chat
@@ -1962,7 +1973,7 @@ export async function startDaemon(): Promise<void> {
         sessionManager.subscribeGroup(sessionId, chatId);
       }
       const fmt = getFormatterForChat(chatId);
-      sendToChat(chatId, `${fmt.escape("⛳️")} ${fmt.bold(fmt.escape(sessionLabel(remote.command, remote.cwd)))} connected`);
+      sendToChat(chatId, `${fmt.escape("⛳️")} ${fmt.bold(fmt.escape(sessionLabel(remote.command, remote.cwd, remote.name)))} connected`);
       return { ok: true };
     },
     canUserAccessSession(userId: ChannelUserId, sessionId: string): boolean {
@@ -1994,7 +2005,7 @@ export async function startDaemon(): Promise<void> {
         const boundChat = sessionManager.getBoundChat(sessionId);
         if (boundChat) {
           const fmt = getFormatterForChat(boundChat);
-          const msg = `${fmt.escape("⛳️")} ${fmt.bold(fmt.escape(sessionLabel(remote.command, remote.cwd)))} ${fmt.escape(status)}`;
+          const msg = `${fmt.escape("⛳️")} ${fmt.bold(fmt.escape(sessionLabel(remote.command, remote.cwd, remote.name)))} ${fmt.escape(status)}`;
           sendToChat(boundChat, msg);
         }
         sessionManager.removeRemote(sessionId);
@@ -2402,6 +2413,10 @@ export async function startDaemon(): Promise<void> {
               botFirstName = me.first_name;
             } catch {}
           }
+        } else if (ch.type === "slack") {
+          const creds = ch.credentials as Record<string, unknown>;
+          botUsername = (creds.botName as string) || undefined;
+          botFirstName = (creds.teamName as string) || undefined;
         }
         results.push({
           name,
@@ -2427,6 +2442,8 @@ export async function startDaemon(): Promise<void> {
             botUsername = me.username;
           } catch {}
         }
+      } else if (ch.type === "slack") {
+        botUsername = (ch.credentials as Record<string, unknown>).botName as string || undefined;
       }
       return {
         ok: true,
@@ -2439,12 +2456,12 @@ export async function startDaemon(): Promise<void> {
         },
       };
     },
-    async addChannel(name: string, type: string, botToken: string): Promise<{ ok: boolean; error?: string; botUsername?: string; botFirstName?: string; needsRestart?: boolean }> {
+    async addChannel(name: string, type: string, botToken: string, extraCredentials?: Record<string, string>): Promise<{ ok: boolean; error?: string; botUsername?: string; botFirstName?: string; needsRestart?: boolean }> {
       if (!/^[a-z][a-z0-9_-]{0,63}$/.test(name)) {
         return { ok: false, error: "Invalid channel name. Must be lowercase alphanumeric, starting with a letter (max 64 chars)" };
       }
-      if (type !== "telegram") {
-        return { ok: false, error: `Unsupported channel type: ${type}` };
+      if (type !== "telegram" && type !== "slack") {
+        return { ok: false, error: `Unsupported channel type: ${type}. Use "telegram" or "slack".` };
       }
       await refreshConfig();
       if (config.channels[name]) {
@@ -2453,16 +2470,38 @@ export async function startDaemon(): Promise<void> {
       // Validate bot token
       let botUsername: string | undefined;
       let botFirstName: string | undefined;
-      try {
-        const me = await new TelegramApi(botToken).getMe();
-        botUsername = me.username;
-        botFirstName = me.first_name;
-      } catch (e) {
-        return { ok: false, error: `Invalid bot token: ${(e as Error).message}` };
+      const credentials: Record<string, unknown> = { botToken };
+      if (type === "telegram") {
+        try {
+          const me = await new TelegramApi(botToken).getMe();
+          botUsername = me.username;
+          botFirstName = me.first_name;
+        } catch (e) {
+          return { ok: false, error: `Invalid bot token: ${(e as Error).message}` };
+        }
+      } else if (type === "slack") {
+        const appToken = extraCredentials?.appToken;
+        if (!appToken) {
+          return { ok: false, error: "Slack channels require an appToken for Socket Mode" };
+        }
+        credentials.appToken = appToken;
+        try {
+          const { SlackApi } = await import("../channels/slack/api");
+          const api = new SlackApi(botToken);
+          const auth = await api.authTest();
+          botUsername = auth.user;
+          botFirstName = auth.team;
+          credentials.botUserId = auth.user_id;
+          credentials.botName = auth.user;
+          credentials.teamId = auth.team_id;
+          credentials.teamName = auth.team;
+        } catch (e) {
+          return { ok: false, error: `Invalid Slack bot token: ${(e as Error).message}` };
+        }
       }
       config.channels[name] = {
         type,
-        credentials: { botToken },
+        credentials,
         pairedUsers: [],
         linkedGroups: [],
       };

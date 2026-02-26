@@ -82,6 +82,26 @@ async function main() {
       await runAgent();
       break;
     }
+    case "office": {
+      const subcommand = process.argv[3];
+      if (subcommand === "walk" || subcommand === "map" || subcommand === "gesture" || subcommand === "create" || subcommand === "list") {
+        const { runOfficeCommand } = await import("./cli/office");
+        await runOfficeCommand(subcommand, process.argv.slice(4));
+      } else {
+        // Parse --office flag for the visual view
+        let officeName = "default";
+        const restArgs = process.argv.slice(3);
+        for (let i = 0; i < restArgs.length; i++) {
+          if (restArgs[i] === "--office" && restArgs[i + 1]) {
+            officeName = restArgs[i + 1]!;
+            break;
+          }
+        }
+        const { runOffice } = await import("./cli/office");
+        await runOffice(officeName);
+      }
+      break;
+    }
     case "claude":
     case "codex":
     case "pi":
@@ -124,6 +144,7 @@ Commands:
 
 Options (for claude/codex/pi/kimi/resume):
   --channel <value>      Skip channel picker (use "dm", a chatId, or title substring)
+  --name <value>         Give the session a human-readable name
   --last                 Skip session picker, resume most recent (resume only)
 
   sessions List active sessions (alias: ls)
@@ -135,8 +156,14 @@ Options (for claude/codex/pi/kimi/resume):
   kill     Kill a session (SIGKILL / remote kill request)
   restart  Restart a touchgrass session wrapper on its current tool session (touchgrass restart [session_id])
   links    List and manage linked groups/topics
+  office           Visual office view (--office <name> for named offices)
+  office create    Create a named office (office create <name> --dir <path>)
+  office list      List configured offices
+  office walk X,Y  Move your avatar to coordinates (--office <name>)
+  office map       Print ASCII map with entity positions (--office <name>)
+  office gesture   Trigger gesture (--wave or --talk, --office <name>)
   agent    Create or update agents (touchgrass agent create | touchgrass agent update)
-  setup    Set up Telegram credentials (supports --telegram <token>, --channel <name>, --list-channels, --show)
+  setup    Set up channel credentials (--telegram <token> | --slack <token> --slack-app-token <token>, --channel, --list-channels, --show)
   init     Alias for setup
   pair     Generate a pairing code
   logs     Tail the daemon log

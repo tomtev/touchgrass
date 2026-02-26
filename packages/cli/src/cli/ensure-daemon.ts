@@ -172,7 +172,7 @@ async function spawnDaemon(): Promise<void> {
     }
   }
 
-  throw new Error("Daemon failed to start. Check logs: tg logs");
+  throw new Error("Daemon failed to start. Check logs: touchgrass logs");
 }
 
 export async function ensureDaemon(): Promise<void> {
@@ -209,7 +209,28 @@ export async function ensureDaemon(): Promise<void> {
     }
   }
 
+  // Small random delay to reduce spawn races when multiple CLIs start simultaneously
+  await Bun.sleep(Math.floor(Math.random() * 200));
+
+  // Re-check after delay — another CLI may have spawned the daemon in the meantime
+  const pidAfterDelay = await readPidFile();
+  if (pidAfterDelay && isDaemonRunning(pidAfterDelay)) {
+    try {
+      await daemonRequest("/health");
+      await reapDuplicateDaemons(pidAfterDelay);
+      return;
+    } catch {
+      // Fall through to spawn
+    }
+  }
+
   await spawnDaemon();
+
+  // After spawning, reap any duplicates that slipped through the race
+  const newPid = await readPidFile();
+  if (newPid) {
+    await reapDuplicateDaemons(newPid);
+  }
 }
 
 // Test-only helpers

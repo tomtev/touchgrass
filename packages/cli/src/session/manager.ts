@@ -8,6 +8,7 @@ export interface RemoteSession {
   id: string;
   command: string;
   cwd: string;
+  name?: string;
   chatId: ChannelChatId;
   ownerUserId: ChannelUserId;
   inputQueue: string[];
@@ -139,6 +140,7 @@ export class SessionManager {
     const remote = Array.from(this.remotes.values()).map((r) => ({
       id: r.id,
       command: r.command,
+      name: r.name,
       state: "remote" as SessionInfo["state"],
       createdAt: "",
       exitCode: null,
@@ -246,7 +248,8 @@ export class SessionManager {
     chatId: ChannelChatId,
     ownerUserId: ChannelUserId,
     cwd: string = "",
-    existingId?: string
+    existingId?: string,
+    name?: string
   ): RemoteSession {
     // If re-registering with an existing ID, return it if it already exists (idempotent)
     if (existingId) {
@@ -258,6 +261,7 @@ export class SessionManager {
       id,
       command,
       cwd,
+      name,
       chatId,
       ownerUserId,
       inputQueue: [],

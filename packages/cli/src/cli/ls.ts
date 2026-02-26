@@ -8,6 +8,7 @@ interface SessionManifest {
   id: string;
   command: string;
   cwd: string;
+  name?: string;
   pid: number;
   jsonlFile: string | null;
   startedAt: string;
@@ -29,7 +30,7 @@ function readManifests(): Map<string, SessionManifest> {
 }
 
 export async function runLs(): Promise<void> {
-  type SessionEntry = { id: string; command: string; state: string };
+  type SessionEntry = { id: string; command: string; name?: string; state: string };
   // Try daemon first for live session info
   let daemonSessions = null as SessionEntry[] | null;
   try {
@@ -50,8 +51,9 @@ export async function runLs(): Promise<void> {
   if (daemonSessions && daemonSessions.length > 0) {
     for (const s of daemonSessions) {
       const m = manifests.get(s.id);
+      const nameLabel = s.name ? `  "${s.name}"` : "";
       const cwd = m?.cwd ? `  ${m.cwd}` : "";
-      console.log(`  ${s.id}  ${s.state.padEnd(8)}  ${s.command}${cwd}`);
+      console.log(`  ${s.id}  ${s.state.padEnd(8)}${nameLabel}  ${s.command}${cwd}`);
     }
   } else {
     // Fallback: show manifests if daemon is unreachable

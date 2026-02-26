@@ -5,6 +5,7 @@ export type SessionState = "remote";
 export interface SessionInfo {
   id: string;
   command: string;
+  name?: string;
   state: SessionState;
   createdAt: string;
   exitCode: number | null;

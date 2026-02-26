@@ -93,7 +93,8 @@ export async function handleSessionMgmt(
       const lines = sessions.map((s) => {
         const isAttached = attachedRemoteId === s.id;
         const marker = isAttached ? " (attached)" : "";
-        return `${fmt.code(s.id)} [${s.state}] ${fmt.escape(s.command)}${marker}`;
+        const nameLabel = s.name ? ` "${fmt.escape(s.name)}"` : "";
+        return `${fmt.code(s.id)} [${s.state}]${nameLabel} ${fmt.escape(s.command)}${marker}`;
       });
       await ctx.channel.send(chatId, lines.join("\n"));
       return;
