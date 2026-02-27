@@ -40,15 +40,15 @@ touchgrass codex
 touchgrass pi
 touchgrass kimi
 
-touchgrass write <session_id> "text"       # write into terminal (PTY stdin)
-touchgrass write <session_id> --file <path> # write file path into terminal
+touchgrass office chat <session_id> "text"       # write into terminal (PTY stdin)
+touchgrass office chat <session_id> --file <path> # write file path into terminal
 touchgrass send <session_id> "text"         # send message to channel(s)
 touchgrass send <session_id> --file <path>  # send file to channel(s)
 
 touchgrass sessions              # alias: touchgrass ls
 touchgrass channels
 touchgrass links
-touchgrass peek <id>
+touchgrass office peek <id>
 touchgrass stop <id>
 touchgrass kill <id>
 ```
@@ -80,7 +80,6 @@ Telegram chat shorthands:
 - `packages/termlings/src/index.ts` - shared avatar DNA system (encode/decode, grid generation, SVG/terminal render)
 - `packages/cli/src/main.ts` - command entrypoint and help
 - `packages/cli/src/cli/run.ts` - PTY/session bridge runtime
-- `packages/cli/src/cli/agent.ts` - agent create command (generates DNA, renders terminal avatar)
 - `packages/cli/src/daemon/index.ts` - daemon wiring and routing
 - `packages/cli/src/daemon/agent-soul.ts` - agent soul read/write (name, purpose, owner, DNA)
 - `packages/cli/src/daemon/control-server.ts` - HTTP API for daemon (includes agent-soul endpoints)
@@ -136,7 +135,9 @@ All config, runtime state, and session data lives in `~/.touchgrass/`. This dire
 
 ## Agent DNA Avatar System
 
-Each agent has a unique visual identity encoded as a **7-character hex DNA string** (e.g., `0a3f201`). DNA is generated during `touchgrass agent create` and stored in the `<agent-soul>` block of `AGENTS.md`. Legacy 6-char DNAs are still supported (parsed identically via `parseInt`).
+Each agent has a unique visual identity encoded as a **7-character hex DNA string** (e.g., `0a3f201`). DNA is generated during `termlings create` and stored in the `<agent-soul>` block of `AGENTS.md`. Legacy 6-char DNAs are still supported (parsed identically via `parseInt`).
+
+> **Note:** Agent creation has moved to the termlings library. Use `termlings create` to scaffold new agents.
 
 The avatar system lives in `packages/termlings/` and is shared across CLI, website, and desktop app via the `termlings` workspace package.
 
