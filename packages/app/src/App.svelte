@@ -10,14 +10,11 @@
   import ToolIcon from './lib/ToolIcon.svelte';
   import EmptyState from './lib/EmptyState.svelte';
   import SettingsModal from './lib/SettingsModal.svelte';
-  import AgentCreator from './lib/AgentCreator.svelte';
   import AgentFace from './lib/AgentFace.svelte';
-  import SoulTab from './lib/SoulTab.svelte';
   import SetupWizard from './lib/SetupWizard.svelte';
   import ToastContainer from './lib/ToastContainer.svelte';
   import { showToast } from './lib/stores/toasts';
   import { loadTheme, resolvedTheme } from './lib/stores/theme';
-  import { agentSoul, loadAgentSoul } from './lib/stores/agentSoul';
   import { channelIcon } from './lib/icons';
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { listen } from '@tauri-apps/api/event';
@@ -60,8 +57,6 @@
   let showPresetPopover = $state(false);
   let showSettings = $state(false);
   let settingsTab = $state<'general' | 'channels' | 'presets' | 'workspaces' | 'appearance'>('general');
-  let showAgentCreator = $state(false);
-  let showSoulTab = $state(false);
   let setupComplete = $state(false);
   let setupChecking = $state(true);
   let lastSession = $state<LastSession | null>(null);
@@ -113,14 +108,6 @@
       getLastSession(pid).then((s) => (lastSession = s));
     } else {
       lastSession = null;
-    }
-    showSoulTab = false;
-  });
-
-  $effect(() => {
-    const proj = $activeProject;
-    if (proj) {
-      loadAgentSoul(proj.path);
     }
   });
 
@@ -263,9 +250,7 @@
   <div class="app-layout">
     <Sidebar
       onAddProject={handleAddProject}
-      onCreateAgent={() => (showAgentCreator = true)}
       onOpenSettings={(tab) => { settingsTab = (tab as any) || 'general'; showSettings = true; }}
-      onShowAgentSettings={(projectId) => { setActiveProject(projectId); showSoulTab = true; }}
     />
 
     <main class="main-panel">
@@ -274,7 +259,7 @@
         <TabBar
           sessions={$currentSessions}
           activeSessionId={$activeSessionId}
-          onSelectTab={(id) => { showSoulTab = false; setActiveTab($activeProject!.id, id); }}
+          onSelectTab={(id) => { setActiveTab($activeProject!.id, id); }}
           onCloseTab={handleCloseTab}
           onRenameTab={handleRenameTab}
           onNewTab={() => (showPresetPopover = !showPresetPopover)}
@@ -282,13 +267,7 @@
       </div>
 
       <div class="terminal-area">
-        {#if showSoulTab && $agentSoul}
-          <SoulTab
-            projectPath={$activeProject.path}
-            onClose={() => (showSoulTab = false)}
-          />
-        {:else}
-          {#each $currentSessions as session (session.id)}
+        {#each $currentSessions as session (session.id)}
             {#if isLiveSession(session.id)}
               <TerminalView
                 sessionId={session.id}
@@ -312,22 +291,7 @@
 
           {#if $currentSessions.length === 0}
             <div class="no-sessions">
-              {#if $agentSoul}
-                <!-- svelte-ignore a11y_no_static_element_interactions -->
-                <div
-                  onmouseenter={() => avatarHovered = true}
-                  onmouseleave={() => avatarHovered = false}
-                  style="display:inline-block;cursor:pointer"
-                >
-                  <AgentFace name={$activeProject.name} size="lg" dna={$agentSoul?.dna} waving={avatarHovered} />
-                </div>
-                <p class="agent-greeting">Hi, I'm {$agentSoul.name}.</p>
-                {#if $agentSoul.description}
-                  <p class="agent-desc">{$agentSoul.description}</p>
-                {/if}
-              {:else}
-                <p>No sessions yet.</p>
-              {/if}
+              <p>No sessions yet.</p>
               {#if lastSession}
                 <button onclick={handleResumeLastSession}>
                   Resume: {lastSession.label}{lastSession.channel ? ` (${lastSession.channel.split(':').pop()})` : ''}
@@ -338,7 +302,6 @@
               </button>
             </div>
           {/if}
-        {/if}
       </div>
 
       <BottomBar
@@ -361,7 +324,7 @@
         />
       {/if}
     {:else}
-      <EmptyState onAddProject={handleAddProject} onCreateAgent={() => (showAgentCreator = true)} />
+      <EmptyState onAddProject={handleAddProject} />
     {/if}
   </main>
   </div>
@@ -370,24 +333,6 @@
 
 {#if showSettings}
   <SettingsModal initialTab={settingsTab} onClose={() => (showSettings = false)} />
-{/if}
-
-{#if showAgentCreator}
-  <AgentCreator
-    onManageChannels={() => { settingsTab = 'channels'; showSettings = true; }}
-    onCreated={async (project, command, channel) => {
-      showAgentCreator = false;
-      await loadProjects();
-      await setActiveProject(project.id);
-      await loadSessions(project.id);
-      showToast(`Agent "${project.name}" created`, { variant: 'success' });
-      if (command) {
-        const label = command.split(/\s+/)[0];
-        spawnSession(project.id, command, label, project.path, channel, $resolvedTheme === 'dark');
-      }
-    }}
-    onClose={() => (showAgentCreator = false)}
-  />
 {/if}
 
 <ToastContainer />

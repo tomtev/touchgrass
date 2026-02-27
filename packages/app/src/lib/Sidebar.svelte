@@ -13,17 +13,14 @@
   import { sessionsByProject } from './stores/sessions';
   import { sessionStates, getProjectState } from './stores/sessionState';
   import type { SessionState } from './stores/sessionState';
-  import { agentSoul, agentSouls, loadAllAgentSouls } from './stores/agentSoul';
   import ProjectItem from './ProjectItem.svelte';
 
   interface Props {
     onAddProject: () => void;
-    onCreateAgent: () => void;
     onOpenSettings: (tab?: string) => void;
-    onShowAgentSettings?: (projectId: string) => void;
   }
 
-  let { onAddProject, onCreateAgent, onOpenSettings, onShowAgentSettings }: Props = $props();
+  let { onAddProject, onOpenSettings }: Props = $props();
   let showAddMenu = $state(false);
   let collapsed = $state(false);
   let wsOpen = $state(false);
@@ -31,12 +28,6 @@
   const activeWorkspaceName = $derived(
     $workspaces.find((w) => w.id === $activeWorkspaceId)?.name ?? 'All'
   );
-
-  // Load agent souls for all projects so sidebar can show agent names
-  $effect(() => {
-    const paths = $filteredProjects.map((p) => p.path);
-    if (paths.length > 0) loadAllAgentSouls(paths);
-  });
 
   function wsColor(name: string): string {
     let hash = 0;
@@ -107,11 +98,8 @@
         {collapsed}
         isActive={project.id === $activeProjectId}
         aggregateState={projectState}
-        agentName={$agentSouls[project.path]?.name ?? null}
-        agentDna={$agentSouls[project.path]?.dna ?? null}
         onSelect={setActiveProject}
         onRemove={removeProject}
-        onShowSettings={$agentSouls[project.path] && onShowAgentSettings ? () => onShowAgentSettings(project.id) : undefined}
       />
     {/each}
   </div>
@@ -138,12 +126,6 @@
                 onclick={() => { showAddMenu = false; onAddProject(); }}
               >
                 Open folder
-              </button>
-              <button
-                role="menuitem"
-                onclick={() => { showAddMenu = false; onCreateAgent(); }}
-              >
-                Create agent
               </button>
             </menu>
           {/if}

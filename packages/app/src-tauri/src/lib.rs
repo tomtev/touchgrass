@@ -1,4 +1,3 @@
-mod agent;
 mod appearance;
 mod config;
 mod daemon;
@@ -73,8 +72,6 @@ pub fn run() {
             preset::remove_preset,
             preset::update_preset,
             preset::reorder_presets,
-            // Agent commands
-            agent::create_agent,
             // Daemon commands
             daemon::daemon_health,
             daemon::daemon_list_channels,

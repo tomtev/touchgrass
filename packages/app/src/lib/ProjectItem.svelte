@@ -14,14 +14,11 @@
     isActive: boolean;
     collapsed: boolean;
     aggregateState: SessionState | null;
-    agentName?: string | null;
-    agentDna?: string | null;
     onSelect: (id: string) => void;
     onRemove: (id: string) => void;
-    onShowSettings?: () => void;
   }
 
-  let { project, isActive, collapsed, aggregateState, agentName, agentDna, onSelect, onRemove, onShowSettings }: Props = $props();
+  let { project, isActive, collapsed, aggregateState, onSelect, onRemove }: Props = $props();
 
   const initials = $derived(
     project.name
@@ -63,11 +60,6 @@
     const otherWorkspaces = allWorkspaces.filter((w) => w.id !== project.workspace_id);
 
     const items: any[] = [];
-
-    if (agentName && onShowSettings) {
-      items.push(await MenuItem.new({ id: 'settings', text: 'Settings', action: () => { onSelect(project.id); onShowSettings(); } }));
-      items.push(await PredefinedMenuItem.new({ item: 'Separator' }));
-    }
 
     items.push(await MenuItem.new({ id: 'reveal', text: 'Reveal in Finder', action: () => { invoke('reveal_in_finder', { path: project.path }); } }));
     items.push(await MenuItem.new({ id: 'open-editor', text: `Open in ${label}`, action: () => { invoke('open_in_editor', { path: project.path }); } }));
@@ -111,18 +103,14 @@
   use:tooltip={collapsed ? project.name : undefined}
 >
   <span class="avatar-wrapper" class:inactive={!aggregateState}>
-    {#if agentName || agentDna}
-      <AgentFace name={project.name} size="sm" dna={agentDna ?? undefined} talking={aggregateState === 'busy'} />
-    {:else}
-      <span class="avatar" style:background={avatarColor}>{initials}</span>
-    {/if}
+    <span class="avatar" style:background={avatarColor}>{initials}</span>
     {#if aggregateState === 'attention'}
       <span class="project-state-dot attention"></span>
     {/if}
   </span>
   {#if !collapsed}
     <span class="project-info">
-      <span class="project-name" class:shimmer={aggregateState === 'busy'}>{agentName || project.name}</span>
+      <span class="project-name" class:shimmer={aggregateState === 'busy'}>{project.name}</span>
       <span class="project-path">{shortPath}</span>
     </span>
     <button

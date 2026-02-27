@@ -1,18 +1,16 @@
 <script lang="ts">
   interface Props {
     onAddProject: () => void;
-    onCreateAgent: () => void;
   }
-  let { onAddProject, onCreateAgent }: Props = $props();
+  let { onAddProject }: Props = $props();
 </script>
 
 <div class="empty-state">
   <div class="empty-content">
     <h1>touchgrass</h1>
-    <p>Add a project folder or create an agent to get started.</p>
+    <p>Add a project folder to get started.</p>
     <div class="actions">
       <button onclick={onAddProject}>Open Folder</button>
-      <button class="outline" onclick={onCreateAgent}>Create Agent</button>
     </div>
   </div>
 </div>
