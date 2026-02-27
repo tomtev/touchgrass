@@ -51,16 +51,6 @@ async function main() {
       await runSend();
       break;
     }
-    case "write": {
-      const { runWrite } = await import("./cli/send");
-      await runWrite();
-      break;
-    }
-    case "peek": {
-      const { runPeek } = await import("./cli/peek");
-      await runPeek();
-      break;
-    }
     case "stop":
     case "kill": {
       const { runStopOrKill } = await import("./cli/stop");
@@ -77,14 +67,9 @@ async function main() {
       await runResume();
       break;
     }
-    case "agent": {
-      const { runAgent } = await import("./cli/agent");
-      await runAgent();
-      break;
-    }
     case "office": {
       const subcommand = process.argv[3];
-      if (subcommand === "walk" || subcommand === "map" || subcommand === "gesture" || subcommand === "create" || subcommand === "list") {
+      if (subcommand === "walk" || subcommand === "map" || subcommand === "gesture" || subcommand === "create" || subcommand === "list" || subcommand === "peek" || subcommand === "chat") {
         const { runOfficeCommand } = await import("./cli/office");
         await runOfficeCommand(subcommand, process.argv.slice(4));
       } else {
@@ -122,7 +107,7 @@ async function main() {
       break;
     default: {
       console.error(`Unknown command: ${command}`);
-      console.error("Supported commands: touchgrass setup, touchgrass claude, touchgrass codex, touchgrass pi, touchgrass kimi, touchgrass write, touchgrass send, touchgrass stop, touchgrass kill, touchgrass restart");
+      console.error("Supported commands: touchgrass setup, touchgrass claude, touchgrass codex, touchgrass pi, touchgrass kimi, touchgrass send, touchgrass stop, touchgrass kill, touchgrass restart");
       console.error(`Run "touchgrass help" for more information.`);
       process.exit(1);
     }
@@ -149,9 +134,7 @@ Options (for claude/codex/pi/kimi/resume):
 
   sessions List active sessions (alias: ls)
   channels List available channels (DM, groups, topics) with busy status
-  write    Write text into a session's terminal (touchgrass write <id> "text" | touchgrass write <id> --file <path>)
   send     Send a message or file to a session's channel(s) (touchgrass send <id> "text" | touchgrass send <id> --file <path>)
-  peek     Peek at last messages from session(s) (touchgrass peek <id>|--all [count])
   stop     Stop a session (SIGTERM / remote stop request)
   kill     Kill a session (SIGKILL / remote kill request)
   restart  Restart a touchgrass session wrapper on its current tool session (touchgrass restart [session_id])
@@ -162,7 +145,8 @@ Options (for claude/codex/pi/kimi/resume):
   office walk X,Y  Move your avatar to coordinates (--office <name>)
   office map       Print ASCII map with entity positions (--office <name>)
   office gesture   Trigger gesture (--wave or --talk, --office <name>)
-  agent    Create or update agents (touchgrass agent create | touchgrass agent update)
+  office peek      Peek at last messages from session(s) (office peek <id>|--all [count])
+  office chat      Write text into a session's terminal (office chat <id> "text" | office chat <id> --file <path>)
   setup    Set up channel credentials (--telegram <token> | --slack <token> --slack-app-token <token>, --channel, --list-channels, --show)
   init     Alias for setup
   pair     Generate a pairing code
