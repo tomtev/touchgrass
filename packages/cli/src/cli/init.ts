@@ -1,7 +1,8 @@
 import { createInterface, type Interface } from "readline/promises";
 import { TelegramApi } from "../channels/telegram/api";
+import { SlackApi } from "../channels/slack/api";
 import { loadConfig, saveConfig } from "../config/store";
-import { getTelegramBotToken, getTelegramChannelEntries, type ChannelConfig, type TgConfig } from "../config/schema";
+import { getTelegramBotToken, getTelegramChannelEntries, getSlackChannelEntries, getSlackBotToken, getSlackAppToken, type ChannelConfig, type TgConfig } from "../config/schema";
 import { paths } from "../config/paths";
 import { daemonRequest } from "./client";
 import { ensureDaemon } from "./ensure-daemon";
@@ -9,6 +10,8 @@ import { isDaemonRunning, readPidFile } from "../daemon/lifecycle";
 
 interface SetupCliOptions {
   telegramToken?: string;
+  slackBotToken?: string;
+  slackAppToken?: string;
   channelName: string;
   listChannels: boolean;
   showChannel: boolean;
@@ -19,15 +22,17 @@ function printSetupUsage(): void {
   console.log(`Usage: touchgrass setup [options]
 
 Options:
-  --telegram <token>    Configure Telegram bot token non-interactively
-  --channel <name>      Configure a named Telegram channel entry (default: telegram)
-  --list-channels       List configured Telegram channel entries
-  --show                Show details for the selected channel (use with --channel)
-  -h, --help            Show this help message`);
+  --telegram <token>           Configure Telegram bot token non-interactively
+  --slack <bot-token>          Configure Slack bot token (xoxb-...)
+  --slack-app-token <token>    Slack app-level token for Socket Mode (xapp-...)
+  --channel <name>             Configure a named channel entry (default: telegram or slack)
+  --list-channels              List configured channel entries
+  --show                       Show details for the selected channel (use with --channel)
+  -h, --help                   Show this help message`);
 }
 
 function parseSetupArgs(argv: string[]): SetupCliOptions {
-  const opts: SetupCliOptions = { help: false, channelName: "telegram", listChannels: false, showChannel: false };
+  const opts: SetupCliOptions = { help: false, channelName: "", listChannels: false, showChannel: false };
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -50,6 +55,40 @@ function parseSetupArgs(argv: string[]): SetupCliOptions {
         throw new Error("--telegram requires a token value.");
       }
       opts.telegramToken = token;
+      continue;
+    }
+    if (arg === "--slack") {
+      const token = argv[i + 1];
+      if (!token || token.startsWith("--")) {
+        throw new Error("--slack requires a bot token value (xoxb-...).");
+      }
+      opts.slackBotToken = token;
+      i++;
+      continue;
+    }
+    if (arg.startsWith("--slack=")) {
+      const token = arg.slice("--slack=".length).trim();
+      if (!token) {
+        throw new Error("--slack requires a bot token value (xoxb-...).");
+      }
+      opts.slackBotToken = token;
+      continue;
+    }
+    if (arg === "--slack-app-token") {
+      const token = argv[i + 1];
+      if (!token || token.startsWith("--")) {
+        throw new Error("--slack-app-token requires a token value (xapp-...).");
+      }
+      opts.slackAppToken = token;
+      i++;
+      continue;
+    }
+    if (arg.startsWith("--slack-app-token=")) {
+      const token = arg.slice("--slack-app-token=".length).trim();
+      if (!token) {
+        throw new Error("--slack-app-token requires a token value (xapp-...).");
+      }
+      opts.slackAppToken = token;
       continue;
     }
     if (arg === "--channel") {
@@ -80,17 +119,28 @@ function parseSetupArgs(argv: string[]): SetupCliOptions {
     throw new Error(`Unknown option for touchgrass setup: ${arg}`);
   }
 
+  // Default channel name based on which token type was provided
+  if (!opts.channelName) {
+    opts.channelName = opts.slackBotToken ? "slack" : "telegram";
+  }
+
   const channelName = opts.channelName.trim();
   if (!/^[a-z][a-z0-9_-]{0,63}$/i.test(channelName)) {
     throw new Error("Invalid --channel value. Use letters/numbers/_/- and start with a letter.");
   }
   opts.channelName = channelName;
 
-  if (opts.listChannels && opts.telegramToken) {
-    throw new Error("--list-channels cannot be used with --telegram.");
+  if (opts.telegramToken && opts.slackBotToken) {
+    throw new Error("Use --telegram or --slack, not both. Configure each channel separately.");
   }
-  if (opts.showChannel && opts.telegramToken) {
-    throw new Error("--show cannot be used with --telegram.");
+  if (opts.slackAppToken && !opts.slackBotToken) {
+    throw new Error("--slack-app-token requires --slack <bot-token>.");
+  }
+  if (opts.listChannels && (opts.telegramToken || opts.slackBotToken)) {
+    throw new Error("--list-channels cannot be used with --telegram or --slack.");
+  }
+  if (opts.showChannel && (opts.telegramToken || opts.slackBotToken)) {
+    throw new Error("--show cannot be used with --telegram or --slack.");
   }
   if (opts.listChannels && opts.showChannel) {
     throw new Error("Use either --list-channels or --show, not both.");
@@ -242,15 +292,18 @@ function sortChannels(entries: Array<[string, ChannelConfig]>): Array<[string, C
 }
 
 async function printChannelList(config: TgConfig): Promise<void> {
-  const entries = sortChannels(getTelegramChannelEntries(config));
-  if (entries.length === 0) {
-    console.log("No Telegram channels configured yet.");
-    console.log("Run `touchgrass setup --telegram <token>` to add one.");
+  const telegramEntries = sortChannels(getTelegramChannelEntries(config));
+  const slackEntries = sortChannels(getSlackChannelEntries(config));
+  const allEntries = [...telegramEntries, ...slackEntries];
+
+  if (allEntries.length === 0) {
+    console.log("No channels configured yet.");
+    console.log("Run `touchgrass setup --telegram <token>` or `touchgrass setup --slack <token> --slack-app-token <token>` to add one.");
     return;
   }
 
   let changed = false;
-  for (const [, channel] of entries) {
+  for (const [, channel] of telegramEntries) {
     const token = (channel.credentials.botToken as string) || "";
     if (!token) continue;
     const existingIdentity = getStoredBotIdentity(channel);
@@ -266,17 +319,25 @@ async function printChannelList(config: TgConfig): Promise<void> {
     await saveConfig(config);
   }
 
-  console.log("Configured Telegram channels:\n");
-  for (const [name, channel] of entries) {
+  console.log("Configured channels:\n");
+  for (const [name, channel] of allEntries) {
     const token = (channel.credentials.botToken as string) || "";
     const tokenStatus = token ? `token ${maskToken(token)}` : "token missing";
-    const botIdentity = getStoredBotIdentity(channel);
-    const botLabel = botIdentity.username
-      ? `bot @${botIdentity.username}${botIdentity.firstName ? ` (${botIdentity.firstName})` : ""}`
-      : "bot unknown";
     const pairedCount = channel.pairedUsers?.length || 0;
     const linkedCount = channel.linkedGroups?.length || 0;
-    console.log(`- ${name}: ${botLabel}, ${tokenStatus}, paired users ${pairedCount}, linked chats ${linkedCount}`);
+
+    if (channel.type === "telegram") {
+      const botIdentity = getStoredBotIdentity(channel);
+      const botLabel = botIdentity.username
+        ? `bot @${botIdentity.username}${botIdentity.firstName ? ` (${botIdentity.firstName})` : ""}`
+        : "bot unknown";
+      console.log(`- ${name} [telegram]: ${botLabel}, ${tokenStatus}, paired users ${pairedCount}, linked chats ${linkedCount}`);
+    } else if (channel.type === "slack") {
+      const botName = (channel.credentials as Record<string, unknown>).botName as string || "unknown";
+      const teamName = (channel.credentials as Record<string, unknown>).teamName as string || "";
+      const label = teamName ? `${botName} (${teamName})` : botName;
+      console.log(`- ${name} [slack]: ${label}, ${tokenStatus}, paired users ${pairedCount}, linked chats ${linkedCount}`);
+    }
   }
 
   console.log("\nInspect one:");
@@ -287,23 +348,35 @@ async function printChannelList(config: TgConfig): Promise<void> {
 
 function printChannelDetails(config: TgConfig, channelName: string): void {
   const channel = config.channels[channelName];
-  if (!channel || channel.type !== "telegram") {
-    console.log(`Telegram channel '${channelName}' is not configured.`);
+  if (!channel) {
+    console.log(`Channel '${channelName}' is not configured.`);
     console.log(`Run: touchgrass setup --channel ${channelName}`);
     return;
   }
 
   const token = (channel.credentials.botToken as string) || "";
-  const botIdentity = getStoredBotIdentity(channel);
   const paired = channel.pairedUsers || [];
   const linked = channel.linkedGroups || [];
 
-  console.log(`Telegram channel: ${channelName}\n`);
-  console.log(`- bot: ${botIdentity.username ? `@${botIdentity.username}` : "(unknown)"}`);
-  if (botIdentity.firstName) {
-    console.log(`- bot first name: ${botIdentity.firstName}`);
+  if (channel.type === "slack") {
+    const creds = channel.credentials as Record<string, unknown>;
+    const appToken = (creds.appToken as string) || "";
+    console.log(`Slack channel: ${channelName}\n`);
+    console.log(`- bot: ${creds.botName || "(unknown)"}`);
+    console.log(`- team: ${creds.teamName || "(unknown)"} (${creds.teamId || "?"})`);
+    console.log(`- bot user ID: ${creds.botUserId || "(unknown)"}`);
+    console.log(`- bot token: ${token ? maskToken(token) : "(missing)"}`);
+    console.log(`- app token: ${appToken ? maskToken(appToken) : "(missing)"}`);
+  } else {
+    const botIdentity = getStoredBotIdentity(channel);
+    console.log(`Telegram channel: ${channelName}\n`);
+    console.log(`- bot: ${botIdentity.username ? `@${botIdentity.username}` : "(unknown)"}`);
+    if (botIdentity.firstName) {
+      console.log(`- bot first name: ${botIdentity.firstName}`);
+    }
+    console.log(`- token: ${token ? maskToken(token) : "(missing)"}`);
   }
-  console.log(`- token: ${token ? maskToken(token) : "(missing)"}`);
+
   console.log(`- paired users: ${paired.length}`);
   console.log(`- linked chats: ${linked.length}`);
 
@@ -340,11 +413,6 @@ export async function runInit(): Promise<void> {
   }
 
   const config = await loadConfig();
-  for (const key of Object.keys(config.channels)) {
-    if (config.channels[key]?.type !== "telegram") {
-      delete config.channels[key];
-    }
-  }
 
   if (options.listChannels) {
     await printChannelList(config);
@@ -352,6 +420,12 @@ export async function runInit(): Promise<void> {
   }
   if (options.showChannel) {
     printChannelDetails(config, options.channelName);
+    return;
+  }
+
+  // Route to Slack setup if --slack was provided
+  if (options.slackBotToken) {
+    await runSlackSetup(config, options);
     return;
   }
 
@@ -477,6 +551,126 @@ export async function runInit(): Promise<void> {
     }
   } finally {
     rl.close();
+  }
+}
+
+async function runSlackSetup(config: TgConfig, options: SetupCliOptions): Promise<void> {
+  console.log("⛳ touchgrass.sh — Setup (Slack)\n");
+
+  const selectedChannelName = options.channelName;
+  const botToken = options.slackBotToken!.trim();
+  const appToken = (options.slackAppToken || "").trim();
+
+  if (!appToken) {
+    console.error("Error: --slack-app-token is required for Slack Socket Mode.");
+    console.error("Create an app-level token with connections:write scope at https://api.slack.com/apps");
+    process.exit(1);
+  }
+
+  if (!botToken.startsWith("xoxb-")) {
+    console.error("Error: Slack bot token should start with xoxb-");
+    process.exit(1);
+  }
+
+  if (!appToken.startsWith("xapp-")) {
+    console.error("Error: Slack app token should start with xapp-");
+    process.exit(1);
+  }
+
+  console.log("Validating Slack bot token...");
+  let authResult: { userId: string; botName: string; teamId: string; teamName: string };
+  try {
+    const api = new SlackApi(botToken);
+    const auth = await api.authTest();
+    authResult = {
+      userId: auth.user_id,
+      botName: auth.user,
+      teamId: auth.team_id,
+      teamName: auth.team,
+    };
+    console.log(`Bot: ${auth.user} in workspace ${auth.team} (${auth.team_id})`);
+  } catch (e) {
+    console.error(`Error: Invalid Slack bot token. ${(e as Error).message}`);
+    process.exit(1);
+  }
+
+  // Validate app token by attempting a Socket Mode connection
+  console.log("Validating Slack app token (Socket Mode)...");
+  try {
+    const api = new SlackApi(botToken);
+    const conn = await api.openConnection(appToken);
+    if (conn.url) {
+      console.log("Socket Mode connection OK.");
+    }
+  } catch (e) {
+    console.error(`Error: Invalid Slack app token. ${(e as Error).message}`);
+    console.error("Ensure the app-level token has connections:write scope and Socket Mode is enabled.");
+    process.exit(1);
+  }
+
+  const existingChannel = config.channels[selectedChannelName];
+  const hadPairedUsers = (existingChannel?.pairedUsers || []).length > 0;
+  const existingToken = existingChannel?.type === "slack"
+    ? ((existingChannel.credentials as Record<string, unknown>).botToken as string || "")
+    : "";
+  const tokenUpdated = botToken !== existingToken;
+
+  config.channels[selectedChannelName] = {
+    type: "slack",
+    credentials: {
+      botToken,
+      appToken,
+      botUserId: authResult.userId,
+      botName: authResult.botName,
+      teamId: authResult.teamId,
+      teamName: authResult.teamName,
+    },
+    pairedUsers: existingChannel?.type === "slack" ? (existingChannel.pairedUsers || []) : [],
+    linkedGroups: existingChannel?.type === "slack" ? (existingChannel.linkedGroups || []) : [],
+  };
+
+  await saveConfig(config);
+  console.log(`\n✅ Config saved to ${paths.config}`);
+
+  const shouldAutoPair = !hadPairedUsers || tokenUpdated;
+  let pairingCode: string | null = null;
+  let autoPairWarning: string | undefined;
+  if (shouldAutoPair) {
+    const daemonReady = await ensureDaemonUsesLatestSetup(tokenUpdated);
+    if (!daemonReady.ok) {
+      autoPairWarning = daemonReady.warning;
+    } else {
+      pairingCode = await generatePairingCodeFromDaemon();
+      if (!pairingCode) {
+        autoPairWarning = "Could not auto-generate pairing code. Run `touchgrass pair` manually.";
+      }
+    }
+  }
+
+  if (pairingCode) {
+    console.log(`\n⛳ Pairing code: ${pairingCode}`);
+    console.log(`\nSend this to your bot in Slack DM: /pair ${pairingCode}`);
+    console.log("⏳ Code expires in 10 minutes.");
+  } else if (autoPairWarning) {
+    console.log(`\n⚠️ ${autoPairWarning}`);
+  }
+
+  console.log("\nSlack App Requirements:");
+  console.log("  Socket Mode: enabled");
+  console.log("  Bot scopes: chat:write, im:history, channels:history, groups:history,");
+  console.log("              files:write, files:read, users:read, commands");
+  console.log("  App token scope: connections:write");
+
+  console.log("\nNext steps:");
+  if (pairingCode) {
+    console.log("  1. DM your bot in Slack: /pair " + pairingCode);
+    console.log("  2. (Optional) Invite bot to channels and send /link");
+    console.log("  3. touchgrass claude    Start with chat bridge");
+  } else {
+    console.log("  1. touchgrass pair      Generate a pairing code");
+    console.log("  2. DM your bot in Slack: /pair <code>");
+    console.log("  3. (Optional) Invite bot to channels and send /link");
+    console.log("  4. touchgrass claude    Start with chat bridge");
   }
 }
 

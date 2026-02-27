@@ -61,12 +61,12 @@ describe("setup arg parsing", () => {
 
   it("throws when --list-channels is used with --telegram", () => {
     expect(() => __initTestUtils.parseSetupArgs(["--list-channels", "--telegram", "123:abc"]))
-      .toThrow("--list-channels cannot be used with --telegram.");
+      .toThrow("--list-channels cannot be used with --telegram or --slack.");
   });
 
   it("throws when --show is used with --telegram", () => {
     expect(() => __initTestUtils.parseSetupArgs(["--show", "--telegram", "123:abc"]))
-      .toThrow("--show cannot be used with --telegram.");
+      .toThrow("--show cannot be used with --telegram or --slack.");
   });
 
   it("throws when --list-channels and --show are combined", () => {

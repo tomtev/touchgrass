@@ -130,6 +130,48 @@ export function getTelegramChannelEntries(config: TgConfig): Array<[string, Chan
   return Object.entries(config.channels).filter(([, ch]) => ch.type === "telegram");
 }
 
+export function getSlackChannelEntries(config: TgConfig): Array<[string, ChannelConfig]> {
+  return Object.entries(config.channels).filter(([, ch]) => ch.type === "slack");
+}
+
+export function getSlackBotToken(config: TgConfig, channelName?: string): string {
+  if (channelName) {
+    const ch = config.channels[channelName];
+    if (!ch || ch.type !== "slack") return "";
+    return (ch.credentials.botToken as string) || "";
+  }
+
+  const defaultCh = config.channels.slack;
+  if (defaultCh?.type === "slack") {
+    return (defaultCh.credentials.botToken as string) || "";
+  }
+
+  for (const [, ch] of getSlackChannelEntries(config)) {
+    const token = (ch.credentials.botToken as string) || "";
+    if (token) return token;
+  }
+  return "";
+}
+
+export function getSlackAppToken(config: TgConfig, channelName?: string): string {
+  if (channelName) {
+    const ch = config.channels[channelName];
+    if (!ch || ch.type !== "slack") return "";
+    return (ch.credentials.appToken as string) || "";
+  }
+
+  const defaultCh = config.channels.slack;
+  if (defaultCh?.type === "slack") {
+    return (defaultCh.credentials.appToken as string) || "";
+  }
+
+  for (const [, ch] of getSlackChannelEntries(config)) {
+    const token = (ch.credentials.appToken as string) || "";
+    if (token) return token;
+  }
+  return "";
+}
+
 function resolveChannelNameForAddress(
   config: TgConfig,
   address: string,

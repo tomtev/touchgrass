@@ -151,7 +151,7 @@ describe("run setup preflight", () => {
     });
 
     expect(result.ok).toBe(false);
-    expect(result.message).toContain("Telegram setup is incomplete");
+    expect(result.message).toContain("No channel setup found");
   });
 
   it("passes when token and paired owner are present", () => {

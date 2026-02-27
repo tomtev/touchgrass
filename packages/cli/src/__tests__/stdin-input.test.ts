@@ -42,7 +42,10 @@ describe("stdin input pending file mentions", () => {
       ctx
     );
 
-    expect(remote.inputQueue[0]).toBe("@README.md - Whats in the file");
+    expect(remote.inputQueue[0]).toBe(
+      "@README.md - Whats in the file\n" +
+      '[sent from channel_id="telegram:-100:4" session_id="r-test01"]'
+    );
     expect(sent.length).toBe(0);
   });
 
@@ -88,7 +91,13 @@ describe("stdin input pending file mentions", () => {
       ctx
     );
 
-    expect(remote.inputQueue[0]).toBe("@README.md - first");
-    expect(remote.inputQueue[1]).toBe("second");
+    expect(remote.inputQueue[0]).toBe(
+      "@README.md - first\n" +
+      '[sent from channel_id="telegram:-100:4" session_id="r-test02"]'
+    );
+    expect(remote.inputQueue[1]).toBe(
+      "second\n" +
+      '[sent from channel_id="telegram:-100:4" session_id="r-test02"]'
+    );
   });
 });

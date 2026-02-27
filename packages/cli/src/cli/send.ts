@@ -1,7 +1,28 @@
 import { daemonRequest } from "./client";
 import { ensureDaemon } from "./ensure-daemon";
 import { stat } from "fs/promises";
-import { basename, resolve } from "path";
+import { readdirSync, readFileSync } from "fs";
+import { basename, resolve, join } from "path";
+import { paths } from "../config/paths";
+
+function detectSenderSession(): { id: string; name: string } | null {
+  const cwd = process.cwd();
+  try {
+    for (const f of readdirSync(paths.sessionsDir)) {
+      if (!f.endsWith(".json")) continue;
+      try {
+        const data = readFileSync(join(paths.sessionsDir, f), "utf-8");
+        const m = JSON.parse(data) as { id: string; cwd: string; pid: number; name?: string; command: string };
+        if (m.cwd === cwd && m.pid) {
+          try { process.kill(m.pid, 0); } catch { continue; }
+          const name = m.name || `${basename(m.cwd)} | ${m.command.split(/\s+/)[0]}`;
+          return { id: m.id, name };
+        }
+      } catch {}
+    }
+  } catch {}
+  return null;
+}
 
 async function resolveSessionId(partial: string): Promise<string> {
   const res = await daemonRequest("/status");
@@ -104,11 +125,11 @@ export async function runWrite(): Promise<void> {
   const args = process.argv.slice(3);
 
   if (args.length < 2) {
-    console.error('Usage: touchgrass write <session_id> "text"');
-    console.error('       touchgrass write <session_id> --file <path>');
+    console.error('Usage: touchgrass office chat <session_id> "text"');
+    console.error('       touchgrass office chat <session_id> --file <path>');
     console.error('Examples:');
-    console.error('  touchgrass write r-abc123 "do the thing"');
-    console.error('  touchgrass write r-abc123 --file ./notes.md');
+    console.error('  touchgrass office chat r-abc123 "do the thing"');
+    console.error('  touchgrass office chat r-abc123 --file ./notes.md');
     process.exit(1);
   }
 
@@ -118,7 +139,7 @@ export async function runWrite(): Promise<void> {
 
   if (args[1] === "--file") {
     if (args.length < 3) {
-      console.error('Usage: touchgrass write <session_id> --file <path>');
+      console.error('Usage: touchgrass office chat <session_id> --file <path>');
       process.exit(1);
     }
     filePath = args[2];
@@ -134,12 +155,19 @@ export async function runWrite(): Promise<void> {
   await ensureDaemon();
   const sessionId = await resolveSessionId(sessionArg);
 
+  // Detect sender session from cwd
+  const senderInfo = detectSenderSession();
+  const fromLabel = senderInfo
+    ? `${senderInfo.name} (${senderInfo.id}) in office`
+    : `cli`;
+  const tag = `\n[sent from ${fromLabel} session_id="${sessionId}"]`;
+
   if (filePath) {
     const absPath = await resolveFile(filePath);
-    await daemonRequest(`/remote/${sessionId}/send-input`, "POST", { text: `@${absPath}` });
+    await daemonRequest(`/remote/${sessionId}/send-input`, "POST", { text: `@${absPath}${tag}` });
     console.log(`Wrote file path to terminal: @${absPath}`);
   } else {
-    await daemonRequest(`/remote/${sessionId}/send-input`, "POST", { text });
+    await daemonRequest(`/remote/${sessionId}/send-input`, "POST", { text: `${text}${tag}` });
     console.log(`Wrote to terminal: ${text.slice(0, 80)}${text.length > 80 ? "..." : ""}`);
   }
 }

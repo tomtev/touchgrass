@@ -1,9 +1,10 @@
 import { paths, useTcpControlServer } from "../config/paths";
 import { loadConfig } from "../config/store";
-import { getAllPairedUsers, getTelegramChannelEntries } from "../config/schema";
+import { getAllPairedUsers, getTelegramChannelEntries, getSlackChannelEntries } from "../config/schema";
 import { readPidFile, isDaemonRunning } from "../daemon/lifecycle";
 import { daemonRequest } from "./client";
 import { TelegramApi } from "../channels/telegram/api";
+import { SlackApi } from "../channels/slack/api";
 
 interface Check {
   name: string;
@@ -28,51 +29,78 @@ export async function runDoctor(): Promise<void> {
       });
     }
 
-    // 2. Telegram credentials validity
+    // 2. Channel credentials validity
     const telegramChannels = getTelegramChannelEntries(config);
-    if (telegramChannels.length === 0) {
+    const slackChannels = getSlackChannelEntries(config);
+    if (telegramChannels.length === 0 && slackChannels.length === 0) {
       checks.push({
-        name: "Channel telegram",
+        name: "Channels",
         status: "warn",
-        detail: "Telegram channel not configured. Run `touchgrass setup`",
+        detail: "No channels configured. Run `touchgrass setup`",
       });
-    } else {
-      for (const [name, channel] of telegramChannels) {
-        const botToken = channel.credentials.botToken as string | undefined;
-        if (!botToken) {
-          checks.push({
-            name: `Channel ${name}`,
-            status: "warn",
-            detail: "Telegram bot token missing",
-          });
-          continue;
-        }
-        try {
-          const api = new TelegramApi(botToken);
-          const me = await api.getMe();
-          checks.push({
-            name: `Channel ${name}`,
-            status: "ok",
-            detail: `Telegram @${me.username || me.first_name || "bot"}`,
-          });
-        } catch {
-          checks.push({
-            name: `Channel ${name}`,
-            status: "fail",
-            detail: "Could not reach Telegram API",
-          });
-        }
+    }
+    for (const [name, channel] of telegramChannels) {
+      const botToken = channel.credentials.botToken as string | undefined;
+      if (!botToken) {
+        checks.push({
+          name: `Channel ${name}`,
+          status: "warn",
+          detail: "Telegram bot token missing",
+        });
+        continue;
+      }
+      try {
+        const api = new TelegramApi(botToken);
+        const me = await api.getMe();
+        checks.push({
+          name: `Channel ${name}`,
+          status: "ok",
+          detail: `Telegram @${me.username || me.first_name || "bot"}`,
+        });
+      } catch {
+        checks.push({
+          name: `Channel ${name}`,
+          status: "fail",
+          detail: "Could not reach Telegram API",
+        });
+      }
+    }
+    for (const [name, channel] of slackChannels) {
+      const botToken = channel.credentials.botToken as string | undefined;
+      if (!botToken) {
+        checks.push({
+          name: `Channel ${name}`,
+          status: "warn",
+          detail: "Slack bot token missing",
+        });
+        continue;
+      }
+      try {
+        const api = new SlackApi(botToken);
+        const auth = await api.authTest();
+        checks.push({
+          name: `Channel ${name}`,
+          status: "ok",
+          detail: `Slack ${auth.user} (${auth.team})`,
+        });
+      } catch {
+        checks.push({
+          name: `Channel ${name}`,
+          status: "fail",
+          detail: "Could not reach Slack API",
+        });
       }
     }
 
+    const supportedTypes = new Set(["telegram", "slack"]);
     const unsupported = Object.entries(config.channels)
-      .filter(([, ch]) => ch.type !== "telegram")
+      .filter(([, ch]) => !supportedTypes.has(ch.type))
       .map(([name, ch]) => `${name}:${ch.type}`);
     if (unsupported.length > 0) {
       checks.push({
         name: "Unsupported channels",
         status: "warn",
-        detail: `${unsupported.join(", ")} (ignored in telegram-only runtime)`,
+        detail: `${unsupported.join(", ")} (unsupported type)`,
       });
     }
 

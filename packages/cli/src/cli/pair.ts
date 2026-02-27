@@ -16,7 +16,7 @@ export async function runPair(): Promise<void> {
       process.exit(1);
     }
     console.log(`⛳ Pairing code: ${res.code}`);
-    console.log(`\nSend this to your bot in Telegram: /pair ${res.code}`);
+    console.log(`\nSend this to your bot: /pair ${res.code}`);
     console.log("⏳ Code expires in 10 minutes.");
   } catch (e) {
     console.error((e as Error).message);

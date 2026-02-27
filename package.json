@@ -13,5 +13,9 @@
   },
   "workspaces": [
     "packages/*"
-  ]
+  ],
+  "devDependencies": {
+    "@resvg/resvg-js": "^2.6.2",
+    "termlings": "^0.1.19"
+  }
 }

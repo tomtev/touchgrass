@@ -1,4 +1,5 @@
-import type { ChannelChatId, ChannelUserId } from "../channel/types";
+import type { ChannelChatId, ChannelUserId, InboundMessage } from "../channel/types";
+import type { InternalChannel } from "../channels/internal/channel";
 import { CONTROL_HOST, paths, useTcpControlServer } from "../config/paths";
 import { logger } from "./logger";
 import { removeControlPortFile, removeSocket, onShutdown } from "./lifecycle";
@@ -82,6 +83,7 @@ export interface DaemonContext {
   removePairedUser: (channelName: string, userId: string) => Promise<{ ok: boolean; error?: string }>;
   addLinkedGroupApi: (channelName: string, chatId: string, title?: string) => Promise<{ ok: boolean; error?: string }>;
   removeLinkedGroupApi: (channelName: string, chatId: string) => Promise<{ ok: boolean; error?: string }>;
+  getInternalChannel: () => InternalChannel;
 }
 
 const MAX_BODY_SIZE = 1_048_576; // 1 MB
@@ -507,6 +509,48 @@ export async function startControlServer(ctx: DaemonContext): Promise<void> {
           }
           return Response.json({ ok: true });
         }
+      }
+
+      // --- Internal channel routes ---
+      if (path === "/internal/events" && req.method === "GET") {
+        const params = new URL(req.url, "http://localhost").searchParams;
+        const chatId = params.get("chatId");
+        const since = Number(params.get("since") || "0");
+        if (!chatId) {
+          return Response.json({ ok: false, error: "chatId required" }, { status: 400 });
+        }
+        const ic = ctx.getInternalChannel();
+        const events = ic.drainEvents(chatId, since);
+        return Response.json({ ok: true, events });
+      }
+
+      if (path === "/internal/message" && req.method === "POST") {
+        const body = await readJsonBody(req);
+        const chatId = body.chatId as string;
+        const text = body.text as string;
+        const userId = (body.userId as string) || "internal:local";
+        if (!chatId || !text) {
+          return Response.json({ ok: false, error: "chatId and text required" }, { status: 400 });
+        }
+        const ic = ctx.getInternalChannel();
+        const msg: InboundMessage = { userId, chatId, text };
+        await ic.routeInbound(msg);
+        return Response.json({ ok: true });
+      }
+
+      if (path === "/internal/poll-answer" && req.method === "POST") {
+        const body = await readJsonBody(req);
+        const pollId = body.pollId as string;
+        const optionIds = body.optionIds as number[];
+        const userId = (body.userId as string) || "internal:local";
+        if (!pollId || !Array.isArray(optionIds)) {
+          return Response.json({ ok: false, error: "pollId and optionIds required" }, { status: 400 });
+        }
+        const ic = ctx.getInternalChannel();
+        if (ic.onPollAnswer) {
+          ic.onPollAnswer({ pollId, userId, optionIds });
+        }
+        return Response.json({ ok: true });
       }
 
       // --- Config channel management routes ---

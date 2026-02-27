@@ -5,7 +5,8 @@
     "outDir": "dist",
     "types": ["bun"],
     "paths": {
-      "termlings": ["../termlings/src/index.ts"]
+      "termlings": ["../termlings/src/index.ts"],
+      "termlings/engine": ["../termlings/src/engine/index.ts"]
     }
   },
   "include": ["src/**/*.ts"]

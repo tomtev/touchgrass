@@ -64,7 +64,9 @@ export async function routeMessage(
 
   // Telegram group commands can arrive as /command@BotName.
   // Normalize to /command so command matching works consistently.
-  text = text.replace(/^\/([a-z0-9_]+)@[^\s]+(?=\s|$)/i, "/$1");
+  if (ctx.channel.type === "telegram") {
+    text = text.replace(/^\/([a-z0-9_]+)@[^\s]+(?=\s|$)/i, "/$1");
+  }
 
   // Channel-agnostic command aliases for platforms where slash commands are not practical.
   // Accept both "touchgrass <cmd>" and "tg <cmd>" for backwards compatibility.
@@ -89,7 +91,7 @@ export async function routeMessage(
 
   const userId = msg.userId;
   const chatId = msg.chatId;
-  const channelName = ctx.channelName || "telegram";
+  const channelName = ctx.channelName;
   const { fmt } = ctx.channel;
   const isGroup = !!msg.isGroup;
   const linked = isLinkedGroup(ctx.config, chatId, channelName);

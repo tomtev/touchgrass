@@ -42,6 +42,9 @@ export async function handleStdinInput(
     if (mentions.length === 0) return rawText;
     return `${mentions.join(" ")} - ${rawText}`.trim();
   };
+  const appendOriginTag = (remoteSession: RemoteSession, rawText: string): string => {
+    return `${rawText}\n[sent from channel_id="${chatId}" session_id="${remoteSession.id}"]`;
+  };
 
   // 1. Check attached remote sessions
   const remote = ctx.sessionManager.getAttachedRemote(chatId);
@@ -51,7 +54,7 @@ export async function handleStdinInput(
   }
   if (remote && remote.ownerUserId === userId) {
     if (!handleTextWhilePoll(remote, text, ctx)) {
-      remote.inputQueue.push(applyPendingFileMentions(remote, text));
+      remote.inputQueue.push(appendOriginTag(remote, applyPendingFileMentions(remote, text)));
     }
     maybeSubscribeGroup(remote.id);
     return;
@@ -61,14 +64,14 @@ export async function handleStdinInput(
   const remotes = ctx.sessionManager.listRemotesForUser(userId);
   if (remotes.length === 1 && !msg.isGroup) {
     if (!handleTextWhilePoll(remotes[0], text, ctx)) {
-      remotes[0].inputQueue.push(applyPendingFileMentions(remotes[0], text));
+      remotes[0].inputQueue.push(appendOriginTag(remotes[0], applyPendingFileMentions(remotes[0], text)));
     }
     return;
   }
 
   // 3. Multiple sessions or group without connection — no session bound
   if (remotes.length > 0) {
-    if (msg.isGroup && !isLinkedGroup(ctx.config, chatId, ctx.channelName || "telegram")) {
+    if (msg.isGroup && !isLinkedGroup(ctx.config, chatId, ctx.channelName)) {
       await ctx.channel.send(chatId, `This group is not linked. Run ${fmt.code("/link")} first.`);
     } else {
       await ctx.channel.send(

@@ -35,6 +35,7 @@ import { generatePairingCode } from "../security/pairing";
 import { isUserPaired } from "../security/allowlist";
 import { rotateDaemonAuthToken } from "../security/daemon-auth";
 import { createChannel } from "../channel/factory";
+import { InternalChannel } from "../channels/internal/channel";
 import type { Formatter } from "../channel/formatter";
 import type { Channel, ChannelChatId, ChannelUserId } from "../channel/types";
 import { getChannelName, getChannelType, getRootChatIdNumber, parseChannelAddress } from "../channel/id";
@@ -127,7 +128,14 @@ export async function startDaemon(): Promise<void> {
     }
   }
 
-  if (channels.length === 0) {
+  // Always create an internal channel for office/desktop app communication
+  const internalChannel = new InternalChannel("internal");
+  channels.push({ name: "internal", type: "internal", channel: internalChannel });
+  channelByName.set("internal", internalChannel);
+  defaultChannelByType.set("internal", internalChannel);
+
+  if (channels.length <= 1) {
+    // Only internal channel exists — no external channels configured
     await logger.error("No channels configured. Run `touchgrass setup` first.");
     console.error("No channels configured. Run `touchgrass setup` first.");
     process.exit(1);
@@ -2561,6 +2569,9 @@ export async function startDaemon(): Promise<void> {
       if (!removed) return { ok: false, error: "Linked group not found" };
       await saveConfig(config);
       return { ok: true };
+    },
+    getInternalChannel() {
+      return internalChannel;
     },
   });
 
