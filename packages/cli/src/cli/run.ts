@@ -11,7 +11,7 @@ import { getChannelName, getChannelType } from "../channel/id";
 import { watch, readdirSync, statSync, readFileSync, type FSWatcher } from "fs";
 import { open } from "fs/promises";
 import { homedir, platform } from "os";
-import { join } from "path";
+import { join, basename } from "path";
 import { createHash } from "crypto";
 import { parseRemoteControlAction } from "../session/remote-control";
 import {
@@ -249,6 +249,7 @@ const SUPPORTED_COMMANDS: Record<string, string[]> = {
   codex: ["codex"],
   pi: ["pi"],
   kimi: ["kimi"],
+  gemini: ["gemini"],
 };
 
 // Minimum supported tool versions. Below these, touchgrass may not work correctly.
@@ -257,6 +258,7 @@ const MIN_TOOL_VERSIONS: Record<string, string> = {
   codex: "0.100.0",
   pi: "0.50.0",
   kimi: "0.1.0",
+  gemini: "0.34.0",
 };
 
 function parseVersion(v: string): number[] {
@@ -318,6 +320,11 @@ function getSessionDir(command: string): string {
     // Kimi: ~/.kimi/sessions/<md5(cwd)>/<session-id>/wire.jsonl
     const encoded = createHash("md5").update(cwd).digest("hex");
     return join(homedir(), ".kimi", "sessions", encoded);
+  }
+  if (command === "gemini") {
+    // Gemini: ~/.gemini/tmp/<basename(cwd)>/chats/
+    const workspaceName = basename(cwd);
+    return join(homedir(), ".gemini", "tmp", workspaceName, "chats");
   }
   // Claude: ~/.claude/projects/<encoded-cwd>/
   const encoded = cwd.replace(/\//g, "-");
@@ -388,6 +395,7 @@ const FORWARD_RESULT_TOOLS = new Set([
   "exec_command", // Codex
   "Task", // Claude sub-agent lifecycle / output
   "spawn_agent", "send_input", "wait", // Codex sub-agent lifecycle
+  "google_web_search", "web_fetch", // Gemini
 ]);
 
 // Tool rejections the user already sees in their terminal — don't echo to Telegram
@@ -551,6 +559,38 @@ const kimiAssistantTextBuffer: string[] = [];
 const kimiAssistantThinkingBuffer: string[] = [];
 
 function parseJsonlMessage(msg: Record<string, unknown>): ParsedMessage {
+  // Gemini format
+  if (typeof msg.type === "string" && (msg.type === "message" || msg.type === "tool_use" || msg.type === "tool_result" || msg.type === "result")) {
+    if (msg.type === "message" && msg.role === "assistant" && typeof msg.content === "string") {
+      return { ...EMPTY_PARSED, assistantText: msg.content };
+    }
+    if (msg.type === "tool_use") {
+      const name = msg.tool_name as string;
+      const toolId = msg.tool_id as string;
+      const input = (msg.parameters as Record<string, unknown>) || {};
+      if (toolId && name) {
+        toolUseIdToName.set(toolId, name);
+        toolUseIdToInput.set(toolId, input);
+      }
+      capIdMap();
+      return { ...EMPTY_PARSED, toolCalls: [{ id: toolId, name, input }] };
+    }
+    if (msg.type === "tool_result") {
+      const toolId = msg.tool_id as string;
+      const toolName = toolId ? toolUseIdToName.get(toolId) ?? "" : "";
+      const isError = msg.status === "error";
+      const content = typeof msg.output === "string" ? msg.output : JSON.stringify(msg.output || "");
+
+      const toolResults: ToolResultInfo[] = [];
+      const shouldForwardToolResult = isError || FORWARD_RESULT_TOOLS.has(toolName);
+      if (content && shouldForwardToolResult) {
+        toolResults.push({ toolName: toolName || "unknown", content, isError });
+      }
+      return { ...EMPTY_PARSED, toolResults };
+    }
+    return EMPTY_PARSED;
+  }
+
   // Claude assistant — text, thinking, tool calls, and questions in one loop
   if (msg.type === "assistant") {
     const m = msg.message as Record<string, unknown> | undefined;
@@ -1138,6 +1178,84 @@ function watchSessionFile(
   return watcher;
 }
 
+// Watch a Gemini JSON chat file. Gemini rewrites the entire file instead of appending JSONL.
+function watchGeminiSessionFile(
+  filePath: string,
+  onAssistant: (text: string) => void,
+  startFromEnd?: boolean,
+): FSWatcher {
+  let lastProcessedCount = 0;
+  let processing = false;
+  let pendingRecheck = false;
+
+  async function processNewContent() {
+    if (processing) {
+      pendingRecheck = true;
+      return;
+    }
+    processing = true;
+    try {
+      let hasMore = true;
+      while (hasMore) {
+        pendingRecheck = false;
+        hasMore = false;
+
+        const content = await new Promise<string>((resolve, reject) => {
+          import("fs").then(fs => {
+            fs.readFile(filePath, "utf-8", (err, data) => {
+              if (err) resolve("");
+              else resolve(data);
+            });
+          });
+        });
+        
+        if (!content) break;
+
+        const data = JSON.parse(content);
+        const messages = Array.isArray(data.messages) ? data.messages : [];
+
+        if (startFromEnd && lastProcessedCount === 0) {
+          lastProcessedCount = messages.length;
+        }
+
+        if (messages.length > lastProcessedCount) {
+          for (let i = lastProcessedCount; i < messages.length; i++) {
+            const msg = messages[i];
+            if (msg.type === "gemini" && typeof msg.content === "string") {
+              onAssistant(msg.content.trim());
+            }
+          }
+          lastProcessedCount = messages.length;
+        }
+
+        if (pendingRecheck) hasMore = true;
+      }
+    } catch (err) {
+      console.error("Error parsing gemini chat:", err);
+    }
+    processing = false;
+  }
+
+  // Initial read
+  processNewContent();
+
+  const watcher = watch(filePath, () => {
+    processNewContent();
+  });
+
+  const pollTimer = setInterval(() => {
+    processNewContent();
+  }, 1000);
+
+  const origClose = watcher.close.bind(watcher);
+  watcher.close = () => {
+    clearInterval(pollTimer);
+    origClose();
+  };
+
+  return watcher;
+}
+
 // Resolve --channel flag value to a chatId from available options.
 // Returns the chatId to bind, or null for "none" (no binding).
 function resolveChannelFlag(
@@ -1478,7 +1596,7 @@ function stripFlagWithOptionalValue(args: string[], longFlag: string, shortFlag?
 const UNSAFE_SESSION_REF = /[;&|`$(){}!#<>\\'"]/;
 
 function buildResumeCommandArgs(
-  command: "claude" | "codex" | "pi" | "kimi",
+  command: "claude" | "codex" | "pi" | "kimi" | "gemini",
   currentArgs: string[],
   sessionRef: string
 ): string[] {
@@ -1513,12 +1631,12 @@ function buildResumeCommandArgs(
 }
 
 export async function runRun(): Promise<void> {
-  // Determine command: `touchgrass claude [args]`, `touchgrass codex [args]`, `touchgrass pi [args]`, or `touchgrass kimi [args]`
+  // Determine command: `touchgrass claude [args]`, `touchgrass codex [args]`, `touchgrass pi [args]`, `touchgrass kimi [args]`, or `touchgrass gemini [args]`
   const initialCmdName = process.argv[2] as SupportedCommand | undefined;
   let cmdArgs = process.argv.slice(3);
 
   if (!initialCmdName || !SUPPORTED_COMMANDS[initialCmdName]) {
-    console.error(`Usage: touchgrass claude [args...], touchgrass codex [args...], touchgrass pi [args...], or touchgrass kimi [args...]`);
+    console.error(`Usage: touchgrass claude [args...], touchgrass codex [args...], touchgrass pi [args...], touchgrass kimi [args...], or touchgrass gemini [args...]`);
     process.exit(1);
   }
   let currentTool: SupportedCommand = initialCmdName;
@@ -1807,7 +1925,11 @@ export async function runRun(): Promise<void> {
       } else {
         try {
           for (const f of readdirSync(projectDir)) {
-            if (f.endsWith(".jsonl")) existingFiles.add(f);
+            if (cmdName === "gemini") {
+              if (f.endsWith(".json")) existingFiles.add(f);
+            } else {
+              if (f.endsWith(".jsonl")) existingFiles.add(f);
+            }
           }
         } catch {}
       }
@@ -2149,7 +2271,7 @@ export async function runRun(): Promise<void> {
             }
           : undefined;
 
-        watcherRef.current = watchSessionFile(sessionFile, (text) => {
+        const onAssistant = (text: string) => {
           // Determine target chats: bound chat + subscribed groups.
           const targets = new Set<ChannelChatId>();
           const targetChat = getPrimaryTargetChat();
@@ -2163,9 +2285,25 @@ export async function runRun(): Promise<void> {
           for (const cid of targets) {
             tgChannel.send(cid, formatted).catch(() => {});
           }
-        }, onQuestion, onToolCall, onThinking, onToolResult, onBackgroundJobEvent, (msg) => {
-          if (typeof msg.sessionId === "string") activeClaudeSessionId = msg.sessionId;
-        }, skipExisting);
+        };
+
+        if (cmdName === "gemini") {
+          watcherRef.current = watchGeminiSessionFile(sessionFile, onAssistant, skipExisting);
+        } else {
+          watcherRef.current = watchSessionFile(
+            sessionFile,
+            onAssistant,
+            onQuestion,
+            onToolCall,
+            onThinking,
+            onToolResult,
+            onBackgroundJobEvent,
+            (msg) => {
+              if (typeof msg.sessionId === "string") activeClaudeSessionId = msg.sessionId;
+            },
+            skipExisting
+          );
+        }
       };
 
       // If resuming, watch the existing session file — skip old content
@@ -2208,8 +2346,14 @@ export async function runRun(): Promise<void> {
 
         try {
           for (const f of readdirSync(projectDir)) {
-            if (!f.endsWith(".jsonl")) continue;
+            if (cmdName === "gemini") {
+              if (!f.endsWith(".json")) continue;
+            } else {
+              if (!f.endsWith(".jsonl")) continue;
+            }
+            
             if (existingFiles.has(f)) continue;
+            console.error(`Found new session file in directory scan: ${f}`);
             existingFiles.add(f);
             const filePath = join(projectDir, f);
             if (!watcherRef.current) {
@@ -2218,7 +2362,9 @@ export async function runRun(): Promise<void> {
             }
             maybeSwitchToRolloverSession(filePath);
           }
-        } catch {}
+        } catch (err) {
+           if (cmdName === "gemini") console.error("Error reading projectDir:", err);
+        }
       };
 
       // Watch the project directory for new .jsonl files
@@ -2229,8 +2375,14 @@ export async function runRun(): Promise<void> {
           });
         } else {
           watcherRef.dir = watch(projectDir, (_event, filename) => {
-            if (!filename?.endsWith(".jsonl")) return;
+            if (cmdName === "gemini") {
+              if (!filename?.endsWith(".json")) return;
+            } else {
+              if (!filename?.endsWith(".jsonl")) return;
+            }
+
             if (existingFiles.has(filename)) return;
+            console.error(`Found new session file via watch event: ${filename}`);
             existingFiles.add(filename);
             const filePath = join(projectDir, filename);
             if (!watcherRef.current) {
@@ -2240,7 +2392,9 @@ export async function runRun(): Promise<void> {
             maybeSwitchToRolloverSession(filePath);
           });
         }
-      } catch {}
+      } catch (err) {
+        if (cmdName === "gemini") console.error("Error setting up watch on projectDir:", err);
+      }
 
       // Immediate check + periodic poll for tools that create files before watcher is ready
       checkForNewFiles();
@@ -2254,7 +2408,7 @@ export async function runRun(): Promise<void> {
       setTimeout(() => clearInterval(bootstrapScanTimer), 30_000);
 
       // Keep scanning for Claude rollovers and Kimi nested session files.
-      if (cmdName === "claude" || cmdName === "kimi") {
+      if (cmdName === "claude" || cmdName === "kimi" || cmdName === "gemini") {
         dirScanTimer = setInterval(() => {
           checkForNewFiles();
         }, 2000);
@@ -2431,7 +2585,7 @@ export async function runRun(): Promise<void> {
     if (watcherRef.dir) watcherRef.dir.close();
 
     if (requestedResumeSessionRef) {
-      cmdArgs = buildResumeCommandArgs(cmdName as "claude" | "codex" | "pi" | "kimi", cmdArgs, requestedResumeSessionRef);
+      cmdArgs = buildResumeCommandArgs(cmdName as "claude" | "codex" | "pi" | "kimi" | "gemini", cmdArgs, requestedResumeSessionRef);
       continue;
     }
 
@@ -2504,7 +2658,7 @@ export async function runRun(): Promise<void> {
       }
 
       if (requestedResumeSessionRef) {
-        cmdArgs = buildResumeCommandArgs(cmdName as "claude" | "codex" | "pi" | "kimi", cmdArgs, requestedResumeSessionRef);
+        cmdArgs = buildResumeCommandArgs(cmdName as "claude" | "codex" | "pi" | "kimi" | "gemini", cmdArgs, requestedResumeSessionRef);
         continue;
       }
     }

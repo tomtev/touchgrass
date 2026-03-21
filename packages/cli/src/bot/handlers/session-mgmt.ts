@@ -3,7 +3,7 @@ import type { RemoteSession } from "../../session/manager";
 import type { RouterContext } from "../command-router";
 import { handleSessionCommand } from "./session";
 
-type SessionTool = "claude" | "codex" | "pi" | "kimi";
+type SessionTool = "claude" | "codex" | "pi" | "kimi" | "gemini";
 
 function cleanToken(token: string | undefined): string | null {
   if (!token) return null;
@@ -13,7 +13,7 @@ function cleanToken(token: string | undefined): string | null {
 
 function detectTool(command: string): SessionTool | null {
   const head = command.trim().split(/\s+/)[0]?.toLowerCase();
-  if (head === "claude" || head === "codex" || head === "pi" || head === "kimi") return head;
+  if (head === "claude" || head === "codex" || head === "pi" || head === "kimi" || head === "gemini") return head;
   return null;
 }
 

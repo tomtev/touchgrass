@@ -98,7 +98,7 @@ pub struct AppState {
 }
 
 /// IDs of built-in default presets (used for migration on load).
-pub const DEFAULT_PRESET_IDS: &[&str] = &["claude", "claude-skip", "codex", "codex-auto", "pi"];
+pub const DEFAULT_PRESET_IDS: &[&str] = &["claude", "claude-skip", "codex", "codex-auto", "pi", "gemini", "gemini-auto"];
 
 impl Default for AppState {
     fn default() -> Self {
@@ -143,6 +143,20 @@ impl Default for AppState {
                     id: "pi".into(),
                     label: "pi".into(),
                     command: "pi".into(),
+                    project_id: None,
+                    enabled: true,
+                },
+                Preset {
+                    id: "gemini".into(),
+                    label: "gemini --approval-mode auto_edit".into(),
+                    command: "gemini --approval-mode auto_edit".into(),
+                    project_id: None,
+                    enabled: true,
+                },
+                Preset {
+                    id: "gemini-auto".into(),
+                    label: "gemini --yolo".into(),
+                    command: "gemini --yolo".into(),
                     project_id: None,
                     enabled: true,
                 },

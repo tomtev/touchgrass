@@ -33,6 +33,7 @@
     codex: { label: 'Codex', command: 'npm i -g @openai/codex' },
     kimi: { label: 'Kimi', command: 'curl -L code.kimi.com/install.sh | bash' },
     pi: { label: 'Pi', command: 'npm install -g @mariozechner/pi-coding-agent' },
+    gemini: { label: 'Gemini', command: 'npm install -g @google/gemini-cli' },
   };
 
   async function checkDeps() {

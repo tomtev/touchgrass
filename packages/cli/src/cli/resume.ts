@@ -2,7 +2,7 @@ import { listRecentSessions, type ResumeTool } from "../bot/handlers/resume";
 import type { ResumeSessionCandidate } from "../session/manager";
 import { terminalPicker } from "./run";
 
-const TOOLS: ResumeTool[] = ["claude", "codex", "pi", "kimi"];
+const TOOLS: ResumeTool[] = ["claude", "codex", "pi", "kimi", "gemini"];
 const MAX_PICKER_OPTIONS = 20;
 
 interface ToolSession extends ResumeSessionCandidate {

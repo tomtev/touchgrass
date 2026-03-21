@@ -1,7 +1,7 @@
 import { daemonRequest } from "./client";
 import { ensureDaemon } from "./ensure-daemon";
 
-type ResumableTool = "claude" | "codex" | "pi" | "kimi";
+type ResumableTool = "claude" | "codex" | "pi" | "kimi" | "gemini";
 
 interface ActiveSession {
   id: string;
@@ -21,7 +21,7 @@ function cleanToken(token: string | undefined): string | null {
 
 function detectTool(command: string): ResumableTool | null {
   const head = command.trim().split(/\s+/)[0]?.toLowerCase();
-  if (head === "claude" || head === "codex" || head === "pi" || head === "kimi") return head;
+  if (head === "claude" || head === "codex" || head === "pi" || head === "kimi" || head === "gemini") return head;
   return null;
 }
 

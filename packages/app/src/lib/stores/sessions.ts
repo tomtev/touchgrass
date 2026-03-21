@@ -153,7 +153,7 @@ export async function resumeSession(
   let toolSid = savedSession.tool_session_id;
 
   // If we don't have a stored session ID, try to fetch the most recent from daemon
-  if (!toolSid && (baseCmd === 'claude' || baseCmd === 'codex' || baseCmd === 'pi' || baseCmd === 'kimi')) {
+  if (!toolSid && (baseCmd === 'claude' || baseCmd === 'codex' || baseCmd === 'pi' || baseCmd === 'kimi' || baseCmd === 'gemini')) {
     try {
       const resp = await invoke<{ ok: boolean; sessions: Array<{ sessionRef: string }> }>(
         'daemon_recent_sessions', { tool: baseCmd, cwd }

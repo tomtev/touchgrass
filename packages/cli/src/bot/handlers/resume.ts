@@ -10,11 +10,11 @@ const RESUME_BUTTON_LIMIT = 10;
 const RESUME_SEARCH_LIMIT = 500;
 const RESUME_TAIL_BYTES = 24 * 1024;
 
-export type ResumeTool = "claude" | "codex" | "pi" | "kimi";
+export type ResumeTool = "claude" | "codex" | "pi" | "kimi" | "gemini";
 
 function detectTool(command: string): ResumeTool | null {
   const head = command.trim().split(/\s+/)[0]?.toLowerCase();
-  if (head === "claude" || head === "codex" || head === "pi" || head === "kimi") return head;
+  if (head === "claude" || head === "codex" || head === "pi" || head === "kimi" || head === "gemini") return head;
   return null;
 }
 
@@ -117,6 +117,10 @@ function parseAssistantTextLine(tool: ResumeTool, line: string): string | null {
         const text = typeof payload.text === "string" ? payload.text.trim() : "";
         return text || null;
       }
+    }
+
+    if (tool === "gemini" && msg.type === "message" && msg.role === "assistant" && typeof msg.content === "string") {
+      return msg.content.trim() || null;
     }
   } catch {}
   return null;
@@ -295,6 +299,11 @@ export function listRecentSessions(tool: ResumeTool, cwd: string): ResumeSession
 
   if (tool === "pi") {
     const dir = join(userHomeDir(), ".pi", "agent", "sessions", encodedPiDir(cleanCwd));
+    return toResumeCandidates(tool, listJsonlFiles(dir));
+  }
+
+  if (tool === "gemini") {
+    const dir = join(userHomeDir(), ".gemini", "sessions", encodedClaudeDir(cleanCwd));
     return toResumeCandidates(tool, listJsonlFiles(dir));
   }
 

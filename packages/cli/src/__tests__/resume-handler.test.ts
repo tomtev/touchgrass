@@ -73,6 +73,10 @@ describe("resume session discovery", () => {
         "/tmp/.kimi/sessions/4cf85ededc494adbc6f7c889fb447b7a/399cb3b5-2e50-4a59-a6c8-e13e61f3eb7d/wire.jsonl"
       )
     ).toBe("399cb3b5-2e50-4a59-a6c8-e13e61f3eb7d");
+
+    expect(
+      __resumeTestUtils.normalizePreview("  Gemini   response  ")
+    ).toBe("Gemini response");
   });
 
   it("reads recent sessions from home directories", () => {
@@ -92,6 +96,19 @@ describe("resume session discovery", () => {
         }) + "\n"
       );
       utimesSync(claudeFile, new Date(), new Date("2026-02-15T10:00:00.000Z"));
+
+      const geminiDir = join(root, ".gemini", "sessions", "-tmp-repo");
+      mkdirSync(geminiDir, { recursive: true });
+      const geminiFile = join(geminiDir, "gemini-session-1.jsonl");
+      writeFileSync(
+        geminiFile,
+        JSON.stringify({
+          type: "message",
+          role: "assistant",
+          content: "hello from gemini",
+        }) + "\n"
+      );
+      utimesSync(geminiFile, new Date(), new Date("2026-02-15T11:00:00.000Z"));
 
       const codexDir = join(root, ".codex", "sessions", "2026", "02", "15");
       mkdirSync(codexDir, { recursive: true });
@@ -150,6 +167,11 @@ describe("resume session discovery", () => {
       expect(claudeSessions[0]?.label).toContain("hello from claude");
       expect(claudeSessions[0]?.label).toContain("ago:");
 
+      const geminiSessions = __resumeTestUtils.listRecentSessions("gemini", "/tmp/repo");
+      expect(geminiSessions[0]?.sessionRef).toBe("gemini-session-1");
+      expect(geminiSessions[0]?.label).toContain("hello from gemini");
+      expect(geminiSessions[0]?.label).toContain("ago:");
+
       const codexSessions = __resumeTestUtils.listRecentSessions("codex", "/tmp/repo");
       expect(codexSessions[0]?.sessionRef).toBe("019c56ac-417b-7180-bd3f-2ed6e2589999");
       expect(codexSessions[1]?.sessionRef).toBe("019c56ac-417b-7180-bd3f-2ed6e25885e3");
@@ -184,6 +206,17 @@ describe("resume session discovery", () => {
       );
       expect(__resumeTestUtils.extractLastAssistantPreview("claude", claudeFile)).toContain("Claude wrote");
 
+      const geminiFile = join(root, "gemini.jsonl");
+      writeFileSync(
+        geminiFile,
+        JSON.stringify({
+          type: "message",
+          role: "assistant",
+          content: "Gemini wrote this response",
+        }) + "\n"
+      );
+      expect(__resumeTestUtils.extractLastAssistantPreview("gemini", geminiFile)).toContain("Gemini wrote");
+
       const codexFile = join(root, "codex.jsonl");
       writeFileSync(
         codexFile,
@@ -193,6 +226,7 @@ describe("resume session discovery", () => {
         }) + "\n"
       );
       expect(__resumeTestUtils.extractLastAssistantPreview("codex", codexFile)).toContain("Codex output");
+
 
       const piFile = join(root, "pi.jsonl");
       writeFileSync(
@@ -226,6 +260,7 @@ describe("resume handler", () => {
     expect(__resumeTestUtils.detectTool("codex resume abc")).toBe("codex");
     expect(__resumeTestUtils.detectTool("pi --mode json")).toBe("pi");
     expect(__resumeTestUtils.detectTool("kimi --model kimi-k2")).toBe("kimi");
+    expect(__resumeTestUtils.detectTool("gemini --some-flag")).toBe("gemini");
     expect(__resumeTestUtils.detectTool("bash")).toBeNull();
   });
 

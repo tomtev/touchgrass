@@ -73,6 +73,8 @@
     { value: 'claude', label: 'Claude' },
     { value: 'codex', label: 'Codex' },
     { value: 'pi', label: 'Pi' },
+    { value: 'kimi', label: 'Kimi' },
+    { value: 'gemini', label: 'Gemini' },
   ];
 
   onMount(async () => {

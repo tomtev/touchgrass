@@ -4,11 +4,11 @@ import { readAgentSoul } from "../../daemon/agent-soul";
 import type { RouterContext } from "../command-router";
 import { basename } from "path";
 
-type SessionTool = "claude" | "codex" | "pi" | "kimi";
+type SessionTool = "claude" | "codex" | "pi" | "kimi" | "gemini";
 
 function detectTool(command: string): SessionTool | null {
   const head = command.trim().split(/\s+/)[0]?.toLowerCase();
-  if (head === "claude" || head === "codex" || head === "pi" || head === "kimi") return head;
+  if (head === "claude" || head === "codex" || head === "pi" || head === "kimi" || head === "gemini") return head;
   return null;
 }
 

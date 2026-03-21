@@ -8,6 +8,8 @@ export const telegramIcon = `<svg width="16" height="16" viewBox="0 0 24 24" fil
 
 export const piIcon = `<svg width="16" height="16" viewBox="0 0 800 800" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" d="M165.29 165.29H517.36V400H400V517.36H282.65V634.72H165.29ZM282.65 282.65V400H400V282.65Z"/><path d="M517.36 400H634.72V634.72H517.36Z"/></svg>`;
 
+export const geminiIcon = `<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M12 1L14.89 9.11L23 12L14.89 14.89L12 23L9.11 14.89L1 12L9.11 9.11L12 1Z"/></svg>`;
+
 export const terminalIcon = `<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M0 2.75C0 1.784.784 1 1.75 1h12.5c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0114.25 15H1.75A1.75 1.75 0 010 13.25zm1.75-.25a.25.25 0 00-.25.25v10.5c0 .138.112.25.25.25h12.5a.25.25 0 00.25-.25V2.75a.25.25 0 00-.25-.25zM7.25 8a.749.749 0 01-.22.53l-2.25 2.25a.749.749 0 11-1.06-1.06L5.44 8 3.72 6.28a.749.749 0 111.06-1.06l2.25 2.25c.141.14.22.331.22.53zm1.5 1.5h3a.75.75 0 010 1.5h-3a.75.75 0 010-1.5z"/></svg>`;
 
 /** Return the appropriate icon SVG string for a command */
@@ -16,6 +18,7 @@ export function commandIcon(command: string): string {
   if (cmd.includes('claude')) return claudeIcon;
   if (cmd.includes('codex')) return openaiIcon;
   if (cmd.startsWith('pi')) return piIcon;
+  if (cmd.includes('gemini')) return geminiIcon;
   return terminalIcon;
 }
 

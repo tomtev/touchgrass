@@ -55,7 +55,7 @@ pub fn check_dependencies() -> DependencyReport {
     };
 
     // Check AI tools
-    let ai_names = ["claude", "codex", "kimi", "pi"];
+    let ai_names = ["claude", "codex", "kimi", "pi", "gemini"];
     let ai_tools: Vec<DepStatus> = ai_names
         .iter()
         .map(|&name| {

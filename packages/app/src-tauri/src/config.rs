@@ -77,7 +77,7 @@ pub fn load_state() -> AppState {
 
 /// IDs of presets that were built-in in previous versions but may have been removed.
 fn is_old_builtin(id: &str) -> bool {
-    matches!(id, "shell" | "claude" | "claude-skip" | "codex" | "codex-auto" | "pi" | "kimi")
+    matches!(id, "shell" | "claude" | "claude-skip" | "codex" | "codex-auto" | "pi" | "kimi" | "gemini" | "gemini-auto")
 }
 
 pub fn save_state(state: &AppState) {

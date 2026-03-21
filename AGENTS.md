@@ -3,7 +3,7 @@
 ## What This Project Does
 
 touchgrass is a terminal bridge for controlling local AI CLI sessions from chat.
-Its core product goal is to be the best possible remote controller for Claude Code, Codex, PI, Kimi, and similar terminal-first AI tools.
+Its core product goal is to be the best possible remote controller for Claude Code, Codex, PI, Kimi, Gemini, and similar terminal-first AI tools.
 Users can build personal agents on top of touchgrass by defining behavior in `AGENTS.md` (without needing a separate agent runtime flag).
 
 Supported channels:
@@ -39,6 +39,7 @@ touchgrass claude
 touchgrass codex
 touchgrass pi
 touchgrass kimi
+touchgrass gemini
 
 touchgrass office chat <session_id> "text"       # write into terminal (PTY stdin)
 touchgrass office chat <session_id> --file <path> # write file path into terminal
@@ -63,7 +64,7 @@ Telegram chat shorthands:
 
 ## Architecture
 
-1. CLI process (`touchgrass claude/codex/pi/kimi`):
+1. CLI process (`touchgrass claude/codex/pi/kimi/gemini`):
 - spawns PTY
 - watches JSONL outputs
 - bridges tool output to chat
