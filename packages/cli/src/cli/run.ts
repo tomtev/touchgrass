@@ -28,6 +28,7 @@ import {
 const APPROVAL_PATTERNS: Record<string, { promptText: string; optionText: string }> = {
   claude: { promptText: "Do you want to", optionText: "1. Yes" },
   codex: { promptText: "Would you like to run the following command", optionText: "1. Yes, proceed" },
+  gemini: { promptText: "Allow", optionText: "1. " },
   // pi: { promptText: "...", optionText: "..." },
   // kimi: { promptText: "...", optionText: "..." },
 };
@@ -2078,12 +2079,31 @@ export async function runRun(): Promise<void> {
           if (ptyBuffer.length > 2000) ptyBuffer = ptyBuffer.slice(-1000);
 
           if (!approvalPattern) return; // No approval detection for this CLI
-          const promptIdx = ptyBuffer.lastIndexOf(approvalPattern.promptText);
-          const hasOption = ptyBuffer.includes(approvalPattern.optionText);
+
+          // For Gemini, use specific keywords to avoid matching the menu options themselves
+          // (e.g. "Allow execution" matches the prompt, but not "Allow once" in the menu)
+          const keywords = cmdName === "gemini" 
+            ? ["Allow execution", "Allow tool", "Allow file", "Allow command", "Approve plan"] 
+            : [approvalPattern.promptText];
+          
+          let bestPromptIdx = -1;
+          for (const kw of keywords) {
+            const idx = ptyBuffer.lastIndexOf(kw);
+            if (idx > bestPromptIdx) bestPromptIdx = idx;
+          }
+
+          const promptIdx = bestPromptIdx;
+          // Ensure the menu option (e.g. "1. ") appears AFTER the prompt text
+          const hasOption = promptIdx >= 0 && ptyBuffer.indexOf(approvalPattern.optionText, promptIdx) >= 0;
+
           if (promptIdx >= 0 && hasOption) {
             // Extract the prompt sentence: "Do you want to ...?"
             const afterPrompt = ptyBuffer.slice(promptIdx);
             const endIdx = afterPrompt.indexOf("?");
+
+            // For Gemini, only trigger if we found the full question ending in "?"
+            if (cmdName === "gemini" && endIdx === -1) return;
+
             const promptText = endIdx >= 0 ? afterPrompt.slice(0, endIdx + 1).trim() : approvalPattern.promptText;
             // Extract poll options from text after the "?": "1. Yes", "2. Yes, allow ...", "3. No"
             // Search only after the "?" to avoid matching digits in filenames (e.g. "poem-7.md")
@@ -2105,8 +2125,13 @@ export async function runRun(): Promise<void> {
               options.push(opt3.trim().replace(/\s+/g, " "));
             }
             // Strip keyboard shortcut hints like (y), (p), (esc), (shift+tab) from options
+            // and remove TUI box-drawing artifacts like │ or ─
             for (let i = 0; i < options.length; i++) {
-              options[i] = options[i].replace(/\s*\([a-z+\-]+\)\s*$/i, "").trim().slice(0, 100);
+              options[i] = options[i]
+                .replace(/\s*\([a-z+\-]+\)\s*$/i, "")
+                .replace(/[│─╭╮╰╯┬┴┤├┼]/g, "")
+                .trim()
+                .slice(0, 100);
             }
             // Only notify if this is a different prompt than the last one we notified about
             // Delay slightly so the tool notification (from JSONL) arrives in Telegram first
@@ -2272,6 +2297,9 @@ export async function runRun(): Promise<void> {
           : undefined;
 
         const onAssistant = (text: string) => {
+          // Reset so we can catch the same prompt again if the tool asks it multiple times
+          lastNotifiedPrompt = "";
+
           // Determine target chats: bound chat + subscribed groups.
           const targets = new Set<ChannelChatId>();
           const targetChat = getPrimaryTargetChat();

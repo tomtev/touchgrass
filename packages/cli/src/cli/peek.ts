@@ -64,6 +64,22 @@ export interface DisplayEntry {
 function extractEntries(msg: Record<string, unknown>): DisplayEntry[] {
   const entries: DisplayEntry[] = [];
 
+  // Gemini format (in full-file JSON array)
+  if (msg.type === "user" || msg.type === "gemini") {
+    const role = msg.type === "user" ? "user" : "assistant";
+    let text = "";
+    if (typeof msg.content === "string") {
+      text = msg.content.trim();
+    } else if (Array.isArray(msg.content)) {
+      for (const block of msg.content as Array<Record<string, unknown>>) {
+        if (typeof block.text === "string") text += block.text;
+      }
+      text = text.trim();
+    }
+    if (text) entries.push({ role, text });
+    return entries;
+  }
+
   // Claude format: {"type":"assistant","message":{"content":[...]}}
   if (msg.type === "assistant") {
     const m = msg.message as Record<string, unknown> | undefined;
@@ -242,11 +258,26 @@ function parseCount(countArg: string | undefined): number {
 }
 
 export function collectEntriesFromRaw(raw: string, count: number): DisplayEntry[] {
-  // Take last ~50 raw lines to parse (more than count since tool calls etc. produce entries)
-  const rawLines = raw.trim().split("\n");
+  const allEntries: DisplayEntry[] = [];
+  const trimmed = raw.trim();
+
+  // Detect if this is a Gemini full-file JSON object (starts with { and has a messages array)
+  if (trimmed.startsWith("{")) {
+    try {
+      const data = JSON.parse(trimmed);
+      if (Array.isArray(data.messages)) {
+        for (const msg of data.messages) {
+          allEntries.push(...extractEntries(msg));
+        }
+        return allEntries.slice(-count);
+      }
+    } catch {}
+  }
+
+  // Fallback to JSONL parsing (line by line)
+  const rawLines = trimmed.split("\n");
   const tail = rawLines.slice(-(count * 5));
 
-  const allEntries: DisplayEntry[] = [];
   for (const line of tail) {
     if (!line) continue;
     try {
