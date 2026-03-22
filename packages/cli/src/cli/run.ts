@@ -9,7 +9,7 @@ import { stripAnsiReadable } from "../utils/ansi";
 import { paths, ensureDirs } from "../config/paths";
 import { getChannelName, getChannelType } from "../channel/id";
 import { watch, readdirSync, statSync, readFileSync, type FSWatcher } from "fs";
-import { open } from "fs/promises";
+import { open, writeFile, rm } from "fs/promises";
 import { homedir, platform } from "os";
 import { join, basename } from "path";
 import { createHash } from "crypto";
@@ -32,6 +32,14 @@ const APPROVAL_PATTERNS: Record<string, { promptText: string; optionText: string
   // pi: { promptText: "...", optionText: "..." },
   // kimi: { promptText: "...", optionText: "..." },
 };
+
+const INITIAL_PROMPT_PATTERNS: Record<string, string[]> = {
+  gemini: ["> "],
+  pi: ["? "],
+  kimi: ["? "],
+};
+
+const BRIDGE_PROMPT_TEXT = "[touchgrass] This is a terminal bridge. All subsequent messages are proxied from a chat interface. You are interacting with the user through touchgrass.";
 
 // Test-only accessors for CLI arg parsing behavior.
 export const __cliRunTestUtils = {
@@ -2158,6 +2166,26 @@ export async function runRun(): Promise<void> {
     let requestedResumeSessionRef: string | null = null;
     let stayAliveAfterKill = false;
     let forceKillTimer: ReturnType<typeof setTimeout> | null = null;
+
+    let bridgePromptFile: string | null = null;
+    let bridgePromptWritten = false;
+    let shouldInjectBridgePrompt = false;
+
+    // Use --append-system-prompt for tools that support it (Claude, Codex)
+    if (!resumeId && !codexResumeLast && !kimiResumeContinue && !requestedResumeSessionRef) {
+      if (cmdName === "claude" || cmdName === "codex") {
+        try {
+          bridgePromptFile = join(paths.dir, `bridge-prompt-${remoteId || Math.random().toString(36).slice(2)}.md`);
+          await writeFile(bridgePromptFile, BRIDGE_PROMPT_TEXT);
+          cmdArgs.push("--append-system-prompt", bridgePromptFile);
+          bridgePromptWritten = true;
+        } catch {}
+      } else {
+        // Mark for terminal.write fallback based on pattern detection
+        shouldInjectBridgePrompt = true;
+      }
+    }
+
     const proc = Bun.spawn([executable, ...cmdArgs], {
       terminal: {
         cols: process.stdout.columns || 80,
@@ -2167,8 +2195,22 @@ export async function runRun(): Promise<void> {
           // Buffer last ~1000 chars of PTY output for prompt detection
           // Uses stripAnsiReadable to replace ANSI codes with spaces (preserves word boundaries)
           const text = Buffer.from(data).toString("utf-8");
-          ptyBuffer += stripAnsiReadable(text);
+          const cleanText = stripAnsiReadable(text);
+          ptyBuffer += cleanText;
           if (ptyBuffer.length > 2000) ptyBuffer = ptyBuffer.slice(-1000);
+
+          // terminal.write fallback injection after detecting initial prompt
+          if (shouldInjectBridgePrompt && !bridgePromptWritten) {
+            const patterns = INITIAL_PROMPT_PATTERNS[cmdName] || ["> ", "? "];
+            if (patterns.some(p => cleanText.includes(p) || ptyBuffer.endsWith(p))) {
+              bridgePromptWritten = true;
+              setTimeout(() => {
+                try {
+                  _terminal.write(Buffer.from(`\r\n${BRIDGE_PROMPT_TEXT}\r\n`));
+                } catch {}
+              }, 500);
+            }
+          }
 
           const result = extractApprovalPrompt(cmdName, ptyBuffer);
           if (result && result.promptText !== lastNotifiedPrompt) {
@@ -2188,16 +2230,6 @@ export async function runRun(): Promise<void> {
     });
 
     const terminal = proc.terminal!;
-
-    // Inject Touchgrass bridge context for new sessions so the agent tool
-    // knows it's being proxied through a terminal bridge.
-    if (!resumeId && !codexResumeLast && !kimiResumeContinue && !requestedResumeSessionRef) {
-      setTimeout(() => {
-        try {
-          terminal.write(Buffer.from("\r\n[touchgrass] This is a terminal bridge. All subsequent messages are proxied from a chat interface. You are interacting with the user through touchgrass.\r\n"));
-        } catch {}
-      }, 1000);
-    }
 
     // Prevent idle sleep on macOS while the tool is running
     let caffeinateProc: { kill(): void } | null = null;
@@ -2655,6 +2687,11 @@ export async function runRun(): Promise<void> {
     if (forceKillTimer) clearTimeout(forceKillTimer);
     if (watcherRef.current) watcherRef.current.close();
     if (watcherRef.dir) watcherRef.dir.close();
+    if (bridgePromptFile) {
+      try {
+        await rm(bridgePromptFile).catch(() => {});
+      } catch {}
+    }
 
     if (requestedResumeSessionRef) {
       cmdArgs = buildResumeCommandArgs(cmdName as "claude" | "codex" | "pi" | "kimi" | "gemini", cmdArgs, requestedResumeSessionRef);
