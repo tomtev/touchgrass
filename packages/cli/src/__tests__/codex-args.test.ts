@@ -92,11 +92,13 @@ describe("resume restart arg building", () => {
   it("preserves codex dangerous flags while swapping resume target", () => {
     const args = __cliRunTestUtils.buildResumeCommandArgs(
       "codex",
-      ["--dangerously-bypass-approvals-and-sandbox", "resume", "019c-old"],
+      ["--dangerously-bypass-approvals-and-sandbox", "--append-system-prompt", "AGENTS.md", "resume", "019c-old"],
       "019c-new"
     );
 
     expect(args).toContain("--dangerously-bypass-approvals-and-sandbox");
+    expect(args).toContain("--append-system-prompt");
+    expect(args).toContain("AGENTS.md");
     expect(args.slice(-2)).toEqual(["resume", "019c-new"]);
     expect(args).not.toContain("019c-old");
   });

@@ -101,3 +101,62 @@ describe("stdin input pending file mentions", () => {
     );
   });
 });
+
+describe("kill switch", () => {
+  it("sends interrupt for /q or 'stop' and does not push to input queue", async () => {
+    const config = createDefaultConfig();
+    const sessionManager = new SessionManager(defaultSettings);
+    const remote = sessionManager.registerRemote(
+      "codex",
+      "telegram:-100:4",
+      "telegram:1",
+      "/tmp/repo",
+      "r-test03"
+    );
+    sessionManager.attach("telegram:-100:4", remote.id);
+
+    const sent: string[] = [];
+    const ctx = {
+      config,
+      sessionManager,
+      channel: {
+        fmt: {
+          code: (v: string) => v,
+          escape: (v: string) => v,
+        },
+        send: async (_chatId: string, text: string) => {
+          sent.push(text);
+        },
+      },
+    } as any;
+
+    // Test /q
+    await handleStdinInput(
+      {
+        userId: "telegram:1",
+        chatId: "telegram:-100:4",
+        text: "/q",
+      },
+      ctx
+    );
+
+    expect(remote.controlAction).toBe("stop");
+    expect(remote.inputQueue.length).toBe(0);
+    expect(sent[0]).toContain("Interruption sent");
+
+    // Test stop
+    remote.controlAction = null;
+    await handleStdinInput(
+      {
+        userId: "telegram:1",
+        chatId: "telegram:-100:4",
+        text: "STOP",
+      },
+      ctx
+    );
+
+    expect(remote.controlAction).toBe("stop");
+    expect(remote.inputQueue.length).toBe(0);
+    expect(sent[1]).toContain("Interruption sent");
+  });
+});
