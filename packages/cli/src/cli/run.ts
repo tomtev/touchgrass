@@ -343,6 +343,8 @@ const SUPPORTED_COMMANDS: Record<string, string[]> = {
   gemini: ["gemini"],
 };
 
+type SupportedCommand = keyof typeof SUPPORTED_COMMANDS;
+
 // Minimum supported tool versions. Below these, touchgrass may not work correctly.
 const MIN_TOOL_VERSIONS: Record<string, string> = {
   claude: "2.1.0",
@@ -2004,6 +2006,9 @@ export async function runRun(): Promise<void> {
     // - PI: --continue/-c (latest session), --session <path>
     // - Kimi: --session <session-id>, --continue/-C (latest session)
     let resumeSessionFile: string | null = null;
+    let resumeId: string | null = null;
+    let codexResumeLast = false;
+    let kimiResumeContinue = false;
 
     // Snapshot existing JSONL files BEFORE spawning so the tool's new file is detected
     const projectDir = channel && chatId ? getSessionDir(cmdName) : "";
@@ -2026,9 +2031,6 @@ export async function runRun(): Promise<void> {
       }
 
       // Check for resume session ID in args
-      let resumeId: string | null = null;
-      let codexResumeLast = false;
-      let kimiResumeContinue = false;
       if (cmdName === "codex") {
         const parsed = parseCodexResumeArgs(cmdArgs);
         resumeId = parsed.resumeId;
@@ -2186,6 +2188,16 @@ export async function runRun(): Promise<void> {
     });
 
     const terminal = proc.terminal!;
+
+    // Inject Touchgrass bridge context for new sessions so the agent tool
+    // knows it's being proxied through a terminal bridge.
+    if (!resumeId && !codexResumeLast && !kimiResumeContinue && !requestedResumeSessionRef) {
+      setTimeout(() => {
+        try {
+          terminal.write(Buffer.from("\r\n[touchgrass] This is a terminal bridge. All subsequent messages are proxied from a chat interface. You are interacting with the user through touchgrass.\r\n"));
+        } catch {}
+      }, 1000);
+    }
 
     // Prevent idle sleep on macOS while the tool is running
     let caffeinateProc: { kill(): void } | null = null;
@@ -2486,11 +2498,11 @@ export async function runRun(): Promise<void> {
           logErr: () => {},
         })
       : null;
-    if (remoteId && chatId && ownerUserId && recovery) {
-      const getRecoveryName = (): string | undefined => {
-        return readSessionManifestSync(remoteId)?.name ?? manifest?.name;
-      };
+    const getRecoveryName = (): string | undefined => {
+      return remoteId ? readSessionManifestSync(remoteId)?.name ?? manifest?.name : manifest?.name;
+    };
 
+    if (remoteId && chatId && ownerUserId && recovery) {
       pollTimer = setInterval(async () => {
         if (processingInput || recovery.isRecovering()) return;
         try {
