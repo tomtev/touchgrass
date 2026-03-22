@@ -42,6 +42,7 @@ export const __cliRunTestUtils = {
   validateRunSetupPreflight,
   parseJsonlMessage,
   isVersionBelow,
+  extractApprovalPrompt,
   resetParserState: () => {
     toolUseIdToName.clear();
     toolUseIdToInput.clear();
@@ -50,6 +51,81 @@ export const __cliRunTestUtils = {
     kimiAssistantThinkingBuffer.length = 0;
   },
 };
+
+function extractApprovalPrompt(cmdName: string, ptyBuffer: string): { promptText: string; pollOptions?: string[] } | null {
+  const approvalPattern = APPROVAL_PATTERNS[cmdName];
+  if (!approvalPattern) return null;
+
+  // For Gemini, use specific keywords to avoid matching the menu options themselves
+  // (e.g. "Allow execution" matches the prompt, but not "Allow once" in the menu)
+  const keywords = cmdName === "gemini" 
+    ? ["Allow execution", "Allow tool", "Allow file", "Allow command", "Approve plan"] 
+    : [approvalPattern.promptText];
+  
+  let bestPromptIdx = -1;
+  for (const kw of keywords) {
+    const idx = ptyBuffer.lastIndexOf(kw);
+    if (idx > bestPromptIdx) bestPromptIdx = idx;
+  }
+
+  const promptIdx = bestPromptIdx;
+  // Ensure the menu option (e.g. "1. ") appears AFTER the prompt text
+  const hasOption = promptIdx >= 0 && ptyBuffer.indexOf(approvalPattern.optionText, promptIdx) >= 0;
+
+  if (promptIdx >= 0 && hasOption) {
+    // Extract the prompt sentence: "Do you want to ...?"
+    const afterPrompt = ptyBuffer.slice(promptIdx);
+    const endIdx = afterPrompt.indexOf("?");
+
+    // For Gemini, only trigger if we found the full question ending in "?"
+    if (cmdName === "gemini" && endIdx === -1) return null;
+
+    const promptText = endIdx >= 0 ? afterPrompt.slice(0, endIdx + 1).trim() : approvalPattern.promptText;
+    // Extract poll options from text after the "?": "1. Yes", "2. Yes, allow ...", "3. No"
+    // Search only after the "?" to avoid matching digits in filenames (e.g. "poem-7.md")
+    const optionsText = endIdx >= 0 ? afterPrompt.slice(endIdx + 1) : "";
+    const options: string[] = [];
+    
+    let currentIdx = 1;
+    let currentPos = optionsText.indexOf(`${currentIdx}.`);
+    
+    while (currentPos >= 0) {
+      const nextIdx = currentIdx + 1;
+      const nextPos = optionsText.indexOf(`${nextIdx}.`, currentPos + 2);
+      
+      let optText = "";
+      if (nextPos >= 0) {
+        optText = optionsText.slice(currentPos + String(currentIdx).length + 1, nextPos);
+      } else {
+        optText = optionsText.slice(currentPos + String(currentIdx).length + 1);
+        // Stop at footer text: "Esc to cancel" (Claude) or "Press enter" (Codex)
+        for (const stop of ["Esc", "Press"]) {
+          const stopIdx = optText.indexOf(stop);
+          if (stopIdx > 0) optText = optText.slice(0, stopIdx);
+        }
+      }
+      
+      options.push(optText.trim().replace(/\s+/g, " "));
+      
+      currentIdx = nextIdx;
+      currentPos = nextPos;
+      if (currentIdx > 10) break; // Sanity check: don't loop forever
+    }
+
+    // Strip keyboard shortcut hints like (y), (p), (esc), (shift+tab) from options
+    // and remove TUI box-drawing artifacts like │ or ─
+    for (let i = 0; i < options.length; i++) {
+      options[i] = options[i]
+        .replace(/[│─╭╮╰╯┬┴┤├┼]/g, "")
+        .replace(/\s*\([a-z+\-]+\)\s*$/i, "")
+        .trim()
+        .slice(0, 100);
+    }
+    
+    return { promptText, pollOptions: options.length >= 2 ? options : undefined };
+  }
+  return null;
+}
 
 interface OwnerChannelResolution {
   channelName: string;
@@ -2078,68 +2154,10 @@ export async function runRun(): Promise<void> {
           ptyBuffer += stripAnsiReadable(text);
           if (ptyBuffer.length > 2000) ptyBuffer = ptyBuffer.slice(-1000);
 
-          if (!approvalPattern) return; // No approval detection for this CLI
-
-          // For Gemini, use specific keywords to avoid matching the menu options themselves
-          // (e.g. "Allow execution" matches the prompt, but not "Allow once" in the menu)
-          const keywords = cmdName === "gemini" 
-            ? ["Allow execution", "Allow tool", "Allow file", "Allow command", "Approve plan"] 
-            : [approvalPattern.promptText];
-          
-          let bestPromptIdx = -1;
-          for (const kw of keywords) {
-            const idx = ptyBuffer.lastIndexOf(kw);
-            if (idx > bestPromptIdx) bestPromptIdx = idx;
-          }
-
-          const promptIdx = bestPromptIdx;
-          // Ensure the menu option (e.g. "1. ") appears AFTER the prompt text
-          const hasOption = promptIdx >= 0 && ptyBuffer.indexOf(approvalPattern.optionText, promptIdx) >= 0;
-
-          if (promptIdx >= 0 && hasOption) {
-            // Extract the prompt sentence: "Do you want to ...?"
-            const afterPrompt = ptyBuffer.slice(promptIdx);
-            const endIdx = afterPrompt.indexOf("?");
-
-            // For Gemini, only trigger if we found the full question ending in "?"
-            if (cmdName === "gemini" && endIdx === -1) return;
-
-            const promptText = endIdx >= 0 ? afterPrompt.slice(0, endIdx + 1).trim() : approvalPattern.promptText;
-            // Extract poll options from text after the "?": "1. Yes", "2. Yes, allow ...", "3. No"
-            // Search only after the "?" to avoid matching digits in filenames (e.g. "poem-7.md")
-            const optionsText = endIdx >= 0 ? afterPrompt.slice(endIdx + 1) : "";
-            const options: string[] = [];
-            // Find positions of "1. ", "2. ", "3. " markers
-            const idx1 = optionsText.indexOf("1.");
-            const idx2 = optionsText.indexOf("2.");
-            const idx3 = optionsText.indexOf("3.");
-            if (idx1 >= 0 && idx2 > idx1 && idx3 > idx2) {
-              options.push(optionsText.slice(idx1 + 2, idx2).trim().replace(/\s+/g, " "));
-              options.push(optionsText.slice(idx2 + 2, idx3).trim().replace(/\s+/g, " "));
-              // Stop at footer text: "Esc to cancel" (Claude) or "Press enter" (Codex)
-              let opt3 = optionsText.slice(idx3 + 2);
-              for (const stop of ["Esc", "Press"]) {
-                const stopIdx = opt3.indexOf(stop);
-                if (stopIdx > 0) opt3 = opt3.slice(0, stopIdx);
-              }
-              options.push(opt3.trim().replace(/\s+/g, " "));
-            }
-            // Strip keyboard shortcut hints like (y), (p), (esc), (shift+tab) from options
-            // and remove TUI box-drawing artifacts like │ or ─
-            for (let i = 0; i < options.length; i++) {
-              options[i] = options[i]
-                .replace(/\s*\([a-z+\-]+\)\s*$/i, "")
-                .replace(/[│─╭╮╰╯┬┴┤├┼]/g, "")
-                .trim()
-                .slice(0, 100);
-            }
-            // Only notify if this is a different prompt than the last one we notified about
-            // Delay slightly so the tool notification (from JSONL) arrives in Telegram first
-            if (promptText !== lastNotifiedPrompt) {
-              lastNotifiedPrompt = promptText;
-              const pollOptions = options.length >= 2 ? options : undefined;
-              setTimeout(() => onApprovalPrompt?.(promptText, pollOptions), 1000);
-            }
+          const result = extractApprovalPrompt(cmdName, ptyBuffer);
+          if (result && result.promptText !== lastNotifiedPrompt) {
+            lastNotifiedPrompt = result.promptText;
+            setTimeout(() => onApprovalPrompt?.(result.promptText, result.pollOptions), 1000);
           }
         },
       },
