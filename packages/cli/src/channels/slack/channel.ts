@@ -1,3 +1,4 @@
+// for some reason, the slack channel is missing from the repository. This is a placeholder to prevent errors when trying to use it.
 export class SlackChannel {
   type = "slack";
   fmt = {} as any;
