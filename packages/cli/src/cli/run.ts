@@ -80,7 +80,21 @@ function extractApprovalPrompt(cmdName: string, ptyBuffer: string): { promptText
     // For Gemini, only trigger if we found the full question ending in "?"
     if (cmdName === "gemini" && endIdx === -1) return null;
 
-    const promptText = endIdx >= 0 ? afterPrompt.slice(0, endIdx + 1).trim() : approvalPattern.promptText;
+    let promptText = endIdx >= 0 ? afterPrompt.slice(0, endIdx + 1).trim() : approvalPattern.promptText;
+
+    // For Gemini shell execution, try to prepend the actual command for better context in chat
+    if (cmdName === "gemini" && promptText.startsWith("Allow execution")) {
+      const beforePrompt = ptyBuffer.slice(0, promptIdx).trim();
+      const lines = beforePrompt.split("\n")
+        .map(l => l.replace(/[│─╭╮╰╯┬┴┤├┼]/g, "").trim())
+        .filter(l => l.length > 0 && !l.includes("Action Required") && !l.includes("? Shell"));
+      
+      const contextLine = lines[lines.length - 1];
+      if (contextLine) {
+        promptText = `${contextLine}\n\n${promptText}`;
+      }
+    }
+
     // Extract poll options from text after the "?": "1. Yes", "2. Yes, allow ...", "3. No"
     // Search only after the "?" to avoid matching digits in filenames (e.g. "poem-7.md")
     const optionsText = endIdx >= 0 ? afterPrompt.slice(endIdx + 1) : "";

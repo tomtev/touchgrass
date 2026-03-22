@@ -7,7 +7,8 @@ export function stripAnsi(text: string): string {
 }
 
 // Replace ANSI codes with spaces (preserves word boundaries from TUI cursor positioning)
-// then collapse whitespace. Useful for extracting readable text from TUI output.
+// then collapse horizontal whitespace while preserving newlines. 
+// Useful for extracting readable text from TUI output while maintaining line structure.
 export function stripAnsiReadable(text: string): string {
-  return text.replace(ANSI_RE, " ").replace(/\s+/g, " ");
+  return text.replace(ANSI_RE, " ").replace(/[^\S\r\n]+/g, " ");
 }

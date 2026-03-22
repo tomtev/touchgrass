@@ -4,22 +4,24 @@ import { __cliRunTestUtils } from "../cli/run";
 const { extractApprovalPrompt } = __cliRunTestUtils;
 
 describe("gemini prompt extraction", () => {
-  it("extracts 'Allow execution' prompt and options", () => {
+  it("extracts 'Allow execution' prompt and options with command context", () => {
     const ptyOutput = `
-Action Required
-? Shell docker ps
-Allow execution of: 'docker'?
+╭─── Action Required ──╮
+│ ? Shell git diff     │
+│                      │
+│ git diff             │
+│ Allow execution?     │
+╰──────────────────────╯
 ● 1. Allow once
-  2. Allow for this session
-  3. No, suggest changes (esc)
+  2. No
 `;
     const result = extractApprovalPrompt("gemini", ptyOutput);
     expect(result).not.toBeNull();
-    expect(result?.promptText).toBe("Allow execution of: 'docker'?");
+    // Should skip UI lines and extract just the command
+    expect(result?.promptText).toBe("git diff\n\nAllow execution?");
     expect(result?.pollOptions).toEqual([
       "Allow once",
-      "Allow for this session",
-      "No, suggest changes"
+      "No"
     ]);
   });
 
