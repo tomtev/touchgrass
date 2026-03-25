@@ -4,7 +4,13 @@ import { paths } from "../config/paths";
 
 const HOOK_SCRIPT_NAME = "claude-hooks.sh";
 const HOOK_SCRIPT_PATH = join(paths.hooksDir, HOOK_SCRIPT_NAME);
-const CLAUDE_SETTINGS_PATH = join(homedir(), ".claude", "settings.json");
+
+function getClaudeDir(): string {
+  return process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
+}
+
+
+const CLAUDE_SETTINGS_PATH = join(getClaudeDir(), "settings.json");
 // Superset wrapper overrides settings via --settings flag; check for its config too
 const SUPERSET_SETTINGS_PATH = join(homedir(), ".superset", "hooks", "claude-settings.json");
 
@@ -66,7 +72,7 @@ export async function installClaudeHooks(): Promise<{ scriptInstalled: boolean; 
     if (needsWrite) {
       settings.hooks = hooks;
       // Ensure ~/.claude/ directory exists
-      await mkdir(join(homedir(), ".claude"), { recursive: true }).catch(() => {});
+      await mkdir(getClaudeDir(), { recursive: true }).catch(() => {});
       await writeFile(CLAUDE_SETTINGS_PATH, JSON.stringify(settings, null, 2) + "\n", "utf-8");
       settingsUpdated = true;
     }

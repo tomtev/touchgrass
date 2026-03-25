@@ -157,6 +157,10 @@ function userHomeDir(): string {
   return process.env.HOME || homedir();
 }
 
+function claudeConfigDir(): string {
+  return process.env.CLAUDE_CONFIG_DIR || join(userHomeDir(), ".claude");
+}
+
 function parseCodexSessionId(filePath: string): string {
   const base = stripJsonl(basename(filePath));
   const uuid = base.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i);
@@ -289,7 +293,7 @@ export function listRecentSessions(tool: ResumeTool, cwd: string): ResumeSession
   if (!cleanCwd) return [];
 
   if (tool === "claude") {
-    const dir = join(userHomeDir(), ".claude", "projects", encodedClaudeDir(cleanCwd));
+    const dir = join(claudeConfigDir(), "projects", encodedClaudeDir(cleanCwd));
     return toResumeCandidates(tool, listJsonlFiles(dir));
   }
 
