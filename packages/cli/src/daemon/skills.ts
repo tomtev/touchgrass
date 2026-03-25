@@ -59,13 +59,14 @@ async function scanSkillDir(dir: string, scope: "project" | "personal"): Promise
  * Discover SKILL.md files from:
  * 1. <cwd>/.agents/skills/
  * 2. <cwd>/.claude/skills/
- * 3. ~/.claude/skills/ (personal/global)
+ * 3. $CLAUDE_CONFIG_DIR/skills/ or ~/.claude/skills/ (personal/global)
  */
 export async function listSkills(cwd: string): Promise<SkillInfo[]> {
+  const claudeDir = process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
   const results = await Promise.all([
     scanSkillDir(join(cwd, ".agents", "skills"), "project"),
     scanSkillDir(join(cwd, ".claude", "skills"), "project"),
-    scanSkillDir(join(homedir(), ".claude", "skills"), "personal"),
+    scanSkillDir(join(claudeDir, "skills"), "personal"),
   ]);
   // Deduplicate by id (project skills take precedence)
   const seen = new Set<string>();

@@ -319,9 +319,10 @@ function getSessionDir(command: string): string {
     const encoded = createHash("md5").update(cwd).digest("hex");
     return join(homedir(), ".kimi", "sessions", encoded);
   }
-  // Claude: ~/.claude/projects/<encoded-cwd>/
+  // Claude: $CLAUDE_CONFIG_DIR/projects/<encoded-cwd>/ or ~/.claude/projects/<encoded-cwd>/
   const encoded = cwd.replace(/\//g, "-");
-  return join(homedir(), ".claude", "projects", encoded);
+  const claudeDir = process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
+  return join(claudeDir, "projects", encoded);
 }
 
 function readSessionIdsFromJsonl(filePath: string, maxLines = 80): Set<string> {
