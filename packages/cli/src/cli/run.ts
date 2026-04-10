@@ -9,7 +9,7 @@ import { stripAnsiReadable } from "../utils/ansi";
 import { paths, ensureDirs } from "../config/paths";
 import { getChannelName, getChannelType } from "../channel/id";
 import { watch, readdirSync, statSync, readFileSync, type FSWatcher } from "fs";
-import { open } from "fs/promises";
+import { open, writeFile, rm } from "fs/promises";
 import { homedir, platform } from "os";
 import { join, basename } from "path";
 import { createHash } from "crypto";
@@ -33,6 +33,14 @@ const APPROVAL_PATTERNS: Record<string, { promptText: string; optionText: string
   // kimi: { promptText: "...", optionText: "..." },
 };
 
+const INITIAL_PROMPT_PATTERNS: Record<string, string[]> = {
+  gemini: ["> "],
+  pi: ["? "],
+  kimi: ["? "],
+};
+
+const BRIDGE_PROMPT_TEXT = "[touchgrass] This is a terminal bridge. All subsequent messages are proxied from a chat interface. You are interacting with the user through touchgrass.";
+
 // Test-only accessors for CLI arg parsing behavior.
 export const __cliRunTestUtils = {
   encodeBracketedPaste,
@@ -43,6 +51,11 @@ export const __cliRunTestUtils = {
   parseJsonlMessage,
   isVersionBelow,
   extractApprovalPrompt,
+  shouldInjectBridgePrompt: (cmdName: string, cleanText: string, ptyBuffer: string): boolean => {
+    const patterns = INITIAL_PROMPT_PATTERNS[cmdName] || ["> ", "? "];
+    return patterns.some(p => cleanText.includes(p) || ptyBuffer.endsWith(p));
+  },
+  getBridgePromptText: () => BRIDGE_PROMPT_TEXT,
   resetParserState: () => {
     toolUseIdToName.clear();
     toolUseIdToInput.clear();
@@ -342,6 +355,8 @@ const SUPPORTED_COMMANDS: Record<string, string[]> = {
   kimi: ["kimi"],
   gemini: ["gemini"],
 };
+
+type SupportedCommand = keyof typeof SUPPORTED_COMMANDS;
 
 // Minimum supported tool versions. Below these, touchgrass may not work correctly.
 const MIN_TOOL_VERSIONS: Record<string, string> = {
@@ -2004,6 +2019,9 @@ export async function runRun(): Promise<void> {
     // - PI: --continue/-c (latest session), --session <path>
     // - Kimi: --session <session-id>, --continue/-C (latest session)
     let resumeSessionFile: string | null = null;
+    let resumeId: string | null = null;
+    let codexResumeLast = false;
+    let kimiResumeContinue = false;
 
     // Snapshot existing JSONL files BEFORE spawning so the tool's new file is detected
     const projectDir = channel && chatId ? getSessionDir(cmdName) : "";
@@ -2026,9 +2044,6 @@ export async function runRun(): Promise<void> {
       }
 
       // Check for resume session ID in args
-      let resumeId: string | null = null;
-      let codexResumeLast = false;
-      let kimiResumeContinue = false;
       if (cmdName === "codex") {
         const parsed = parseCodexResumeArgs(cmdArgs);
         resumeId = parsed.resumeId;
@@ -2156,6 +2171,26 @@ export async function runRun(): Promise<void> {
     let requestedResumeSessionRef: string | null = null;
     let stayAliveAfterKill = false;
     let forceKillTimer: ReturnType<typeof setTimeout> | null = null;
+
+    let bridgePromptFile: string | null = null;
+    let bridgePromptWritten = false;
+    let shouldInjectBridgePrompt = false;
+
+    // Use --append-system-prompt for tools that support it (Claude, Codex)
+    if (!resumeId && !codexResumeLast && !kimiResumeContinue && !requestedResumeSessionRef) {
+      if (cmdName === "claude" || cmdName === "codex") {
+        try {
+          bridgePromptFile = join(paths.dir, `bridge-prompt-${remoteId || Math.random().toString(36).slice(2)}.md`);
+          await writeFile(bridgePromptFile, BRIDGE_PROMPT_TEXT);
+          cmdArgs.push("--append-system-prompt", bridgePromptFile);
+          bridgePromptWritten = true;
+        } catch {}
+      } else {
+        // Mark for terminal.write fallback based on pattern detection
+        shouldInjectBridgePrompt = true;
+      }
+    }
+
     const proc = Bun.spawn([executable, ...cmdArgs], {
       terminal: {
         cols: process.stdout.columns || 80,
@@ -2165,8 +2200,22 @@ export async function runRun(): Promise<void> {
           // Buffer last ~1000 chars of PTY output for prompt detection
           // Uses stripAnsiReadable to replace ANSI codes with spaces (preserves word boundaries)
           const text = Buffer.from(data).toString("utf-8");
-          ptyBuffer += stripAnsiReadable(text);
+          const cleanText = stripAnsiReadable(text);
+          ptyBuffer += cleanText;
           if (ptyBuffer.length > 2000) ptyBuffer = ptyBuffer.slice(-1000);
+
+          // terminal.write fallback injection after detecting initial prompt
+          if (shouldInjectBridgePrompt && !bridgePromptWritten) {
+            const patterns = INITIAL_PROMPT_PATTERNS[cmdName] || ["> ", "? "];
+            if (patterns.some(p => cleanText.includes(p) || ptyBuffer.endsWith(p))) {
+              bridgePromptWritten = true;
+              setTimeout(() => {
+                try {
+                  _terminal.write(Buffer.from(`\r\n${BRIDGE_PROMPT_TEXT}\r\n`));
+                } catch {}
+              }, 500);
+            }
+          }
 
           const result = extractApprovalPrompt(cmdName, ptyBuffer);
           if (result && result.promptText !== lastNotifiedPrompt) {
@@ -2486,11 +2535,11 @@ export async function runRun(): Promise<void> {
           logErr: () => {},
         })
       : null;
-    if (remoteId && chatId && ownerUserId && recovery) {
-      const getRecoveryName = (): string | undefined => {
-        return readSessionManifestSync(remoteId)?.name ?? manifest?.name;
-      };
+    const getRecoveryName = (): string | undefined => {
+      return remoteId ? readSessionManifestSync(remoteId)?.name ?? manifest?.name : manifest?.name;
+    };
 
+    if (remoteId && chatId && ownerUserId && recovery) {
       pollTimer = setInterval(async () => {
         if (processingInput || recovery.isRecovering()) return;
         try {
@@ -2643,6 +2692,11 @@ export async function runRun(): Promise<void> {
     if (forceKillTimer) clearTimeout(forceKillTimer);
     if (watcherRef.current) watcherRef.current.close();
     if (watcherRef.dir) watcherRef.dir.close();
+    if (bridgePromptFile) {
+      try {
+        await rm(bridgePromptFile).catch(() => {});
+      } catch {}
+    }
 
     if (requestedResumeSessionRef) {
       cmdArgs = buildResumeCommandArgs(cmdName as "claude" | "codex" | "pi" | "kimi" | "gemini", cmdArgs, requestedResumeSessionRef);

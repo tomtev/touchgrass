@@ -31,6 +31,19 @@ export async function handleStdinInput(
   const { fmt } = ctx.channel;
   if (!text) return;
 
+  // 0. Kill switch: /q or "stop" (case-insensitive)
+  const lowerText = text.toLowerCase();
+  if (lowerText === "/q" || lowerText === "stop") {
+    const remote = ctx.sessionManager.getAttachedRemote(chatId) 
+      || (ctx.sessionManager.listRemotesForUser(userId).length === 1 && !msg.isGroup ? ctx.sessionManager.listRemotesForUser(userId)[0] : null);
+    
+    if (remote && remote.ownerUserId === userId) {
+      ctx.sessionManager.requestRemoteStop(remote.id);
+      await ctx.channel.send(chatId, `${fmt.escape("⛳️ Interruption sent to session")} ${fmt.code(remote.id)}`);
+      return;
+    }
+  }
+
   // Helper: when routing input from a group, subscribe the group to session output
   const maybeSubscribeGroup = (sessionId: string) => {
     if (msg.isGroup) {
