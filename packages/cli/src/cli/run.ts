@@ -51,6 +51,11 @@ export const __cliRunTestUtils = {
   parseJsonlMessage,
   isVersionBelow,
   extractApprovalPrompt,
+  shouldInjectBridgePrompt: (cmdName: string, cleanText: string, ptyBuffer: string): boolean => {
+    const patterns = INITIAL_PROMPT_PATTERNS[cmdName] || ["> ", "? "];
+    return patterns.some(p => cleanText.includes(p) || ptyBuffer.endsWith(p));
+  },
+  getBridgePromptText: () => BRIDGE_PROMPT_TEXT,
   resetParserState: () => {
     toolUseIdToName.clear();
     toolUseIdToInput.clear();
